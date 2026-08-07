@@ -151,7 +151,7 @@ export function UserFormModal({ open, onOpenChange, user, roles = [], onSuccess 
           {!isEdit && (
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700">Assign Role (Optional)</label>
-              <Select value={selectedRoleId} onValueChange={(val) => setValue('role_id', val, { shouldValidate: true })}>
+              <Select value={selectedRoleId} onValueChange={(val) => setValue('role_id', val || undefined, { shouldValidate: true })}>
                 <SelectTrigger className={errors.role_id ? 'border-red-500' : ''}>
                   <SelectValue placeholder="Choose a role..." />
                 </SelectTrigger>

@@ -35,29 +35,20 @@ export default function LoginPage() {
       
       const { user, token } = res.data || res; // Handle if nested inside data
       const accessToken = token || res.accessToken;
-      const roles = res.data?.roles || res.roles;
-
-      // Ensure roles is an array
-      const userRoles = roles || (user?.role ? [{ id: 'role1', name: user.role }] : []);
-
-      // If user has multiple roles, show modal
-      if (userRoles.length > 1) {
-        setAuthData(user, accessToken, []); // Modal will set actual perms
-        setRolesToSelect(userRoles);
-      } else if (userRoles.length === 1) {
-        // Single role, resolve automatically
-        const roleName = userRoles[0].name;
-        const perms = (roleName === 'Super Admin' || roleName === 'admin' || roleName === 'super_admin') ? ['ALL:ALL'] : ['listings:read', 'locations:read'];
-        
-        setAuthData(user, accessToken, perms);
-        useAuthStore.getState().setActiveRole(roleName);
-        router.push('/');
-      } else {
-        // Fallback for no explicit roles
-        setAuthData(user, accessToken, []);
-        useAuthStore.getState().setActiveRole('User');
-        router.push('/');
+      // The backend now provides user.permissions array directly!
+      const perms = user?.permissions || [];
+      
+      // Determine primary role for display (take first from array, or use single string, or default)
+      let primaryRole = 'User';
+      if (Array.isArray(user?.roles) && user.roles.length > 0) {
+        primaryRole = user.roles[0];
+      } else if (user?.role) {
+        primaryRole = user.role;
       }
+
+      setAuthData(user, accessToken, perms);
+      useAuthStore.getState().setActiveRole(primaryRole);
+      router.push('/');
 
     } catch (err: any) {
       setError(err.response?.data?.message || 'Invalid credentials. Please try again.');

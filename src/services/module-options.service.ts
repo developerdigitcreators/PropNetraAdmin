@@ -1,8 +1,8 @@
 import { axiosClient } from '@/lib/axios-client';
 
 export const moduleOptionsService = {
-  getOptionsForModule: async (moduleId: string) => {
-    const response = await axiosClient.get(`/admin/module-options/module/${moduleId}`);
+  getOptionsForField: async (fieldId: string) => {
+    const response = await axiosClient.get(`/admin/module-options/field/${fieldId}`);
     return response.data;
   },
 

@@ -31,7 +31,7 @@ export default function UsersPage() {
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
-      const data = await adminUsersService.getUsers('admin_panel');
+      const data = await adminUsersService.getUsers('app');
       // the api returns { success, data } which is unwrapped by interceptor to array
       setUsers(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -43,7 +43,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     fetchUsers();
-    rbacService.getRoles('admin_panel').then((data) => setRoles(Array.isArray(data) ? data : [])).catch(console.error);
+    rbacService.getRoles('app').then((data) => setRoles(Array.isArray(data) ? data : [])).catch(console.error);
   }, []);
 
   const handleCreateNew = () => {
@@ -67,12 +67,12 @@ export default function UsersPage() {
   };
 
   return (
-    <PermissionGuard permission="users:read" fallback={<div className="p-12 text-center text-gray-500">You do not have permission to view users.</div>}>
+    <PermissionGuard permission="users:read" fallback={<div className="p-12 text-center text-gray-500">You do not have permission to view app users.</div>}>
       <div className="space-y-6 pb-12">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Staff Users</h1>
-          <p className="text-gray-500 mt-1">Manage staff users and their assigned roles.</p>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900">App Users</h1>
+          <p className="text-gray-500 mt-1">Manage external app users (Agents, Builders, etc) and their roles.</p>
         </div>
         <Button onClick={handleCreateNew} className="bg-primary text-white hover:bg-primary/90">
           <Plus className="w-4 h-4 mr-2" /> Add User

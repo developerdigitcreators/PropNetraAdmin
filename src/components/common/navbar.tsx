@@ -20,7 +20,7 @@ export function Navbar() {
     <header className="h-16 bg-white border-b border-gray-200 px-6 flex items-center justify-between sticky top-0 z-10">
       <div className="flex items-center space-x-4">
         {activeRole && (
-          <span className="bg-primary/10 text-primary px-3 py-1 rounded-full text-xs font-semibold tracking-wide uppercase">
+          <span className="bg-primary-light text-primary px-3 py-1 rounded-full text-xs font-semibold tracking-wide uppercase">
             {activeRole} Workspace
           </span>
         )}

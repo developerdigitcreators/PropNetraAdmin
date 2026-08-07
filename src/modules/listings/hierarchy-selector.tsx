@@ -23,16 +23,20 @@ export function HierarchySelector() {
   const availableBuildingTypes = buildingTypes.filter(bt => bt.category_id === categoryId);
   const availablePropertyTypes = propertyTypes.filter(pt => pt.building_type_id === buildingTypeId);
 
-  const handleCategoryChange = (val: string) => {
-    setHierarchy(val, null, null);
+  const selectedCategoryName = categories.find(c => c.id === categoryId)?.name;
+  const selectedBuildingTypeName = buildingTypes.find(bt => bt.id === buildingTypeId)?.name;
+  const selectedPropertyTypeName = propertyTypes.find(pt => pt.id === propertyTypeId)?.name;
+
+  const handleCategoryChange = (val: string | null) => {
+    if (val) setHierarchy(val, null, null);
   };
 
-  const handleBuildingTypeChange = (val: string) => {
-    setHierarchy(categoryId, val, null);
+  const handleBuildingTypeChange = (val: string | null) => {
+    if (val) setHierarchy(categoryId, val, null);
   };
 
-  const handlePropertyTypeChange = (val: string) => {
-    setHierarchy(categoryId, buildingTypeId, val);
+  const handlePropertyTypeChange = (val: string | null) => {
+    if (val) setHierarchy(categoryId, buildingTypeId, val);
   };
 
   return (
@@ -41,7 +45,7 @@ export function HierarchySelector() {
         <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
         <Select value={categoryId || ''} onValueChange={handleCategoryChange}>
           <SelectTrigger className="w-full h-11 bg-gray-50 border-gray-200">
-            <SelectValue placeholder="Select Category" />
+            {selectedCategoryName ? <span>{selectedCategoryName}</span> : <SelectValue placeholder="Select Category" />}
           </SelectTrigger>
           <SelectContent>
             {categories.map(c => (
@@ -53,10 +57,10 @@ export function HierarchySelector() {
       </div>
 
       <div className="w-full md:w-1/3">
-        <label className="block text-sm font-medium text-gray-700 mb-1">Building Type (Optional)</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Building Type</label>
         <Select value={buildingTypeId || ''} onValueChange={handleBuildingTypeChange} disabled={!categoryId}>
           <SelectTrigger className="w-full h-11 bg-gray-50 border-gray-200 disabled:opacity-50">
-            <SelectValue placeholder="Select Building Type" />
+            {selectedBuildingTypeName ? <span>{selectedBuildingTypeName}</span> : <SelectValue placeholder="Select Building Type" />}
           </SelectTrigger>
           <SelectContent>
             {availableBuildingTypes.map(bt => (
@@ -67,10 +71,10 @@ export function HierarchySelector() {
       </div>
 
       <div className="w-full md:w-1/3">
-        <label className="block text-sm font-medium text-gray-700 mb-1">Property Type (Optional)</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Property Type</label>
         <Select value={propertyTypeId || ''} onValueChange={handlePropertyTypeChange} disabled={!buildingTypeId}>
           <SelectTrigger className="w-full h-11 bg-gray-50 border-gray-200 disabled:opacity-50">
-            <SelectValue placeholder="Select Property Type" />
+            {selectedPropertyTypeName ? <span>{selectedPropertyTypeName}</span> : <SelectValue placeholder="Select Property Type" />}
           </SelectTrigger>
           <SelectContent>
             {availablePropertyTypes.map(pt => (

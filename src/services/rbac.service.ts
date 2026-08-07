@@ -1,28 +1,48 @@
-import { axiosClient } from '@/lib/axios-client';
+import { axiosClient } from "@/lib/axios-client";
 
 export const rbacService = {
-  getRoles: async () => {
-    const response = await axiosClient.get('/rbac/roles');
+  getRoles: async (audience?: "admin_panel" | "app") => {
+    const params = audience ? { audience } : {};
+    const response = await axiosClient.get("/admin/rbac/roles", { params });
+    return response.data;
+  },
+
+  getPermissionScopes: async () => {
+    const response = await axiosClient.get("/admin/rbac/permissions/scopes");
     return response.data;
   },
 
   createRole: async (data: any) => {
-    const response = await axiosClient.post('/rbac/roles', data);
+    const response = await axiosClient.post("/admin/rbac/roles", data);
+    return response.data;
+  },
+
+  updateRole: async (id: string, data: any) => {
+    const response = await axiosClient.put(`/admin/rbac/roles/${id}`, data);
+    return response.data;
+  },
+
+  deleteRole: async (id: string) => {
+    const response = await axiosClient.delete(`/admin/rbac/roles/${id}`);
     return response.data;
   },
 
   getUserRoles: async (userId: string) => {
-    const response = await axiosClient.get(`/rbac/users/${userId}/roles`);
+    const response = await axiosClient.get(`/admin/rbac/users/${userId}/roles`);
     return response.data;
   },
 
   assignRole: async (userId: string, roleId: string) => {
-    const response = await axiosClient.post(`/rbac/users/${userId}/roles/${roleId}`);
+    const response = await axiosClient.post(
+      `/admin/rbac/users/${userId}/roles/${roleId}`,
+    );
     return response.data;
   },
 
   revokeRole: async (userId: string, roleId: string) => {
-    const response = await axiosClient.delete(`/rbac/users/${userId}/roles/${roleId}`);
+    const response = await axiosClient.delete(
+      `/admin/rbac/users/${userId}/roles/${roleId}`,
+    );
     return response.data;
   },
 };

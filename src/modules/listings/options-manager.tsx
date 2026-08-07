@@ -78,7 +78,7 @@ export function OptionsManager() {
     <div className="space-y-6">
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-2">Select a Form Module to configure options</label>
-        <Select value={selectedModuleId} onValueChange={setSelectedModuleId}>
+        <Select value={selectedModuleId} onValueChange={(val) => { if (val) setSelectedModuleId(val) }}>
           <SelectTrigger className="w-full md:w-1/2 h-11 bg-gray-50 border-gray-200">
             <SelectValue placeholder="Choose module (e.g. Amenities)" />
           </SelectTrigger>

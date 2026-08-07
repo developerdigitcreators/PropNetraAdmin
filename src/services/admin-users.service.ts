@@ -1,8 +1,9 @@
 import { axiosClient } from '@/lib/axios-client';
 
 export const adminUsersService = {
-  getUsers: async () => {
-    const response = await axiosClient.get('/admin/users');
+  getUsers: async (audience?: 'admin_panel' | 'app') => {
+    const params = audience ? { audience } : {};
+    const response = await axiosClient.get('/admin/users', { params });
     return response.data;
   },
 

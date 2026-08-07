@@ -1,28 +1,41 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
-
-const MODULES = [
-  { id: 'dashboard', name: 'Dashboard' },
-  { id: 'listings', name: 'Property Listings' },
-  { id: 'users', name: 'User Management' },
-  { id: 'locations', name: 'Location Moderation' },
-  { id: 'rbac', name: 'Role & Permissions' },
-];
-
-const ACTIONS = [
-  { id: 'read', label: 'Read' },
-  { id: 'create', label: 'Create' },
-  { id: 'update', label: 'Update' },
-  { id: 'delete', label: 'Delete' },
-];
+import { rbacService } from '@/services/rbac.service';
+import { Loader2 } from 'lucide-react';
 
 interface PermissionMatrixProps {
   selectedPermissions: string[];
   onChange: (permissions: string[]) => void;
 }
 
+interface PermissionScope {
+  module_name: string;
+  actions: string[];
+}
+
 export function PermissionMatrix({ selectedPermissions, onChange }: PermissionMatrixProps) {
+  const [scopes, setScopes] = useState<PermissionScope[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchScopes = async () => {
+      try {
+        const data = await rbacService.getPermissionScopes();
+        setScopes(Array.isArray(data) ? data : []);
+      } catch (error) {
+        console.error('Failed to fetch permission scopes', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchScopes();
+  }, []);
+
+  // Collect all unique actions across all modules for the table headers
+  const allActions = Array.from(new Set(scopes.flatMap(s => s.actions))).sort();
+
   const togglePermission = (module: string, action: string) => {
     const permission = `${module}:${action}`;
     if (selectedPermissions.includes(permission)) {
@@ -32,36 +45,65 @@ export function PermissionMatrix({ selectedPermissions, onChange }: PermissionMa
     }
   };
 
+  const formatModuleName = (name: string) => {
+    return name.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  };
+
+  const formatActionName = (name: string) => {
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="border border-gray-200 rounded-lg p-12 flex justify-center items-center">
+        <Loader2 className="w-6 h-6 text-primary animate-spin" />
+      </div>
+    );
+  }
+
+  if (scopes.length === 0) {
+    return (
+      <div className="border border-gray-200 rounded-lg p-12 text-center text-gray-500">
+        No permission scopes found.
+      </div>
+    );
+  }
+
   return (
     <div className="border border-gray-200 rounded-lg overflow-hidden">
       <table className="w-full text-sm text-left">
         <thead className="bg-gray-50 border-b border-gray-200">
           <tr>
             <th className="px-6 py-4 font-semibold text-gray-700">Module Name</th>
-            {ACTIONS.map((action) => (
-              <th key={action.id} className="px-6 py-4 font-semibold text-gray-700 text-center">
-                {action.label}
+            {allActions.map((action) => (
+              <th key={action} className="px-6 py-4 font-semibold text-gray-700 text-center">
+                {formatActionName(action)}
               </th>
             ))}
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
-          {MODULES.map((module) => (
-            <tr key={module.id} className="hover:bg-gray-50/50 transition-colors">
-              <td className="px-6 py-4 font-medium text-gray-900">{module.name}</td>
-              {ACTIONS.map((action) => {
-                const permission = `${module.id}:${action.id}`;
+          {scopes.map((scope) => (
+            <tr key={scope.module_name} className="hover:bg-gray-50/50 transition-colors">
+              <td className="px-6 py-4 font-medium text-gray-900">{formatModuleName(scope.module_name)}</td>
+              {allActions.map((action) => {
+                const isApplicable = scope.actions.includes(action);
+                const permission = `${scope.module_name}:${action}`;
                 const isChecked = selectedPermissions.includes(permission);
                 
                 return (
-                  <td key={action.id} className="px-6 py-4 text-center">
-                    <div className="flex justify-center">
-                      <Checkbox
-                        checked={isChecked}
-                        onCheckedChange={() => togglePermission(module.id, action.id)}
-                        className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                      />
-                    </div>
+                  <td key={action} className="px-6 py-4 text-center">
+                    {isApplicable ? (
+                      <div className="flex justify-center">
+                        <Checkbox
+                          checked={isChecked}
+                          onCheckedChange={() => togglePermission(scope.module_name, action)}
+                          className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                        />
+                      </div>
+                    ) : (
+                      <span className="text-gray-300">-</span>
+                    )}
                   </td>
                 );
               })}

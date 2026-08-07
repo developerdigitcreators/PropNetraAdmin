@@ -8,18 +8,18 @@ import { Input } from '@/components/ui/input';
 import { Loader2 } from 'lucide-react';
 
 export function ConfigMatrix() {
-  const { categoryId, configs, unsavedChanges, updateConfig, isFetching } = useMatrixStore();
+  const { categoryId, buildingTypeId, propertyTypeId, configs, unsavedChanges, updateConfig, isFetching } = useMatrixStore();
   const [formModules, setFormModules] = useState<any[]>([]);
 
   useEffect(() => {
     listingConfigService.getFormModules().then(setFormModules).catch(console.error);
   }, []);
 
-  if (!categoryId) {
+  if (!categoryId || !buildingTypeId || !propertyTypeId) {
     return (
       <div className="bg-gray-50 border border-dashed border-gray-300 rounded-2xl p-12 text-center">
-        <h3 className="text-lg font-medium text-gray-900 mb-2">No Hierarchy Selected</h3>
-        <p className="text-sm text-gray-500">Please select a Category from the dropdown above to view and edit its form module configurations.</p>
+        <h3 className="text-lg font-medium text-gray-900 mb-2">Complete Selection Required</h3>
+        <p className="text-sm text-gray-500">Please select a Category, Building Type, and Property Type to view and edit configurations.</p>
       </div>
     );
   }
@@ -33,11 +33,11 @@ export function ConfigMatrix() {
   }
 
   // Merge server configs with unsaved changes for display
-  const getDisplayConfig = (moduleId: string) => {
-    const serverConfig = configs.find(c => c.module_id === moduleId) || {};
-    const unsaved = unsavedChanges[moduleId] || {};
+  const getDisplayConfig = (mod: any) => {
+    const serverConfig = configs.find(c => c.module_id === mod.id) || {};
+    const unsaved = unsavedChanges[mod.id] || {};
     return {
-      is_visible: serverConfig.is_visible ?? true,
+      is_visible: serverConfig.is_visible ?? mod.is_common,
       is_mandatory: serverConfig.is_mandatory ?? false,
       is_suggestable: serverConfig.is_suggestable ?? false,
       suggestable_message: serverConfig.suggestable_message ?? '',
@@ -68,7 +68,7 @@ export function ConfigMatrix() {
               </tr>
             ) : (
               formModules.map((mod) => {
-                const conf = getDisplayConfig(mod.id);
+                const conf = getDisplayConfig(mod);
                 return (
                   <tr key={mod.id} className="hover:bg-gray-50/50 transition-colors group">
                     <td className="px-6 py-4">

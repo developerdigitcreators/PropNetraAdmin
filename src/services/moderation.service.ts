@@ -31,5 +31,21 @@ export const moderationService = {
   rejectPropertyName: async (id: string) => {
     const response = await axiosClient.delete(`/admin/property-names/${id}/reject`);
     return response.data;
+  },
+
+  // Custom Options
+  getPendingOptions: async () => {
+    const response = await axiosClient.get('/admin/module-options/pending');
+    return response.data;
+  },
+
+  approveOption: async (id: string) => {
+    const response = await axiosClient.post(`/admin/module-options/${id}/approve`);
+    return response.data;
+  },
+
+  rejectOption: async (id: string) => {
+    const response = await axiosClient.delete(`/admin/module-options/${id}/reject`);
+    return response.data;
   }
 };

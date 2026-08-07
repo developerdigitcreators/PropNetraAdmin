@@ -2,15 +2,19 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Users, Shield, MapPin, Settings } from 'lucide-react';
+import { LayoutDashboard, Users, Shield, MapPin, Settings, Building2 } from 'lucide-react';
 import { PermissionGuard } from '@/components/common/permission-guard';
 
 const MENU_ITEMS = [
   { name: 'Dashboard', path: '/', icon: LayoutDashboard, permission: 'dashboard:read' },
-  { name: 'Listings Config', path: '/listings/config', icon: Settings, permission: 'listings:config' },
-  { name: 'Locations Moderation', path: '/locations/pending', icon: MapPin, permission: 'locations:moderate' },
-  { name: 'RBAC Roles', path: '/rbac/roles', icon: Shield, permission: 'rbac:manage' },
-  { name: 'Sub-Admins', path: '/rbac/users', icon: Users, permission: 'rbac:manage' },
+  { name: 'Listing Attributes', path: '/listings/attributes', icon: MapPin, permission: 'listing_categories:read' },
+  { name: 'Form Modules', path: '/listings/form-modules', icon: Settings, permission: 'form_modules:read' },
+  { name: 'Listings Config', path: '/listings/config', icon: Settings, permission: 'listings:read' },
+  { name: 'Moderation Queue', path: '/moderation', icon: MapPin, permission: 'locations:read' },
+  { name: 'Location Management', path: '/locations', icon: Building2, permission: 'locations:read' },
+  { name: 'RBAC Roles', path: '/rbac/roles', icon: Shield, permission: 'rbac:read' },
+  { name: 'Staff Users', path: '/rbac/users', icon: Users, permission: 'users:read' },
+  { name: 'App Users', path: '/rbac/app-users', icon: Users, permission: 'users:read' },
 ];
 
 export function Sidebar() {
@@ -33,7 +37,7 @@ export function Sidebar() {
                 href={item.path}
                 className={`flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive 
-                    ? 'bg-primary/10 text-primary' 
+                    ? 'bg-primary-light text-primary' 
                     : 'text-gray-700 hover:bg-gray-100'
                 }`}
               >

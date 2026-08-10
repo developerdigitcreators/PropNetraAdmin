@@ -1,4 +1,42 @@
 import { axiosClient } from '@/lib/axios-client';
+import * as XLSX from 'xlsx';
+
+const LOCATION_IMPORT_HEADERS = ['State', 'City', 'Micro Market', 'Location', 'Property Name'] as const;
+
+const LOCATION_IMPORT_SAMPLE_ROWS: string[][] = [
+  ['Haryana', 'Gurugram', 'Golf Course Road', 'Sector 54', 'DLF The Camellias'],
+  ['Haryana', 'Gurugram', 'Golf Course Extension', 'Sector 65', 'M3M Latitude'],
+  ['Maharashtra', 'Mumbai', 'Bandra West', 'Pali Hill', ''],
+];
+
+function buildLocationImportTemplateBlob(): Blob {
+  const sheetData = [LOCATION_IMPORT_HEADERS as unknown as string[], ...LOCATION_IMPORT_SAMPLE_ROWS];
+  const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+  worksheet['!cols'] = [
+    { wch: 16 },
+    { wch: 14 },
+    { wch: 24 },
+    { wch: 14 },
+    { wch: 22 },
+  ];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Locations');
+  const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  return new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+}
+
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 export const locationService = {
   // =====================
@@ -6,6 +44,18 @@ export const locationService = {
   // =====================
   getStates: async () => {
     const response = await axiosClient.get('/admin/states');
+    return response.data;
+  },
+  createState: async (payload: { name: string; is_active?: boolean }) => {
+    const response = await axiosClient.post('/admin/states', payload);
+    return response.data;
+  },
+  updateState: async (id: string, payload: { name?: string; is_active?: boolean }) => {
+    const response = await axiosClient.put(`/admin/states/${id}`, payload);
+    return response.data;
+  },
+  deleteState: async (id: string) => {
+    const response = await axiosClient.delete(`/admin/states/${id}`);
     return response.data;
   },
 
@@ -140,4 +190,37 @@ export const locationService = {
     const response = await axiosClient.get(`/property-names/${id}/details`);
     return response.data;
   },
+
+  // =====================
+  // EXCEL IMPORT
+  // =====================
+  importExcel: async (file: File): Promise<LocationImportResult> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await axiosClient.post('/admin/locations/import-excel', formData, {
+      headers: { 'Content-Type': undefined },
+    });
+    return response.data;
+  },
+
+  downloadImportTemplate: (): void => {
+    // Generate a real .xlsx in the browser so Excel always opens a valid file
+    // (API template responses are often JSON/error blobs saved as .xlsx).
+    const blob = buildLocationImportTemplateBlob();
+    triggerBlobDownload(blob, 'locations-import-template.xlsx');
+  },
+};
+
+export type LocationImportResult = {
+  totalRows: number;
+  processed: number;
+  created: {
+    states: number;
+    cities: number;
+    microMarkets: number;
+    locations: number;
+    propertyNames: number;
+  };
+  skipped: number;
+  errors: { row: number; message: string }[];
 };

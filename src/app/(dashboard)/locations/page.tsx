@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
-import { locationService } from '@/services/location.service';
+import { locationService, type LocationImportResult } from '@/services/location.service';
 import { listingConfigService } from '@/services/listing-config.service';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Plus, Edit2, Trash2, AlertTriangle, Search, MapPin, Building2, Navigation, Home } from 'lucide-react';
+import { Loader2, Plus, Edit2, Trash2, AlertTriangle, Search, MapPin, Building2, Navigation, Home, Upload, Download, FileSpreadsheet, X } from 'lucide-react';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 
 // -------------------------------------------------------
@@ -37,6 +37,125 @@ function DeleteModal({ isOpen, onClose, onConfirm, name, isSubmitting }: any) {
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// -------------------------------------------------------
+// STATES TAB
+// -------------------------------------------------------
+function StatesTab() {
+  const { permissions } = useAuthStore();
+  const [states, setStates] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [editing, setEditing] = useState<any>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [form, setForm] = useState({ name: '', is_active: true });
+
+  const fetch = useCallback(async () => {
+    setIsLoading(true);
+    try { 
+      const s = await locationService.getStates();
+      setStates(Array.isArray(s) ? s : []);
+    } catch (e) { console.error(e); } finally { setIsLoading(false); }
+  }, []);
+
+  useEffect(() => { fetch(); }, [fetch]);
+
+  const open = (item: any = null) => {
+    setEditing(item);
+    setForm(item ? { name: item.name, is_active: item.is_active ?? true } : { name: '', is_active: true });
+    setIsModalOpen(true);
+  };
+
+  const save = async () => {
+    if (!form.name) return;
+    setIsSubmitting(true);
+    try {
+      if (editing) await locationService.updateState(editing.id, form);
+      else await locationService.createState(form);
+      setIsModalOpen(false); fetch();
+    } catch (e) { console.error(e); } finally { setIsSubmitting(false); }
+  };
+
+  const del = async () => {
+    setIsSubmitting(true);
+    try { await locationService.deleteState(editing.id); setIsDeleteOpen(false); fetch(); }
+    catch (e) { alert('Cannot delete — may have dependent data.'); }
+    finally { setIsSubmitting(false); }
+  };
+
+  const canWrite = permissions.has('locations:create') || permissions.has('locations:update');
+  const filtered = states.filter(s => s.name.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search states..." className="pl-9" />
+        </div>
+        {canWrite && (
+          <Button onClick={() => open()} className="bg-primary text-white hover:bg-primary/90">
+            <Plus className="w-4 h-4 mr-2" /> Add State
+          </Button>
+        )}
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <table className="w-full text-sm text-left">
+          <thead className="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th className="px-6 py-4 font-semibold text-gray-700">State Name</th>
+              <th className="px-6 py-4 font-semibold text-gray-700">Status</th>
+              <th className="px-6 py-4 font-semibold text-gray-700 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {isLoading ? (
+              <tr><td colSpan={3} className="px-6 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></td></tr>
+            ) : filtered.length === 0 ? (
+              <tr><td colSpan={3} className="px-6 py-12 text-center text-gray-500">No states found.</td></tr>
+            ) : (
+              filtered.map(item => (
+                <tr key={item.id} className="hover:bg-gray-50/50">
+                  <td className="px-6 py-4 font-medium text-gray-900 flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-primary/60" /> {item.name}
+                  </td>
+                  <td className="px-6 py-4">
+                    {item.is_active ? <Badge className="bg-green-100 text-green-700">Active</Badge> : <Badge variant="outline" className="text-gray-500">Inactive</Badge>}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      {canWrite && <Button variant="ghost" size="sm" onClick={() => open(item)}><Edit2 className="w-4 h-4 text-gray-500" /></Button>}
+                      {permissions.has('locations:delete') && <Button variant="ghost" size="sm" onClick={() => { setEditing(item); setIsDeleteOpen(true); }}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{editing ? 'Edit' : 'Add'} State</DialogTitle><DialogDescription>Configure state details.</DialogDescription></DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2"><label className="text-sm font-medium">State Name</label><Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="e.g. Haryana" /></div>
+            <div className="flex items-center justify-between pt-2"><label className="text-sm font-medium">Active</label><Switch checked={form.is_active} onCheckedChange={v => setForm({...form, is_active: v})} /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+            <Button onClick={save} disabled={isSubmitting || !form.name}>{isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <DeleteModal isOpen={isDeleteOpen} onClose={() => setIsDeleteOpen(false)} onConfirm={del} name={editing?.name} isSubmitting={isSubmitting} />
+    </div>
   );
 }
 
@@ -700,33 +819,246 @@ function PropertyNamesTab() {
 }
 
 // -------------------------------------------------------
+// EXCEL IMPORT MODAL
+// -------------------------------------------------------
+const ACCEPTED_EXCEL = '.xlsx,.xls,.csv';
+const MAX_FILE_MB = 10;
+
+function ImportExcelModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; onClose: () => void; onSuccess: () => void }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<LocationImportResult | null>(null);
+
+  const reset = () => {
+    setFile(null);
+    setError('');
+    setResult(null);
+    setIsUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
+
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setError('');
+    setResult(null);
+    const selected = e.target.files?.[0] ?? null;
+    if (!selected) {
+      setFile(null);
+      return;
+    }
+    const ext = selected.name.split('.').pop()?.toLowerCase();
+    if (!ext || !['xlsx', 'xls', 'csv'].includes(ext)) {
+      setError('Only .xlsx, .xls, or .csv files are allowed.');
+      setFile(null);
+      e.target.value = '';
+      return;
+    }
+    if (selected.size > MAX_FILE_MB * 1024 * 1024) {
+      setError(`File must be under ${MAX_FILE_MB}MB.`);
+      setFile(null);
+      e.target.value = '';
+      return;
+    }
+    setFile(selected);
+  };
+
+  const downloadTemplate = async () => {
+    setIsDownloading(true);
+    setError('');
+    try {
+      locationService.downloadImportTemplate();
+    } catch (e) {
+      console.error(e);
+      setError('Failed to download template. Please try again.');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const upload = async () => {
+    if (!file) return;
+    setIsUploading(true);
+    setError('');
+    setResult(null);
+    try {
+      const res = await locationService.importExcel(file);
+      setResult(res);
+      onSuccess();
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.response?.data?.message || e?.message || 'Import failed. Please check the file and try again.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Import Locations from Excel</DialogTitle>
+          <DialogDescription>
+            Upload a sheet to auto-create State → City → Micro Market → Location → Property Name. Duplicates are skipped.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-5 py-2">
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+            <p className="text-sm font-medium text-gray-900">Required columns</p>
+            <div className="flex flex-wrap gap-1.5">
+              {['State', 'City', 'Micro Market', 'Location'].map((col) => (
+                <Badge key={col} variant="outline" className="bg-white text-gray-700">{col}</Badge>
+              ))}
+              <Badge variant="outline" className="bg-white text-gray-500">Property Name (optional)</Badge>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={downloadTemplate} disabled={isDownloading} className="w-full sm:w-auto">
+              {isDownloading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+              Download sample template
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-900">Excel / CSV file</label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ACCEPTED_EXCEL}
+              className="hidden"
+              onChange={onFileChange}
+            />
+            {!file ? (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full rounded-xl border-2 border-dashed border-gray-200 hover:border-primary/40 hover:bg-primary-light/30 transition-colors px-4 py-8 flex flex-col items-center gap-2 text-center"
+              >
+                <FileSpreadsheet className="w-8 h-8 text-primary/70" />
+                <span className="text-sm font-medium text-gray-800">Click to select file</span>
+                <span className="text-xs text-gray-500">.xlsx, .xls, or .csv · max {MAX_FILE_MB}MB</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
+                <FileSpreadsheet className="w-5 h-5 text-primary shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-900 truncate">{file.name}</p>
+                  <p className="text-xs text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>
+                </div>
+                <Button type="button" variant="ghost" size="sm" onClick={() => { setFile(null); setResult(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}>
+                  <X className="w-4 h-4 text-gray-500" />
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {error && (
+            <div className="rounded-lg bg-red-50 border border-red-100 px-3 py-2 text-sm text-red-700">{error}</div>
+          )}
+
+          {result && (
+            <div className="rounded-xl border border-green-100 bg-green-50/60 p-4 space-y-3">
+              <p className="text-sm font-semibold text-gray-900">Import complete</p>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg bg-white border border-gray-100 px-2 py-2">
+                  <p className="text-lg font-semibold text-gray-900">{result.totalRows}</p>
+                  <p className="text-[11px] text-gray-500">Total rows</p>
+                </div>
+                <div className="rounded-lg bg-white border border-gray-100 px-2 py-2">
+                  <p className="text-lg font-semibold text-green-700">{result.processed}</p>
+                  <p className="text-[11px] text-gray-500">Processed</p>
+                </div>
+                <div className="rounded-lg bg-white border border-gray-100 px-2 py-2">
+                  <p className="text-lg font-semibold text-orange-600">{result.skipped}</p>
+                  <p className="text-[11px] text-gray-500">Skipped</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1.5 text-xs">
+                <Badge className="bg-white text-gray-700 border border-gray-200">States +{result.created.states}</Badge>
+                <Badge className="bg-white text-gray-700 border border-gray-200">Cities +{result.created.cities}</Badge>
+                <Badge className="bg-white text-gray-700 border border-gray-200">Micro Markets +{result.created.microMarkets}</Badge>
+                <Badge className="bg-white text-gray-700 border border-gray-200">Locations +{result.created.locations}</Badge>
+                <Badge className="bg-white text-gray-700 border border-gray-200">Property Names +{result.created.propertyNames}</Badge>
+              </div>
+              {result.errors?.length > 0 && (
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  <p className="text-xs font-medium text-red-700">Row errors ({result.errors.length})</p>
+                  {result.errors.map((err, i) => (
+                    <p key={i} className="text-xs text-red-600">Row {err.row}: {err.message}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose}>{result ? 'Close' : 'Cancel'}</Button>
+          {!result && (
+            <Button onClick={upload} disabled={!file || isUploading} className="bg-primary text-white hover:bg-primary/90">
+              {isUploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+              Upload & Import
+            </Button>
+          )}
+          {result && (
+            <Button onClick={() => { reset(); fileInputRef.current?.click(); }} variant="outline">
+              Import another
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// -------------------------------------------------------
 // MAIN PAGE
 // -------------------------------------------------------
 export default function LocationManagementPage() {
+  const { permissions } = useAuthStore();
+  const [importOpen, setImportOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const canWrite = permissions.has('locations:create') || permissions.has('locations:update');
+
+  const downloadTemplate = () => {
+    try {
+      locationService.downloadImportTemplate();
+    } catch (e) {
+      console.error(e);
+      alert('Failed to download template.');
+    }
+  };
+
   return (
     <div className="space-y-6 pb-24">
       <Breadcrumb items={[{ label: 'Location Management' }]} />
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-gray-900">Location Management</h1>
-        <p className="text-gray-500 mt-1">Manage the City → Micro Market → Location → Property Name hierarchy.</p>
-      </div>
-
-      <div className="grid grid-cols-4 gap-4">
-        {[
-          { label: 'Cities', icon: MapPin, color: 'bg-blue-50 text-blue-600' },
-          { label: 'Micro Markets', icon: Building2, color: 'bg-purple-50 text-purple-600' },
-          { label: 'Locations', icon: Navigation, color: 'bg-green-50 text-green-600' },
-          { label: 'Property Names', icon: Home, color: 'bg-orange-50 text-orange-600' },
-        ].map(({ label, icon: Icon, color }) => (
-          <div key={label} className={`bg-white rounded-xl border border-gray-100 p-4 flex items-center gap-3`}>
-            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${color}`}><Icon className="w-5 h-5" /></div>
-            <span className="font-medium text-gray-700 text-sm">{label}</span>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Location Management</h1>
+          <p className="text-gray-500 mt-1">Manage the State → City → Micro Market → Location → Property Name hierarchy.</p>
+        </div>
+        {canWrite && (
+          <div className="flex items-center gap-2 shrink-0">
+            <Button variant="outline" onClick={downloadTemplate}>
+              <Download className="w-4 h-4 mr-2" /> Sample Excel
+            </Button>
+            <Button onClick={() => setImportOpen(true)} className="bg-primary text-white hover:bg-primary/90">
+              <Upload className="w-4 h-4 mr-2" /> Import Excel
+            </Button>
           </div>
-        ))}
+        )}
       </div>
 
-      <Tabs defaultValue="cities" className="w-full">
+      <Tabs defaultValue="states" className="w-full" key={refreshKey}>
         <TabsList className="bg-white border shadow-sm p-1">
+          <TabsTrigger value="states" className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-5">
+            <MapPin className="w-4 h-4 mr-2" /> States
+          </TabsTrigger>
           <TabsTrigger value="cities" className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-5">
             <MapPin className="w-4 h-4 mr-2" /> Cities
           </TabsTrigger>
@@ -741,11 +1073,18 @@ export default function LocationManagementPage() {
           </TabsTrigger>
         </TabsList>
 
+        <TabsContent value="states" className="mt-6"><StatesTab /></TabsContent>
         <TabsContent value="cities" className="mt-6"><CitiesTab /></TabsContent>
         <TabsContent value="micro_markets" className="mt-6"><MicroMarketsTab /></TabsContent>
         <TabsContent value="locations" className="mt-6"><LocationsTab /></TabsContent>
         <TabsContent value="property_names" className="mt-6"><PropertyNamesTab /></TabsContent>
       </Tabs>
+
+      <ImportExcelModal
+        isOpen={importOpen}
+        onClose={() => setImportOpen(false)}
+        onSuccess={() => setRefreshKey((k) => k + 1)}
+      />
     </div>
   );
 }

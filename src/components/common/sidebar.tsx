@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Users, Shield, MapPin, Settings, Building2 } from 'lucide-react';
+import { LayoutDashboard, Users, Shield, MapPin, Settings, Building2, Image as ImageIcon } from 'lucide-react';
 import { PermissionGuard } from '@/components/common/permission-guard';
 
 const MENU_ITEMS = [
@@ -12,6 +12,7 @@ const MENU_ITEMS = [
   { name: 'Listings Config', path: '/listings/config', icon: Settings, permission: 'listings:read' },
   { name: 'Moderation Queue', path: '/moderation', icon: MapPin, permission: 'locations:read' },
   { name: 'Location Management', path: '/locations', icon: Building2, permission: 'locations:read' },
+  { name: 'Banner Ads', path: '/banner-ads', icon: ImageIcon, permission: 'ads:read' },
   { name: 'RBAC Roles', path: '/rbac/roles', icon: Shield, permission: 'rbac:read' },
   { name: 'Staff Users', path: '/rbac/users', icon: Users, permission: 'users:read' },
   { name: 'App Users', path: '/rbac/app-users', icon: Users, permission: 'users:read' },

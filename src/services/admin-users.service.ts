@@ -1,8 +1,23 @@
 import { axiosClient } from '@/lib/axios-client';
 
+export type AppUserAudience = 'admin_panel' | 'app';
+
+export type GetUsersParams = {
+  audience?: AppUserAudience;
+  includeInProgress?: boolean;
+};
+
 export const adminUsersService = {
-  getUsers: async (audience?: 'admin_panel' | 'app') => {
-    const params = audience ? { audience } : {};
+  getUsers: async (audienceOrParams?: AppUserAudience | GetUsersParams) => {
+    const params: Record<string, string | boolean> = {};
+    if (typeof audienceOrParams === 'string') {
+      params.audience = audienceOrParams;
+    } else if (audienceOrParams) {
+      if (audienceOrParams.audience) params.audience = audienceOrParams.audience;
+      if (audienceOrParams.includeInProgress !== undefined) {
+        params.includeInProgress = audienceOrParams.includeInProgress;
+      }
+    }
     const response = await axiosClient.get('/admin/users', { params });
     return response.data;
   },
@@ -22,8 +37,14 @@ export const adminUsersService = {
     return response.data;
   },
 
+  /** Approve a registered app user (pending_approval → active). */
+  approveUser: async (id: string) => {
+    const response = await axiosClient.put(`/admin/users/${id}`, { status: 'active' });
+    return response.data;
+  },
+
   deleteUser: async (id: string) => {
     const response = await axiosClient.delete(`/admin/users/${id}`);
     return response.data;
-  }
+  },
 };

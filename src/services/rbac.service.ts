@@ -9,7 +9,10 @@ export const rbacService = {
 
   getPermissionScopes: async () => {
     const response = await axiosClient.get("/admin/rbac/permissions/scopes");
-    return response.data;
+    const raw = response.data;
+    if (Array.isArray(raw)) return raw;
+    if (raw && typeof raw === "object" && Array.isArray(raw.data)) return raw.data;
+    return [];
   },
 
   createRole: async (data: any) => {

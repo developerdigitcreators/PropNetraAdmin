@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { useRouter } from 'next/navigation';
 import { useParams } from 'next/navigation';
 import { Breadcrumb } from '@/components/common/breadcrumb';
+import { SortableGrid } from '@/components/common/sortable-list';
 import React from 'react';
 
 const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canManageOptions: boolean }) => {
@@ -28,7 +29,8 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
     setIsLoading(true);
     try {
       const data = await moduleOptionsService.getOptionsForField(field.id);
-      setOptions(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setOptions([...list].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
     } catch (err) {
       console.error('Failed to load options', err);
     } finally {
@@ -38,12 +40,27 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
 
   useEffect(() => { loadOptions(); }, [field.id]);
 
-  const handleSortUpdate = async (optionId: string, newSortValue: number) => {
+  const handleReorder = async (ordered: Array<any & { sortOrder: number }>) => {
+    const updates = ordered.filter((item) => {
+      const prev = options.find((o) => o.id === item.id);
+      return (prev?.sort_order || 0) !== item.sortOrder;
+    });
+
+    setOptions(ordered.map((item) => ({ ...item, sort_order: item.sortOrder })));
+
     try {
-      await moduleOptionsService.updateOption(optionId, { sort_order: newSortValue, field_id: field.id });
-      loadOptions();
-    } catch(err) {
-      console.error('Failed to update sort', err);
+      await Promise.all(
+        updates.map((item) =>
+          moduleOptionsService.updateOption(item.id, {
+            sort_order: item.sortOrder,
+            field_id: field.id,
+          }),
+        ),
+      );
+    } catch (err) {
+      console.error('Failed to reorder options', err);
+      await loadOptions();
+      throw err;
     }
   };
 
@@ -103,24 +120,27 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
         ) : options.length === 0 ? (
           <p className="text-center text-sm text-gray-500 p-4 border border-dashed rounded-lg bg-gray-50">No options defined yet.</p>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {options.sort((a,b) => a.sort_order - b.sort_order).map(opt => (
-              <div key={opt.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100 group hover:border-gray-300 transition-colors">
-                <div>
-                  <p className="font-medium text-sm text-gray-900">{opt.option_label || opt.label}</p>
-                  {(opt.option_value || opt.value) && <p className="text-xs text-gray-500 font-mono mt-0.5">Val: {opt.option_value || opt.value}</p>}
-                  {opt.status === 'pending' && <Badge variant="outline" className="mt-1 text-[10px] text-orange-600 bg-orange-50 border-orange-200 py-0 h-4">Pending</Badge>}
+          <SortableGrid
+            items={options}
+            disabled={!canManageOptions}
+            onReorder={handleReorder}
+            renderItem={(opt, { dragHandle }) => (
+              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100 group hover:border-gray-300 transition-colors h-full">
+                <div className="min-w-0 pr-2">
+                  <p className="font-medium text-sm text-gray-900 truncate">{opt.option_label || opt.label}</p>
+                  {(opt.option_value || opt.value) && (
+                    <p className="text-xs text-gray-500 font-mono mt-0.5 truncate">
+                      Val: {opt.option_value || opt.value}
+                    </p>
+                  )}
+                  {opt.status === 'pending' && (
+                    <Badge variant="outline" className="mt-1 text-[10px] text-orange-600 bg-orange-50 border-orange-200 py-0 h-4">
+                      Pending
+                    </Badge>
+                  )}
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500 font-medium">Sort</span>
-                    <Input 
-                      type="number" 
-                      defaultValue={opt.sort_order} 
-                      onBlur={(e) => handleSortUpdate(opt.id, Number(e.target.value))}
-                      className="w-14 h-7 text-xs text-center bg-white border-gray-300" 
-                    />
-                  </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {dragHandle}
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     {canManageOptions && (
                       <Button variant="ghost" size="sm" onClick={() => handleOpenForm(opt)} className="h-7 w-7 p-0">
@@ -135,8 +155,8 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
+            )}
+          />
         )
       ) : (
         <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">

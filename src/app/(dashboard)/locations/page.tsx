@@ -1,18 +1,40 @@
-'use client';
+﻿'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { locationService, type LocationImportResult } from '@/services/location.service';
-import { listingConfigService } from '@/services/listing-config.service';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Plus, Edit2, Trash2, AlertTriangle, Search, MapPin, Building2, Navigation, Home, Upload, Download, FileSpreadsheet, X } from 'lucide-react';
+import { Loader2, Plus, Edit2, Trash2, AlertTriangle, Search, MapPin, Upload, Download, FileSpreadsheet, X } from 'lucide-react';
 import { Breadcrumb } from '@/components/common/breadcrumb';
+
+type Level = 'states' | 'cities' | 'micro_markets' | 'locations';
+
+type NavSelection = {
+  stateId: string;
+  stateName: string;
+  cityId: string;
+  cityName: string;
+  mmId: string;
+  mmName: string;
+};
+
+const emptyNav: NavSelection = {
+  stateId: '',
+  stateName: '',
+  cityId: '',
+  cityName: '',
+  mmId: '',
+  mmName: '',
+};
+
+function isApproved(status?: string) {
+  return status === 'approved' || status === 'admin_added';
+}
 
 // -------------------------------------------------------
 // Generic delete confirmation modal
@@ -41,9 +63,17 @@ function DeleteModal({ isOpen, onClose, onConfirm, name, isSubmitting }: any) {
 }
 
 // -------------------------------------------------------
-// STATES TAB
+// STATES
 // -------------------------------------------------------
-function StatesTab() {
+function StatesView({
+  refreshKey,
+  onDrill,
+  onStatesChange,
+}: {
+  refreshKey: number;
+  onDrill: (item: { id: string; name: string }) => void;
+  onStatesChange: (states: any[]) => void;
+}) {
   const { permissions } = useAuthStore();
   const [states, setStates] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -56,13 +86,15 @@ function StatesTab() {
 
   const fetch = useCallback(async () => {
     setIsLoading(true);
-    try { 
+    try {
       const s = await locationService.getStates();
-      setStates(Array.isArray(s) ? s : []);
+      const list = Array.isArray(s) ? s : [];
+      setStates(list);
+      onStatesChange(list);
     } catch (e) { console.error(e); } finally { setIsLoading(false); }
-  }, []);
+  }, [onStatesChange]);
 
-  useEffect(() => { fetch(); }, [fetch]);
+  useEffect(() => { fetch(); }, [fetch, refreshKey]);
 
   const open = (item: any = null) => {
     setEditing(item);
@@ -83,7 +115,7 @@ function StatesTab() {
   const del = async () => {
     setIsSubmitting(true);
     try { await locationService.deleteState(editing.id); setIsDeleteOpen(false); fetch(); }
-    catch (e) { alert('Cannot delete — may have dependent data.'); }
+    catch (e) { alert('Cannot delete â€” may have dependent data.'); }
     finally { setIsSubmitting(false); }
   };
 
@@ -121,16 +153,22 @@ function StatesTab() {
             ) : (
               filtered.map(item => (
                 <tr key={item.id} className="hover:bg-gray-50/50">
-                  <td className="px-6 py-4 font-medium text-gray-900 flex items-center gap-2">
-                    <MapPin className="w-4 h-4 text-primary/60" /> {item.name}
+                  <td className="px-6 py-4 font-medium text-gray-900">
+                    <button
+                      type="button"
+                      onClick={() => onDrill({ id: item.id, name: item.name })}
+                      className="inline-flex items-center gap-2 hover:text-primary transition-colors text-left"
+                    >
+                      <MapPin className="w-4 h-4 text-primary/60" /> {item.name}
+                    </button>
                   </td>
                   <td className="px-6 py-4">
                     {item.is_active ? <Badge className="bg-green-100 text-green-700">Active</Badge> : <Badge variant="outline" className="text-gray-500">Inactive</Badge>}
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      {canWrite && <Button variant="ghost" size="sm" onClick={() => open(item)}><Edit2 className="w-4 h-4 text-gray-500" /></Button>}
-                      {permissions.has('locations:delete') && <Button variant="ghost" size="sm" onClick={() => { setEditing(item); setIsDeleteOpen(true); }}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
+                      {canWrite && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); open(item); }}><Edit2 className="w-4 h-4 text-gray-500" /></Button>}
+                      {permissions.has('locations:delete') && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setEditing(item); setIsDeleteOpen(true); }}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
                     </div>
                   </td>
                 </tr>
@@ -160,11 +198,20 @@ function StatesTab() {
 }
 
 // -------------------------------------------------------
-// CITIES TAB
+// CITIES
 // -------------------------------------------------------
-function CitiesTab() {
+function CitiesView({
+  refreshKey,
+  stateId,
+  stateName,
+  onDrill,
+}: {
+  refreshKey: number;
+  stateId: string;
+  stateName: string;
+  onDrill: (item: { id: string; name: string }) => void;
+}) {
   const { permissions } = useAuthStore();
-  const [states, setStates] = useState<any[]>([]);
   const [cities, setCities] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -172,22 +219,24 @@ function CitiesTab() {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [form, setForm] = useState({ name: '', state_id: '', is_active: true });
+  const [form, setForm] = useState({ name: '', state_id: stateId, is_active: true });
 
   const fetch = useCallback(async () => {
     setIsLoading(true);
-    try { 
-      const [s, c] = await Promise.all([locationService.getStates(), locationService.getCities()]);
-      setStates(Array.isArray(s) ? s : []);
+    try {
+      const c = await locationService.getCities();
       setCities(Array.isArray(c) ? c : []);
     } catch (e) { console.error(e); } finally { setIsLoading(false); }
   }, []);
 
-  useEffect(() => { fetch(); }, [fetch]);
+  useEffect(() => { fetch(); }, [fetch, refreshKey]);
+  useEffect(() => { setSearch(''); }, [stateId]);
 
   const open = (item: any = null) => {
     setEditing(item);
-    setForm(item ? { name: item.name, state_id: item.state_id || item.state?.id || '', is_active: item.is_active ?? true } : { name: '', state_id: '', is_active: true });
+    setForm(item
+      ? { name: item.name, state_id: item.state_id || item.state?.id || stateId, is_active: item.is_active ?? true }
+      : { name: '', state_id: stateId, is_active: true });
     setIsModalOpen(true);
   };
 
@@ -204,12 +253,16 @@ function CitiesTab() {
   const del = async () => {
     setIsSubmitting(true);
     try { await locationService.deleteCity(editing.id); setIsDeleteOpen(false); fetch(); }
-    catch (e) { alert('Cannot delete — may have dependent data.'); }
+    catch (e) { alert('Cannot delete â€” may have dependent data.'); }
     finally { setIsSubmitting(false); }
   };
 
   const canWrite = permissions.has('locations:create') || permissions.has('locations:update');
-  const filtered = cities.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
+  const filtered = cities.filter(c => {
+    const matchState = c.state_id === stateId || c.state?.id === stateId;
+    const matchSearch = c.name.toLowerCase().includes(search.toLowerCase());
+    return matchState && matchSearch;
+  });
 
   return (
     <div className="space-y-4">
@@ -237,23 +290,29 @@ function CitiesTab() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {isLoading ? (
-              <tr><td colSpan={3} className="px-6 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></td></tr>
+              <tr><td colSpan={4} className="px-6 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={3} className="px-6 py-12 text-center text-gray-500">No cities found.</td></tr>
+              <tr><td colSpan={4} className="px-6 py-12 text-center text-gray-500">No cities found.</td></tr>
             ) : (
               filtered.map(item => (
                 <tr key={item.id} className="hover:bg-gray-50/50">
-                  <td className="px-6 py-4 font-medium text-gray-900 flex items-center gap-2">
-                    <MapPin className="w-4 h-4 text-primary/60" /> {item.name}
+                  <td className="px-6 py-4 font-medium text-gray-900">
+                    <button
+                      type="button"
+                      onClick={() => onDrill({ id: item.id, name: item.name })}
+                      className="inline-flex items-center gap-2 hover:text-primary transition-colors text-left"
+                    >
+                      <MapPin className="w-4 h-4 text-primary/60" /> {item.name}
+                    </button>
                   </td>
-                  <td className="px-6 py-4 text-gray-500">{item.state?.name || '—'}</td>
+                  <td className="px-6 py-4 text-gray-500">{item.state?.name || stateName || 'â€”'}</td>
                   <td className="px-6 py-4">
                     {item.is_active ? <Badge className="bg-green-100 text-green-700">Active</Badge> : <Badge variant="outline" className="text-gray-500">Inactive</Badge>}
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      {canWrite && <Button variant="ghost" size="sm" onClick={() => open(item)}><Edit2 className="w-4 h-4 text-gray-500" /></Button>}
-                      {permissions.has('locations:delete') && <Button variant="ghost" size="sm" onClick={() => { setEditing(item); setIsDeleteOpen(true); }}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
+                      {canWrite && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); open(item); }}><Edit2 className="w-4 h-4 text-gray-500" /></Button>}
+                      {permissions.has('locations:delete') && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setEditing(item); setIsDeleteOpen(true); }}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
                     </div>
                   </td>
                 </tr>
@@ -270,14 +329,7 @@ function CitiesTab() {
             <div className="space-y-2"><label className="text-sm font-medium">City Name</label><Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="e.g. Gurugram" /></div>
             <div className="space-y-2">
               <label className="text-sm font-medium">State</label>
-              <Select value={form.state_id} onValueChange={v => setForm({...form, state_id: v})}>
-                <SelectTrigger>
-                  {form.state_id ? states.find(s => s.id === form.state_id)?.name || 'Unknown' : <SelectValue placeholder="Select State" />}
-                </SelectTrigger>
-                <SelectContent>
-                  {states.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Input value={stateName} disabled className="bg-gray-50" />
             </div>
             <div className="flex items-center justify-between pt-2"><label className="text-sm font-medium">Active</label><Switch checked={form.is_active} onCheckedChange={v => setForm({...form, is_active: v})} /></div>
           </div>
@@ -294,34 +346,45 @@ function CitiesTab() {
 }
 
 // -------------------------------------------------------
-// MICRO MARKETS TAB
+// MICRO MARKETS
 // -------------------------------------------------------
-function MicroMarketsTab() {
+function MicroMarketsView({
+  refreshKey,
+  cityId,
+  cityName,
+  onDrill,
+}: {
+  refreshKey: number;
+  cityId: string;
+  cityName: string;
+  onDrill: (item: { id: string; name: string }) => void;
+}) {
   const { permissions } = useAuthStore();
-  const [cities, setCities] = useState<any[]>([]);
   const [microMarkets, setMicroMarkets] = useState<any[]>([]);
-  const [filterCityId, setFilterCityId] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [form, setForm] = useState({ name: '', city_id: '', is_active: true });
+  const [form, setForm] = useState({ name: '', city_id: cityId, is_active: true });
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [c, mm] = await Promise.all([locationService.getCities(), locationService.getMicroMarkets()]);
-      setCities(c); setMicroMarkets(Array.isArray(mm) ? mm : []);
+      const mm = await locationService.getMicroMarkets();
+      setMicroMarkets(Array.isArray(mm) ? mm : []);
     } catch (e) { console.error(e); } finally { setIsLoading(false); }
   }, []);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => { fetchAll(); }, [fetchAll, refreshKey]);
+  useEffect(() => { setSearch(''); }, [cityId]);
 
   const open = (item: any = null) => {
     setEditing(item);
-    setForm(item ? { name: item.name, city_id: item.city_id || item.city?.id || '', is_active: item.is_active ?? true } : { name: '', city_id: filterCityId, is_active: true });
+    setForm(item
+      ? { name: item.name, city_id: item.city_id || item.city?.id || cityId, is_active: item.is_active ?? true }
+      : { name: '', city_id: cityId, is_active: true });
     setIsModalOpen(true);
   };
 
@@ -338,19 +401,16 @@ function MicroMarketsTab() {
   const del = async () => {
     setIsSubmitting(true);
     try { await locationService.deleteMicroMarket(editing.id); setIsDeleteOpen(false); fetchAll(); }
-    catch (e) { alert('Cannot delete — may have dependent data.'); }
+    catch (e) { alert('Cannot delete â€” may have dependent data.'); }
     finally { setIsSubmitting(false); }
   };
 
   const canWrite = permissions.has('locations:create') || permissions.has('locations:update');
   const filtered = microMarkets.filter(m => {
-    const matchCity = !filterCityId || m.city_id === filterCityId || m.city?.id === filterCityId;
+    const matchCity = m.city_id === cityId || m.city?.id === cityId;
     const matchSearch = m.name.toLowerCase().includes(search.toLowerCase());
     return matchCity && matchSearch;
   });
-
-  const selectedCityName = cities.find(c => c.id === form.city_id)?.name;
-  const filterCityName = cities.find(c => c.id === filterCityId)?.name;
 
   return (
     <div className="space-y-4">
@@ -359,15 +419,6 @@ function MicroMarketsTab() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search micro markets..." className="pl-9" />
         </div>
-        <Select value={filterCityId} onValueChange={setFilterCityId}>
-          <SelectTrigger className="w-48">
-            {filterCityName ? <span>{filterCityName}</span> : <SelectValue placeholder="All Cities" />}
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">All Cities</SelectItem>
-            {cities.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
         {canWrite && (
           <Button onClick={() => open()} className="bg-primary text-white hover:bg-primary/90">
             <Plus className="w-4 h-4 mr-2" /> Add Micro Market
@@ -394,18 +445,26 @@ function MicroMarketsTab() {
             ) : (
               filtered.map(item => (
                 <tr key={item.id} className="hover:bg-gray-50/50">
-                  <td className="px-6 py-4 font-medium text-gray-900">{item.name}</td>
-                  <td className="px-6 py-4 text-gray-500">{item.city?.name || '—'}</td>
+                  <td className="px-6 py-4 font-medium text-gray-900">
+                    <button
+                      type="button"
+                      onClick={() => onDrill({ id: item.id, name: item.name })}
+                      className="hover:text-primary transition-colors text-left"
+                    >
+                      {item.name}
+                    </button>
+                  </td>
+                  <td className="px-6 py-4 text-gray-500">{item.city?.name || cityName || 'â€”'}</td>
                   <td className="px-6 py-4">
                     {item.created_by_admin ? <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50">Admin</Badge> : <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50">User</Badge>}
                   </td>
                   <td className="px-6 py-4">
-                    {item.status === 'approved' || item.status === 'admin_added' ? <Badge className="bg-green-100 text-green-700">Approved</Badge> : item.status === 'pending_review' ? <Badge className="bg-orange-100 text-orange-700">Pending</Badge> : <Badge variant="outline" className="text-red-500">Rejected</Badge>}
+                    {isApproved(item.status) ? <Badge className="bg-green-100 text-green-700">Approved</Badge> : item.status === 'pending_review' ? <Badge className="bg-orange-100 text-orange-700">Pending</Badge> : <Badge variant="outline" className="text-red-500">Rejected</Badge>}
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      {canWrite && <Button variant="ghost" size="sm" onClick={() => open(item)}><Edit2 className="w-4 h-4 text-gray-500" /></Button>}
-                      {permissions.has('locations:delete') && <Button variant="ghost" size="sm" onClick={() => { setEditing(item); setIsDeleteOpen(true); }}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
+                      {canWrite && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); open(item); }}><Edit2 className="w-4 h-4 text-gray-500" /></Button>}
+                      {permissions.has('locations:delete') && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setEditing(item); setIsDeleteOpen(true); }}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
                     </div>
                   </td>
                 </tr>
@@ -422,10 +481,7 @@ function MicroMarketsTab() {
             <div className="space-y-2"><label className="text-sm font-medium">Micro Market Name</label><Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="e.g. Golf Course Road" /></div>
             <div className="space-y-2">
               <label className="text-sm font-medium">City</label>
-              <Select value={form.city_id} onValueChange={v => setForm({...form, city_id: v})}>
-                <SelectTrigger>{selectedCityName ? <span>{selectedCityName}</span> : <SelectValue placeholder="Select City" />}</SelectTrigger>
-                <SelectContent>{cities.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-              </Select>
+              <Input value={cityName} disabled className="bg-gray-50" />
             </div>
             <div className="flex items-center justify-between"><label className="text-sm font-medium">Active</label><Switch checked={form.is_active} onCheckedChange={v => setForm({...form, is_active: v})} /></div>
           </div>
@@ -442,39 +498,52 @@ function MicroMarketsTab() {
 }
 
 // -------------------------------------------------------
-// LOCATIONS TAB
+// LOCATIONS
 // -------------------------------------------------------
-function LocationsTab() {
+function LocationsView({
+  refreshKey,
+  cityId,
+  cityName,
+  mmId,
+  mmName,
+}: {
+  refreshKey: number;
+  cityId: string;
+  cityName: string;
+  mmId: string;
+  mmName: string;
+}) {
   const { permissions } = useAuthStore();
-  const [cities, setCities] = useState<any[]>([]);
-  const [microMarkets, setMicroMarkets] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
-  const [filterCityId, setFilterCityId] = useState('');
-  const [filterMmId, setFilterMmId] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [form, setForm] = useState({ name: '', city_id: '', micro_market_id: '', is_active: true });
+  const [form, setForm] = useState({ name: '', city_id: cityId, micro_market_id: mmId, is_active: true });
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [c, mm, locs] = await Promise.all([locationService.getCities(), locationService.getMicroMarkets(), locationService.getLocations()]);
-      setCities(c); setMicroMarkets(Array.isArray(mm) ? mm : []); setLocations(Array.isArray(locs) ? locs : []);
+      const locs = await locationService.getLocations();
+      setLocations(Array.isArray(locs) ? locs : []);
     } catch (e) { console.error(e); } finally { setIsLoading(false); }
   }, []);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
-
-  const availableMMs = microMarkets.filter(m => !filterCityId || m.city_id === filterCityId || m.city?.id === filterCityId);
-  const formMMs = microMarkets.filter(m => m.city_id === form.city_id || m.city?.id === form.city_id);
+  useEffect(() => { fetchAll(); }, [fetchAll, refreshKey]);
+  useEffect(() => { setSearch(''); }, [mmId]);
 
   const open = (item: any = null) => {
     setEditing(item);
-    setForm(item ? { name: item.name, city_id: item.city_id || item.city?.id || '', micro_market_id: item.micro_market_id || item.micro_market?.id || '', is_active: item.is_active ?? true } : { name: '', city_id: filterCityId, micro_market_id: filterMmId, is_active: true });
+    setForm(item
+      ? {
+          name: item.name,
+          city_id: item.city_id || item.city?.id || cityId,
+          micro_market_id: item.micro_market_id || item.micro_market?.id || mmId,
+          is_active: item.is_active ?? true,
+        }
+      : { name: '', city_id: cityId, micro_market_id: mmId, is_active: true });
     setIsModalOpen(true);
   };
 
@@ -491,23 +560,17 @@ function LocationsTab() {
   const del = async () => {
     setIsSubmitting(true);
     try { await locationService.deleteLocation(editing.id); setIsDeleteOpen(false); fetchAll(); }
-    catch (e) { alert('Cannot delete — may have dependent data.'); }
+    catch (e) { alert('Cannot delete â€” may have dependent data.'); }
     finally { setIsSubmitting(false); }
   };
 
   const canWrite = permissions.has('locations:create') || permissions.has('locations:update');
 
   const filtered = locations.filter(l => {
-    const matchCity = !filterCityId || l.city_id === filterCityId || l.city?.id === filterCityId;
-    const matchMM = !filterMmId || l.micro_market_id === filterMmId || l.micro_market?.id === filterMmId;
+    const matchMM = l.micro_market_id === mmId || l.micro_market?.id === mmId;
     const matchSearch = l.name.toLowerCase().includes(search.toLowerCase());
-    return matchCity && matchMM && matchSearch;
+    return isApproved(l.status) && matchMM && matchSearch;
   });
-
-  const selectedCityName = cities.find(c => c.id === form.city_id)?.name;
-  const selectedMmName = microMarkets.find(m => m.id === form.micro_market_id)?.name;
-  const filterCityName = cities.find(c => c.id === filterCityId)?.name;
-  const filterMmName = microMarkets.find(m => m.id === filterMmId)?.name;
 
   return (
     <div className="space-y-4">
@@ -516,14 +579,6 @@ function LocationsTab() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search locations..." className="pl-9" />
         </div>
-        <Select value={filterCityId} onValueChange={v => { setFilterCityId(v); setFilterMmId(''); }}>
-          <SelectTrigger className="w-40">{filterCityName ? <span>{filterCityName}</span> : <SelectValue placeholder="All Cities" />}</SelectTrigger>
-          <SelectContent><SelectItem value="">All Cities</SelectItem>{cities.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-        </Select>
-        <Select value={filterMmId} onValueChange={setFilterMmId} disabled={!filterCityId}>
-          <SelectTrigger className="w-48">{filterMmName ? <span>{filterMmName}</span> : <SelectValue placeholder="All Micro Markets" />}</SelectTrigger>
-          <SelectContent><SelectItem value="">All Micro Markets</SelectItem>{availableMMs.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent>
-        </Select>
         {canWrite && (
           <Button onClick={() => open()} className="bg-primary text-white hover:bg-primary/90">
             <Plus className="w-4 h-4 mr-2" /> Add Location
@@ -551,10 +606,10 @@ function LocationsTab() {
               filtered.map(item => (
                 <tr key={item.id} className="hover:bg-gray-50/50">
                   <td className="px-6 py-4 font-medium text-gray-900">{item.name}</td>
-                  <td className="px-6 py-4 text-gray-500">{item.micro_market?.name || '—'}</td>
-                  <td className="px-6 py-4 text-gray-500">{item.city?.name || '—'}</td>
+                  <td className="px-6 py-4 text-gray-500">{item.micro_market?.name || mmName || 'â€”'}</td>
+                  <td className="px-6 py-4 text-gray-500">{item.city?.name || cityName || 'â€”'}</td>
                   <td className="px-6 py-4">
-                    {item.status === 'approved' || item.status === 'admin_added' ? <Badge className="bg-green-100 text-green-700">Approved</Badge> : item.status === 'pending_review' ? <Badge className="bg-orange-100 text-orange-700">Pending</Badge> : <Badge variant="outline" className="text-red-500">Rejected</Badge>}
+                    {isApproved(item.status) ? <Badge className="bg-green-100 text-green-700">Approved</Badge> : item.status === 'pending_review' ? <Badge className="bg-orange-100 text-orange-700">Pending</Badge> : <Badge variant="outline" className="text-red-500">Rejected</Badge>}
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
@@ -576,235 +631,14 @@ function LocationsTab() {
             <div className="space-y-2"><label className="text-sm font-medium">Location Name</label><Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="e.g. Sector 65" /></div>
             <div className="space-y-2">
               <label className="text-sm font-medium">City</label>
-              <Select value={form.city_id} onValueChange={v => {
-                const mms = microMarkets.filter(m => m.city_id === v || m.city?.id === v);
-                setForm({...form, city_id: v, micro_market_id: mms.length === 1 ? mms[0].id : ''});
-              }}>
-                <SelectTrigger>{selectedCityName ? <span>{selectedCityName}</span> : <SelectValue placeholder="Select City first" />}</SelectTrigger>
-                <SelectContent>{cities.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-              </Select>
+              <Input value={cityName} disabled className="bg-gray-50" />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Micro Market</label>
-              <Select value={form.micro_market_id} onValueChange={v => setForm({...form, micro_market_id: v})} disabled={!form.city_id}>
-                <SelectTrigger>{selectedMmName ? <span>{selectedMmName}</span> : <SelectValue placeholder={form.city_id ? 'Select Micro Market' : 'Select city first'} />}</SelectTrigger>
-                <SelectContent>{formMMs.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent>
-              </Select>
+              <Input value={mmName} disabled className="bg-gray-50" />
             </div>
             <div className="flex items-center justify-between"><label className="text-sm font-medium">Geo Location <span className="text-gray-400 font-normal text-xs">(Placeholder)</span></label><Switch checked={false} disabled /></div>
             <div className="flex items-center justify-between"><label className="text-sm font-medium">Active</label><Switch checked={form.is_active} onCheckedChange={v => setForm({...form, is_active: v})} /></div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={save} disabled={isSubmitting || !form.name || !form.city_id || !form.micro_market_id}>{isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <DeleteModal isOpen={isDeleteOpen} onClose={() => setIsDeleteOpen(false)} onConfirm={del} name={editing?.name} isSubmitting={isSubmitting} />
-    </div>
-  );
-}
-
-// -------------------------------------------------------
-// PROPERTY NAMES TAB
-// -------------------------------------------------------
-function PropertyNamesTab() {
-  const { permissions } = useAuthStore();
-  const [cities, setCities] = useState<any[]>([]);
-  const [microMarkets, setMicroMarkets] = useState<any[]>([]);
-  const [locations, setLocations] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
-  const [propertyNames, setPropertyNames] = useState<any[]>([]);
-  const [filterCityId, setFilterCityId] = useState('');
-  const [filterMmId, setFilterMmId] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [form, setForm] = useState({ name: '', city_id: '', micro_market_id: '', location_ids: [] as string[] });
-
-  const fetchAll = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const [c, mm, locs, cats, pns] = await Promise.all([
-        locationService.getCities(), locationService.getMicroMarkets(), locationService.getLocations(),
-        listingConfigService.getCategories(), locationService.getPropertyNames()
-      ]);
-      setCities(c); setMicroMarkets(Array.isArray(mm) ? mm : []); setLocations(Array.isArray(locs) ? locs : []);
-      setCategories(Array.isArray(cats) ? cats : []); setPropertyNames(Array.isArray(pns) ? pns : []);
-    } catch (e) { console.error(e); } finally { setIsLoading(false); }
-  }, []);
-
-  useEffect(() => { fetchAll(); }, [fetchAll]);
-
-  const formMMs = microMarkets.filter(m => m.city_id === form.city_id || m.city?.id === form.city_id);
-  const formLocs = locations.filter(l => l.micro_market_id === form.micro_market_id || l.micro_market?.id === form.micro_market_id);
-  const availableMMs = microMarkets.filter(m => !filterCityId || m.city_id === filterCityId || m.city?.id === filterCityId);
-
-  const open = (item: any = null) => {
-    setEditing(item);
-    if (item) {
-      setForm({
-        name: item.name,
-        city_id: item.city_id || item.city?.id || '',
-        micro_market_id: item.micro_market_id || item.micro_market?.id || '',
-        location_ids: (item.locations || []).map((l: any) => l.id),
-      });
-    } else {
-      setForm({ name: '', city_id: filterCityId, micro_market_id: filterMmId, location_ids: [] });
-    }
-    setIsModalOpen(true);
-  };
-
-  const toggleLocation = (id: string) => {
-    setForm(f => ({ ...f, location_ids: f.location_ids.includes(id) ? f.location_ids.filter(l => l !== id) : [...f.location_ids, id] }));
-  };
-
-  const save = async () => {
-    if (!form.name || !form.city_id || !form.micro_market_id) return;
-    setIsSubmitting(true);
-    try {
-      if (editing) await locationService.updatePropertyName(editing.id, form);
-      else await locationService.createPropertyName(form);
-      setIsModalOpen(false); fetchAll();
-    } catch (e) { console.error(e); } finally { setIsSubmitting(false); }
-  };
-
-  const del = async () => {
-    setIsSubmitting(true);
-    try { await locationService.deletePropertyName(editing.id); setIsDeleteOpen(false); fetchAll(); }
-    catch (e) { alert('Cannot delete — may have dependent data.'); }
-    finally { setIsSubmitting(false); }
-  };
-
-  const canWrite = permissions.has('locations:create') || permissions.has('locations:update');
-
-  const filtered = propertyNames.filter(p => {
-    const matchCity = !filterCityId || p.city_id === filterCityId || p.city?.id === filterCityId;
-    const matchMM = !filterMmId || p.micro_market_id === filterMmId || p.micro_market?.id === filterMmId;
-    const matchSearch = p.name.toLowerCase().includes(search.toLowerCase());
-    return matchCity && matchMM && matchSearch;
-  });
-
-  const selectedCityName = cities.find(c => c.id === form.city_id)?.name;
-  const selectedMmName = microMarkets.find(m => m.id === form.micro_market_id)?.name;
-  const filterCityName = cities.find(c => c.id === filterCityId)?.name;
-  const filterMmName = microMarkets.find(m => m.id === filterMmId)?.name;
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search property names..." className="pl-9" />
-        </div>
-        <Select value={filterCityId} onValueChange={v => { setFilterCityId(v); setFilterMmId(''); }}>
-          <SelectTrigger className="w-36">{filterCityName ? <span>{filterCityName}</span> : <SelectValue placeholder="All Cities" />}</SelectTrigger>
-          <SelectContent><SelectItem value="">All Cities</SelectItem>{cities.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-        </Select>
-        <Select value={filterMmId} onValueChange={setFilterMmId} disabled={!filterCityId}>
-          <SelectTrigger className="w-44">{filterMmName ? <span>{filterMmName}</span> : <SelectValue placeholder="All Micro Markets" />}</SelectTrigger>
-          <SelectContent><SelectItem value="">All Micro Markets</SelectItem>{availableMMs.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent>
-        </Select>
-        {canWrite && (
-          <Button onClick={() => open()} className="bg-primary text-white hover:bg-primary/90 ml-auto">
-            <Plus className="w-4 h-4 mr-2" /> Add Property Name
-          </Button>
-        )}
-      </div>
-
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <table className="w-full text-sm text-left">
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th className="px-6 py-4 font-semibold text-gray-700">Property Name</th>
-              <th className="px-6 py-4 font-semibold text-gray-700">Micro Market</th>
-              <th className="px-6 py-4 font-semibold text-gray-700">City</th>
-              <th className="px-6 py-4 font-semibold text-gray-700">Linked Locations</th>
-              <th className="px-6 py-4 font-semibold text-gray-700">Status</th>
-              <th className="px-6 py-4 font-semibold text-gray-700 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {isLoading ? (
-              <tr><td colSpan={7} className="px-6 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></td></tr>
-            ) : filtered.length === 0 ? (
-              <tr><td colSpan={7} className="px-6 py-12 text-center text-gray-500">No property names found.</td></tr>
-            ) : (
-              filtered.map(item => (
-                <tr key={item.id} className="hover:bg-gray-50/50">
-                  <td className="px-6 py-4 font-medium text-gray-900">{item.name}</td>
-                  <td className="px-6 py-4 text-gray-500">{item.micro_market?.name || '—'}</td>
-                  <td className="px-6 py-4 text-gray-500">{item.city?.name || '—'}</td>
-                  <td className="px-6 py-4">
-                    <div className="flex flex-wrap gap-1">
-                      {(item.locations || []).length === 0 ? <span className="text-gray-400 text-xs">None</span> :
-                        (item.locations || []).slice(0, 2).map((l: any) => <Badge key={l.id} variant="outline" className="text-xs">{l.name}</Badge>)}
-                      {(item.locations || []).length > 2 && <Badge variant="outline" className="text-xs">+{(item.locations || []).length - 2} more</Badge>}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    {item.status === 'approved' || item.status === 'admin_added' ? <Badge className="bg-green-100 text-green-700">Approved</Badge> : item.status === 'pending_review' ? <Badge className="bg-orange-100 text-orange-700">Pending</Badge> : <Badge variant="outline" className="text-red-500">Rejected</Badge>}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      {canWrite && <Button variant="ghost" size="sm" onClick={() => open(item)}><Edit2 className="w-4 h-4 text-gray-500" /></Button>}
-                      {permissions.has('locations:delete') && <Button variant="ghost" size="sm" onClick={() => { setEditing(item); setIsDeleteOpen(true); }}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editing ? 'Edit' : 'Add'} Property Name</DialogTitle><DialogDescription>Link property to city → micro market → locations.</DialogDescription></DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2"><label className="text-sm font-medium">Project / Property Name</label><Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="e.g. DLF The Camellias" /></div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">City</label>
-              <Select value={form.city_id} onValueChange={v => {
-                const mms = microMarkets.filter(m => m.city_id === v || m.city?.id === v);
-                setForm({...form, city_id: v, micro_market_id: mms.length === 1 ? mms[0].id : '', location_ids: []});
-              }}>
-                <SelectTrigger>{selectedCityName ? <span>{selectedCityName}</span> : <SelectValue placeholder="Select City" />}</SelectTrigger>
-                <SelectContent>{cities.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Micro Market</label>
-              <Select value={form.micro_market_id} onValueChange={v => setForm({...form, micro_market_id: v, location_ids: []})} disabled={!form.city_id}>
-                <SelectTrigger>{selectedMmName ? <span>{selectedMmName}</span> : <SelectValue placeholder={form.city_id ? 'Select Micro Market' : 'Select city first'} />}</SelectTrigger>
-                <SelectContent>{formMMs.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            {form.micro_market_id && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Linked Locations <span className="text-gray-400 font-normal">(select all that apply)</span></label>
-                {formLocs.length === 0 ? (
-                  <p className="text-xs text-gray-400 italic">No locations in this micro market. Add some in the Locations tab first.</p>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto pr-1">
-                    {formLocs.map(loc => (
-                      <button
-                        key={loc.id}
-                        type="button"
-                        onClick={() => toggleLocation(loc.id)}
-                        className={`text-left px-3 py-2 rounded-lg border text-sm transition-colors ${form.location_ids.includes(loc.id) ? 'bg-primary-light border-primary text-primary font-medium' : 'border-gray-200 text-gray-700 hover:border-gray-300'}`}
-                      >
-                        {loc.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
@@ -905,7 +739,7 @@ function ImportExcelModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; onC
         <DialogHeader>
           <DialogTitle>Import Locations from Excel</DialogTitle>
           <DialogDescription>
-            Upload a sheet to auto-create State → City → Micro Market → Location → Property Name. Duplicates are skipped.
+            Upload a sheet to auto-create State → City → Micro Market → Location .
           </DialogDescription>
         </DialogHeader>
 
@@ -941,7 +775,7 @@ function ImportExcelModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; onC
               >
                 <FileSpreadsheet className="w-8 h-8 text-primary/70" />
                 <span className="text-sm font-medium text-gray-800">Click to select file</span>
-                <span className="text-xs text-gray-500">.xlsx, .xls, or .csv · max {MAX_FILE_MB}MB</span>
+                <span className="text-xs text-gray-500">.xlsx, .xls, or .csv Â· max {MAX_FILE_MB}MB</span>
               </button>
             ) : (
               <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
@@ -1023,7 +857,92 @@ export default function LocationManagementPage() {
   const { permissions } = useAuthStore();
   const [importOpen, setImportOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [level, setLevel] = useState<Level>('states');
+  const [nav, setNav] = useState<NavSelection>(emptyNav);
+  const [states, setStates] = useState<any[]>([]);
   const canWrite = permissions.has('locations:create') || permissions.has('locations:update');
+
+  useEffect(() => {
+    locationService.getStates()
+      .then((s) => setStates(Array.isArray(s) ? s : []))
+      .catch(console.error);
+  }, [refreshKey]);
+
+  const resetToStates = () => {
+    setLevel('states');
+    setNav(emptyNav);
+  };
+
+  const goToCities = (stateId: string, stateName: string) => {
+    setNav({
+      ...emptyNav,
+      stateId,
+      stateName,
+    });
+    setLevel('cities');
+  };
+
+  const onStateDropdownChange = (stateId: string) => {
+    if (!stateId) {
+      resetToStates();
+      return;
+    }
+    const state = states.find((s) => s.id === stateId);
+    goToCities(stateId, state?.name || '');
+  };
+
+  const breadcrumbItems = useMemo(() => {
+    const items: { label: string; onClick?: () => void }[] = [];
+
+    if (level === 'states') {
+      items.push({ label: 'Location Management' });
+      return items;
+    }
+
+    items.push({ label: 'Location Management', onClick: resetToStates });
+
+    if (nav.stateName) {
+      const isCurrent = level === 'cities';
+      items.push(
+        isCurrent
+          ? { label: nav.stateName }
+          : {
+              label: nav.stateName,
+              onClick: () => goToCities(nav.stateId, nav.stateName),
+            },
+      );
+    }
+
+    if (nav.cityName && (level === 'micro_markets' || level === 'locations')) {
+      const isCurrent = level === 'micro_markets';
+      items.push(
+        isCurrent
+          ? { label: nav.cityName }
+          : {
+              label: nav.cityName,
+              onClick: () => {
+                setNav((n) => ({ ...n, mmId: '', mmName: '' }));
+                setLevel('micro_markets');
+              },
+            },
+      );
+    }
+
+    if (nav.mmName && level === 'locations') {
+      items.push({ label: nav.mmName });
+    }
+
+    return items;
+  }, [level, nav]);
+
+  const levelTitle =
+    level === 'states'
+      ? 'States'
+      : level === 'cities'
+        ? 'Cities'
+        : level === 'micro_markets'
+          ? 'Micro Markets'
+          : 'Locations';
 
   const downloadTemplate = () => {
     try {
@@ -1036,11 +955,11 @@ export default function LocationManagementPage() {
 
   return (
     <div className="space-y-6 pb-24">
-      <Breadcrumb items={[{ label: 'Location Management' }]} />
+      <Breadcrumb items={breadcrumbItems} />
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-gray-900">Location Management</h1>
-          <p className="text-gray-500 mt-1">Manage the State → City → Micro Market → Location → Property Name hierarchy.</p>
+          <p className="text-gray-500 mt-1">Manage the State → City → Micro Market → Location hierarchy.</p>
         </div>
         {canWrite && (
           <div className="flex items-center gap-2 shrink-0">
@@ -1054,31 +973,62 @@ export default function LocationManagementPage() {
         )}
       </div>
 
-      <Tabs defaultValue="states" className="w-full" key={refreshKey}>
-        <TabsList className="bg-white border shadow-sm p-1">
-          <TabsTrigger value="states" className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-5">
-            <MapPin className="w-4 h-4 mr-2" /> States
-          </TabsTrigger>
-          <TabsTrigger value="cities" className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-5">
-            <MapPin className="w-4 h-4 mr-2" /> Cities
-          </TabsTrigger>
-          <TabsTrigger value="micro_markets" className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-5">
-            <Building2 className="w-4 h-4 mr-2" /> Micro Markets
-          </TabsTrigger>
-          <TabsTrigger value="locations" className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-5">
-            <Navigation className="w-4 h-4 mr-2" /> Locations
-          </TabsTrigger>
-          <TabsTrigger value="property_names" className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-5">
-            <Home className="w-4 h-4 mr-2" /> Property Names
-          </TabsTrigger>
-        </TabsList>
+      <div className="flex flex-wrap items-center gap-3 bg-white border border-gray-100 shadow-sm rounded-xl px-4 py-3">
+        <div className="inline-flex items-center gap-2 text-sm font-semibold text-gray-900">
+          <MapPin className="w-4 h-4 text-primary" />
+          State
+        </div>
+        <Select value={nav.stateId || undefined} onValueChange={(v) => onStateDropdownChange(v ?? '')}>
+          <SelectTrigger className="w-56 bg-white">
+            <span>{nav.stateName || 'Select state'}</span>
+          </SelectTrigger>
+          <SelectContent>
+            {states.map((s) => (
+              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="text-sm text-gray-500 ml-auto">{levelTitle}</span>
+      </div>
 
-        <TabsContent value="states" className="mt-6"><StatesTab /></TabsContent>
-        <TabsContent value="cities" className="mt-6"><CitiesTab /></TabsContent>
-        <TabsContent value="micro_markets" className="mt-6"><MicroMarketsTab /></TabsContent>
-        <TabsContent value="locations" className="mt-6"><LocationsTab /></TabsContent>
-        <TabsContent value="property_names" className="mt-6"><PropertyNamesTab /></TabsContent>
-      </Tabs>
+      {level === 'states' && (
+        <StatesView
+          refreshKey={refreshKey}
+          onStatesChange={setStates}
+          onDrill={(item) => goToCities(item.id, item.name)}
+        />
+      )}
+      {level === 'cities' && nav.stateId && (
+        <CitiesView
+          refreshKey={refreshKey}
+          stateId={nav.stateId}
+          stateName={nav.stateName}
+          onDrill={(item) => {
+            setNav((n) => ({ ...n, cityId: item.id, cityName: item.name, mmId: '', mmName: '' }));
+            setLevel('micro_markets');
+          }}
+        />
+      )}
+      {level === 'micro_markets' && nav.cityId && (
+        <MicroMarketsView
+          refreshKey={refreshKey}
+          cityId={nav.cityId}
+          cityName={nav.cityName}
+          onDrill={(item) => {
+            setNav((n) => ({ ...n, mmId: item.id, mmName: item.name }));
+            setLevel('locations');
+          }}
+        />
+      )}
+      {level === 'locations' && nav.mmId && (
+        <LocationsView
+          refreshKey={refreshKey}
+          cityId={nav.cityId}
+          cityName={nav.cityName}
+          mmId={nav.mmId}
+          mmName={nav.mmName}
+        />
+      )}
 
       <ImportExcelModal
         isOpen={importOpen}

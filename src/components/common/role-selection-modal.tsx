@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
-import { useRouter } from 'next/navigation';
 import {
   Dialog,
   DialogContent,
@@ -11,47 +10,36 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { authService } from '@/services/auth.service';
 
 interface RoleSelectionModalProps {
-  roles: any[]; // Adjust type based on backend
+  roles: Array<{ id: string; name: string }>;
   onComplete: () => void;
 }
 
 export function RoleSelectionModal({ roles, onComplete }: RoleSelectionModalProps) {
   const [open, setOpen] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const completedRef = useRef(false);
   const setActiveRole = useAuthStore((state) => state.setActiveRole);
-  const setAuthData = useAuthStore((state) => state.setAuthData);
 
-  const handleRoleSelect = async (role: any) => {
-    setLoading(true);
-    try {
-      // Simulate fetching permissions for the selected role
-      // In a real app, you might fetch from /admin/permissions
-      // const perms = await authService.getPermissions(role.id);
-      
-      const mockedPerms = role.name === 'Super Admin' ? ['ALL:ALL'] : ['listings:read', 'locations:read'];
-      
-      setActiveRole(role.name);
-      
-      // Update permissions in store
-      const currentState = useAuthStore.getState();
-      if (currentState.user && currentState.accessToken) {
-        setAuthData(currentState.user, currentState.accessToken, mockedPerms);
-      }
-      
-      setOpen(false);
-      onComplete();
-    } catch (error) {
-      console.error('Failed to select role', error);
-    } finally {
-      setLoading(false);
-    }
+  const finish = (roleName: string) => {
+    if (completedRef.current) return;
+    completedRef.current = true;
+    setActiveRole(roleName);
+    setOpen(false);
+    onComplete();
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          finish(roles[0]?.name || 'User');
+          return;
+        }
+        setOpen(next);
+      }}
+    >
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Select Your Workspace</DialogTitle>
@@ -65,8 +53,7 @@ export function RoleSelectionModal({ roles, onComplete }: RoleSelectionModalProp
               key={role.id}
               variant="outline"
               className="w-full justify-start h-14 px-6 text-lg"
-              onClick={() => handleRoleSelect(role)}
-              disabled={loading}
+              onClick={() => finish(role.name)}
             >
               {role.name}
             </Button>

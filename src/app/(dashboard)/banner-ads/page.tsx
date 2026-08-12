@@ -18,12 +18,12 @@ import { locationService } from '@/services/location.service';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { useAuthStore } from '@/store/use-auth-store';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { AutoslideTimePicker } from '@/components/common/autoslide-time-picker';
+import { SortableTableBody } from '@/components/common/sortable-list';
 import {
   Loader2,
   Plus,
@@ -71,10 +71,7 @@ type SectionBlockProps = {
   canCreate: boolean;
   canUpdate: boolean;
   canDelete: boolean;
-  sortDrafts: Record<string, string>;
-  setSortDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  savingSortId: string | null;
-  onSaveSort: (banner: AdBanner) => void;
+  onReorder: (ordered: Array<AdBanner & { sortOrder: number }>) => void | Promise<void>;
   onAdd: () => void;
   onEdit: (banner: AdBanner) => void;
   onDelete: (banner: AdBanner) => void;
@@ -90,10 +87,7 @@ function SectionBlock({
   canCreate,
   canUpdate,
   canDelete,
-  sortDrafts,
-  setSortDrafts,
-  savingSortId,
-  onSaveSort,
+  onReorder,
   onAdd,
   onEdit,
   onDelete,
@@ -133,22 +127,29 @@ function SectionBlock({
                 <th className="px-5 py-3 font-semibold text-gray-700 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
-              {isLoading ? (
+            {isLoading ? (
+              <tbody className="divide-y divide-gray-100">
                 <tr>
                   <td colSpan={6} className="px-6 py-10 text-center">
                     <Loader2 className="w-6 h-6 text-primary animate-spin mx-auto" />
                   </td>
                 </tr>
-              ) : banners.length === 0 ? (
+              </tbody>
+            ) : banners.length === 0 ? (
+              <tbody className="divide-y divide-gray-100">
                 <tr>
                   <td colSpan={6} className="px-6 py-10 text-center text-gray-500">
                     {emptyHint}
                   </td>
                 </tr>
-              ) : (
-                banners.map((banner) => (
-                  <tr key={banner.id} className="hover:bg-gray-50/50 transition-colors align-top">
+              </tbody>
+            ) : (
+              <SortableTableBody
+                items={banners}
+                disabled={!canUpdate}
+                onReorder={onReorder}
+                renderRow={(banner, { dragHandle }) => (
+                  <>
                     <td className="px-5 py-4 w-40">
                       <div className="w-28 h-14 bg-gray-100 rounded-md border border-gray-200 flex items-center justify-center overflow-hidden">
                         {banner.mediaType === 'image' ? (
@@ -180,27 +181,7 @@ function SectionBlock({
                     <td className="px-5 py-4 text-xs text-gray-600 max-w-[180px]">
                       {formatBannerLinkLabel(banner)}
                     </td>
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="number"
-                          min={0}
-                          className="w-20 h-8"
-                          value={sortDrafts[banner.id] ?? ''}
-                          disabled={!canUpdate || savingSortId === banner.id}
-                          onChange={(e) =>
-                            setSortDrafts((d) => ({ ...d, [banner.id]: e.target.value }))
-                          }
-                          onBlur={() => onSaveSort(banner)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') e.currentTarget.blur();
-                          }}
-                        />
-                        {savingSortId === banner.id && (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
-                        )}
-                      </div>
-                    </td>
+                    <td className="px-5 py-4">{dragHandle}</td>
                     <td className="px-5 py-4">
                       {isBannerActive(banner) ? (
                         <Badge className="bg-green-100 text-green-700">Active</Badge>
@@ -228,10 +209,10 @@ function SectionBlock({
                         )}
                       </div>
                     </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
+                  </>
+                )}
+              />
+            )}
           </table>
         </div>
       )}
@@ -257,8 +238,6 @@ export default function BannerAdsPage() {
 
   const [sectionMap, setSectionMap] = useState<Record<string, AdBanner[]>>({});
   const [isLoading, setIsLoading] = useState(false);
-  const [sortDrafts, setSortDrafts] = useState<Record<string, string>>({});
-  const [savingSortId, setSavingSortId] = useState<string | null>(null);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ top: true, general: true });
 
   const [autoslide, setAutoslide] = useState(DEFAULT_AUTOSLIDE);
@@ -352,13 +331,6 @@ export default function BannerAdsPage() {
         if (!next[sec.key]) next[sec.key] = [];
       }
       setSectionMap(next);
-
-      const drafts: Record<string, string> = {};
-      Object.values(next).flat().forEach((b) => {
-        drafts[b.id] = String(b.sortOrder ?? 0);
-      });
-      setSortDrafts(drafts);
-
       setAutoslide(normalizeAutoslideValue(data.autoslide, DEFAULT_AUTOSLIDE));
     } catch (err) {
       console.error(err);
@@ -402,24 +374,36 @@ export default function BannerAdsPage() {
     }
   };
 
-  const saveSortOrder = async (banner: AdBanner) => {
+  const handleReorder = async (
+    sectionKey: string,
+    ordered: Array<AdBanner & { sortOrder: number }>,
+  ) => {
     if (!canUpdate) return;
-    const next = Number(sortDrafts[banner.id]);
-    if (!Number.isFinite(next) || next < 0) {
-      setSortDrafts((d) => ({ ...d, [banner.id]: String(banner.sortOrder ?? 0) }));
-      return;
-    }
-    if (next === banner.sortOrder) return;
-    setSavingSortId(banner.id);
+    const prev = sectionMap[sectionKey] || [];
+    const updates = ordered.filter((item) => {
+      const before = prev.find((x) => x.id === item.id);
+      return (before?.sortOrder ?? 0) !== item.sortOrder;
+    });
+
+    setSectionMap((m) => ({
+      ...m,
+      [sectionKey]: ordered.map((b) => ({ ...b, sortOrder: b.sortOrder })),
+    }));
+
     try {
-      await bannerAdsService.updateBanner(banner.id, { sortOrder: next });
-      await fetchBanners();
+      try {
+        await bannerAdsService.reorderBanners(ordered.map((b) => b.id));
+      } catch {
+        await Promise.all(
+          updates.map((item) =>
+            bannerAdsService.updateBanner(item.id, { sortOrder: item.sortOrder }),
+          ),
+        );
+      }
     } catch (err) {
       console.error(err);
-      alert('Failed to update sort order.');
-      setSortDrafts((d) => ({ ...d, [banner.id]: String(banner.sortOrder ?? 0) }));
-    } finally {
-      setSavingSortId(null);
+      await fetchBanners();
+      throw err;
     }
   };
 
@@ -532,10 +516,7 @@ export default function BannerAdsPage() {
                 canCreate={canCreate}
                 canUpdate={canUpdate}
                 canDelete={canDelete}
-                sortDrafts={sortDrafts}
-                setSortDrafts={setSortDrafts}
-                savingSortId={savingSortId}
-                onSaveSort={saveSortOrder}
+                onReorder={(ordered) => handleReorder(section.key, ordered)}
                 onAdd={() => goAdd(section.key)}
                 onEdit={goEdit}
                 onDelete={setBannerToDelete}

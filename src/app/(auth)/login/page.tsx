@@ -12,11 +12,38 @@ import { Input } from '@/components/ui/input';
 import { RoleSelectionModal } from '@/components/common/role-selection-modal';
 import { Loader2 } from 'lucide-react';
 
+type SelectableRole = { id: string; name: string };
+
+function normalizeRoles(user: any): SelectableRole[] {
+  const raw = user?.roles;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    if (user?.role) {
+      return [{ id: String(user.role), name: String(user.role) }];
+    }
+    return [];
+  }
+
+  return raw
+    .map((role: any, index: number) => {
+      if (typeof role === 'string') {
+        return { id: role, name: role };
+      }
+      if (role && typeof role === 'object' && role.name) {
+        return {
+          id: String(role.id ?? role.name ?? index),
+          name: String(role.name),
+        };
+      }
+      return null;
+    })
+    .filter(Boolean) as SelectableRole[];
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const setAuthData = useAuthStore((state) => state.setAuthData);
   const [error, setError] = useState('');
-  const [rolesToSelect, setRolesToSelect] = useState<any[] | null>(null);
+  const [rolesToSelect, setRolesToSelect] = useState<SelectableRole[] | null>(null);
 
   const {
     register,
@@ -29,27 +56,25 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginFormData) => {
     try {
       setError('');
-      
-      // Connect to the real backend
+      setRolesToSelect(null);
+
       const res = await authService.login(data);
-      
-      const { user, token } = res.data || res; // Handle if nested inside data
+
+      const { user, token } = res.data || res;
       const accessToken = token || res.accessToken;
-      // The backend now provides user.permissions array directly!
       const perms = user?.permissions || [];
-      
-      // Determine primary role for display (take first from array, or use single string, or default)
-      let primaryRole = 'User';
-      if (Array.isArray(user?.roles) && user.roles.length > 0) {
-        primaryRole = user.roles[0];
-      } else if (user?.role) {
-        primaryRole = user.role;
-      }
+      const roles = normalizeRoles(user);
 
       setAuthData(user, accessToken, perms);
+
+      if (roles.length > 1) {
+        setRolesToSelect(roles);
+        return;
+      }
+
+      const primaryRole = roles[0]?.name || user?.role || 'User';
       useAuthStore.getState().setActiveRole(primaryRole);
       router.push('/');
-
     } catch (err: any) {
       setError(err.response?.data?.message || 'Invalid credentials. Please try again.');
     }
@@ -58,7 +83,6 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#FAFEED]">
       <div className="w-full max-w-md p-8 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100">
-        
         <div className="text-center mb-10">
           <h1 className="text-3xl font-bold tracking-tight text-gray-900 mb-2">PropNetra</h1>
           <p className="text-gray-500 text-sm">Welcome back! Please enter your details.</p>
@@ -97,8 +121,8 @@ export default function LoginPage() {
             </div>
           )}
 
-          <Button 
-            type="submit" 
+          <Button
+            type="submit"
             className="w-full h-12 text-base font-semibold transition-all hover:opacity-90 bg-primary text-primary-foreground shadow-lg shadow-primary/30"
             disabled={isSubmitting}
           >
@@ -115,9 +139,12 @@ export default function LoginPage() {
       </div>
 
       {rolesToSelect && (
-        <RoleSelectionModal 
-          roles={rolesToSelect} 
-          onComplete={() => router.push('/')} 
+        <RoleSelectionModal
+          roles={rolesToSelect}
+          onComplete={() => {
+            setRolesToSelect(null);
+            router.push('/');
+          }}
         />
       )}
     </div>

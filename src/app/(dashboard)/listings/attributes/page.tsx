@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { Loader2, Plus, Edit2, Trash2, AlertTriangle, Check } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Breadcrumb } from '@/components/common/breadcrumb';
+import { SortableTableBody } from '@/components/common/sortable-list';
 
 export default function AttributesPage() {
   const { permissions } = useAuthStore();
@@ -186,34 +187,85 @@ export default function AttributesPage() {
 
   const handleToggleStatus = async (item: any, newValue: boolean) => {
     try {
-      const payload = { ...item, is_active: newValue };
-      if (activeTab === 'categories') await listingConfigService.updateCategory(item.id, payload);
-      else if (activeTab === 'building_types') await listingConfigService.updateBuildingType(item.id, payload);
-      else if (activeTab === 'property_types') await listingConfigService.updatePropertyType(item.id, payload);
+      if (activeTab === 'categories') {
+        await listingConfigService.updateCategory(item.id, { is_active: newValue });
+      } else if (activeTab === 'building_types') {
+        await listingConfigService.updateBuildingType(item.id, { is_active: newValue });
+      } else if (activeTab === 'property_types') {
+        await listingConfigService.updatePropertyType(item.id, { is_active: newValue });
+      }
       fetchData();
     } catch (err) {
       console.error('Toggle status failed', err);
     }
   };
 
-  const handleUpdateSortOrder = async (item: any, newSortOrder: number) => {
+  const handleUpdateSortOrder = async (
+    item: any,
+    newSortOrder: number,
+    type: string = activeTab,
+  ) => {
     try {
-      const payload = { ...item };
-      if (activeTab === 'categories') {
-        payload.phase = newSortOrder;
-        await listingConfigService.updateCategory(item.id, payload);
-      } else if (activeTab === 'building_types') {
-        payload.sort_order = newSortOrder;
-        await listingConfigService.updateBuildingType(item.id, payload);
-      } else if (activeTab === 'property_types') {
-        payload.sort_order = newSortOrder;
-        await listingConfigService.updatePropertyType(item.id, payload);
+      // Send only sortable fields — spreading the full item (relations, dates, etc.) causes 500.
+      if (type === 'categories') {
+        await listingConfigService.updateCategory(item.id, { phase: newSortOrder });
+      } else if (type === 'building_types') {
+        await listingConfigService.updateBuildingType(item.id, {
+          sort_order: newSortOrder,
+        });
+      } else if (type === 'property_types') {
+        await listingConfigService.updatePropertyType(item.id, {
+          sort_order: newSortOrder,
+        });
       }
-      fetchData();
     } catch (err) {
       console.error('Update sort order failed', err);
+      throw err;
     }
   };
+
+  const handleReorder = async (type: string, ordered: Array<any & { sortOrder: number }>) => {
+    const source =
+      type === 'categories'
+        ? categories
+        : type === 'building_types'
+          ? buildingTypes
+          : propertyTypes;
+
+    const updates = ordered.filter((item) => {
+      const prev = source.find((x) => x.id === item.id);
+      const prevOrder = prev?.phase ?? prev?.sort_order ?? 0;
+      return prevOrder !== item.sortOrder;
+    });
+
+    // Optimistic local update
+    if (type === 'categories') {
+      setCategories(
+        ordered.map((item) => ({ ...item, phase: item.sortOrder, sort_order: item.sortOrder })),
+      );
+    } else if (type === 'building_types') {
+      setBuildingTypes(ordered.map((item) => ({ ...item, sort_order: item.sortOrder })));
+    } else if (type === 'property_types') {
+      setPropertyTypes(ordered.map((item) => ({ ...item, sort_order: item.sortOrder })));
+    }
+
+    try {
+      await Promise.all(
+        updates.map((item) => handleUpdateSortOrder(item, item.sortOrder, type)),
+      );
+    } catch (err) {
+      console.error('Reorder failed', err);
+      await fetchData();
+      throw err;
+    }
+  };
+
+  const sortByOrder = (data: any[]) =>
+    [...data].sort(
+      (a, b) =>
+        (a.phase ?? a.sort_order ?? 0) - (b.phase ?? b.sort_order ?? 0) ||
+        String(a.name || '').localeCompare(String(b.name || '')),
+    );
 
   const handleDelete = async () => {
     if (!editingItem) return;
@@ -238,6 +290,7 @@ export default function AttributesPage() {
   const canDelete = permissions.has(activeTab === 'categories' ? 'listing_categories:delete' : activeTab === 'building_types' ? 'building_types:delete' : 'property_types:delete');
 
   const renderTable = (data: any[], type: string) => {
+    const sorted = sortByOrder(data);
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mt-6">
         <table className="w-full text-sm text-left">
@@ -257,41 +310,59 @@ export default function AttributesPage() {
               <th className="px-6 py-4 font-semibold text-gray-700 text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
-            {isLoading ? (
-              <tr><td colSpan={6} className="px-6 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></td></tr>
-            ) : data.length === 0 ? (
-              <tr><td colSpan={6} className="px-6 py-12 text-center text-gray-500">No records found.</td></tr>
-            ) : (
-              data.map(item => (
-                <tr key={item.id} className="hover:bg-gray-50/50">
+          {isLoading ? (
+            <tbody>
+              <tr>
+                <td colSpan={6} className="px-6 py-12 text-center">
+                  <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
+                </td>
+              </tr>
+            </tbody>
+          ) : sorted.length === 0 ? (
+            <tbody>
+              <tr>
+                <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                  No records found.
+                </td>
+              </tr>
+            </tbody>
+          ) : (
+            <SortableTableBody
+              items={sorted}
+              disabled={!canUpdate}
+              onReorder={(ordered) => handleReorder(type, ordered)}
+              renderRow={(item, { dragHandle }) => (
+                <>
                   <td className="px-6 py-4 font-medium text-gray-900">{item.name}</td>
-                  <td className="px-6 py-4 text-gray-500">
-                    <Input 
-                      type="number" 
-                      defaultValue={item.sort_order || item.phase || 1} 
-                      className="w-20 h-8"
-                      onBlur={(e) => {
-                        const val = parseInt(e.target.value);
-                        if (!isNaN(val) && val !== (item.sort_order || item.phase || 1)) {
-                          handleUpdateSortOrder(item, val);
-                        }
-                      }}
-                      disabled={!canUpdate}
-                    />
-                  </td>
+                  <td className="px-6 py-4">{dragHandle}</td>
                   {type === 'categories' && (
                     <td className="px-6 py-4">
-                      {item.icon_url ? <img src={item.icon_url} alt={item.name} className="w-8 h-8 object-contain bg-gray-50 rounded border" /> : <span className="text-gray-400 text-xs italic">No Icon</span>}
+                      {item.icon_url ? (
+                        <img
+                          src={item.icon_url}
+                          alt={item.name}
+                          className="w-8 h-8 object-contain bg-gray-50 rounded border"
+                        />
+                      ) : (
+                        <span className="text-gray-400 text-xs italic">No Icon</span>
+                      )}
                     </td>
                   )}
-                  {type === 'building_types' && <td className="px-6 py-4 text-gray-500">{item.category?.name || 'N/A'}</td>}
+                  {type === 'building_types' && (
+                    <td className="px-6 py-4 text-gray-500">{item.category?.name || 'N/A'}</td>
+                  )}
                   {type === 'property_types' && (
                     <>
-                      <td className="px-6 py-4 text-gray-500">{item.building_type?.name || 'N/A'}</td>
+                      <td className="px-6 py-4 text-gray-500">
+                        {item.building_type?.name || 'N/A'}
+                      </td>
                       <td className="px-6 py-4">
                         {item.icon_url ? (
-                          <img src={item.icon_url} alt={item.name} className="w-8 h-8 object-contain bg-gray-50 rounded border" />
+                          <img
+                            src={item.icon_url}
+                            alt={item.name}
+                            className="w-8 h-8 object-contain bg-gray-50 rounded border"
+                          />
                         ) : (
                           <span className="text-gray-400 text-xs italic">No Icon</span>
                         )}
@@ -299,26 +370,40 @@ export default function AttributesPage() {
                     </>
                   )}
                   <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-                    <Switch checked={item.is_active} onCheckedChange={(v) => handleToggleStatus(item, v)} disabled={!canUpdate} />
+                    <Switch
+                      checked={item.is_active}
+                      onCheckedChange={(v) => handleToggleStatus(item, v)}
+                      disabled={!canUpdate}
+                    />
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
                       {canUpdate && (
-                        <Button variant="ghost" size="sm" onClick={() => handleOpenModal(item)} className="text-gray-500 hover:text-gray-700">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleOpenModal(item)}
+                          className="text-gray-500 hover:text-gray-700"
+                        >
                           <Edit2 className="w-4 h-4" />
                         </Button>
                       )}
-                      {canDelete && (
-                        <Button variant="ghost" size="sm" onClick={() => handleOpenDelete(item)} className="text-red-500 hover:text-red-600 hover:bg-red-50">
+                      {canDelete && type !== 'categories' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleOpenDelete(item)}
+                          className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                        >
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       )}
                     </div>
                   </td>
-                </tr>
-              ))
-            )}
-          </tbody>
+                </>
+              )}
+            />
+          )}
         </table>
       </div>
     );
@@ -326,13 +411,13 @@ export default function AttributesPage() {
 
   return (
     <div className="space-y-6 pb-24">
-      <Breadcrumb items={[{ label: 'Listing Attributes' }]} />
+      <Breadcrumb items={[{ label: 'Agent Listing Attributes' }]} />
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Listing Attributes</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Agent Listing Attributes</h1>
           <p className="text-gray-500 mt-1">Manage core hierarchy data (Property Categories, Building Types, Property Types).</p>
         </div>
-        {canCreate && (
+        {canCreate && activeTab !== 'categories' && (
           <Button onClick={() => handleOpenModal()} className="bg-primary text-white hover:bg-primary/90">
             <Plus className="w-4 h-4 mr-2" /> Add New
           </Button>

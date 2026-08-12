@@ -12,7 +12,18 @@ interface PermissionMatrixProps {
 
 interface PermissionScope {
   module_name: string;
+  display_name?: string;
   actions: string[];
+}
+
+function asScopes(raw: unknown): PermissionScope[] {
+  if (Array.isArray(raw)) return raw as PermissionScope[];
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj.data)) return obj.data as PermissionScope[];
+    if (Array.isArray(obj.scopes)) return obj.scopes as PermissionScope[];
+  }
+  return [];
 }
 
 export function PermissionMatrix({ selectedPermissions, onChange }: PermissionMatrixProps) {
@@ -23,9 +34,10 @@ export function PermissionMatrix({ selectedPermissions, onChange }: PermissionMa
     const fetchScopes = async () => {
       try {
         const data = await rbacService.getPermissionScopes();
-        setScopes(Array.isArray(data) ? data : []);
+        setScopes(asScopes(data));
       } catch (error) {
         console.error('Failed to fetch permission scopes', error);
+        setScopes([]);
       } finally {
         setIsLoading(false);
       }
@@ -33,8 +45,8 @@ export function PermissionMatrix({ selectedPermissions, onChange }: PermissionMa
     fetchScopes();
   }, []);
 
-  // Collect all unique actions across all modules for the table headers
-  const allActions = Array.from(new Set(scopes.flatMap(s => s.actions))).sort();
+  // Unique action columns across all modules (API sends plain action strings)
+  const allActions = Array.from(new Set(scopes.flatMap((s) => s.actions || []))).sort();
 
   const togglePermission = (module: string, action: string) => {
     const permission = `${module}:${action}`;
@@ -45,8 +57,12 @@ export function PermissionMatrix({ selectedPermissions, onChange }: PermissionMa
     }
   };
 
-  const formatModuleName = (name: string) => {
-    return name.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  const formatModuleName = (scope: PermissionScope) => {
+    if (scope.display_name) return scope.display_name;
+    return scope.module_name
+      .split('_')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
   };
 
   const formatActionName = (name: string) => {
@@ -76,7 +92,10 @@ export function PermissionMatrix({ selectedPermissions, onChange }: PermissionMa
           <tr>
             <th className="px-6 py-4 font-semibold text-gray-700">Module Name</th>
             {allActions.map((action) => (
-              <th key={action} className="px-6 py-4 font-semibold text-gray-700 text-center">
+              <th
+                key={action}
+                className="px-6 py-4 font-semibold text-gray-700 text-center"
+              >
                 {formatActionName(action)}
               </th>
             ))}
@@ -84,20 +103,27 @@ export function PermissionMatrix({ selectedPermissions, onChange }: PermissionMa
         </thead>
         <tbody className="divide-y divide-gray-100">
           {scopes.map((scope) => (
-            <tr key={scope.module_name} className="hover:bg-gray-50/50 transition-colors">
-              <td className="px-6 py-4 font-medium text-gray-900">{formatModuleName(scope.module_name)}</td>
+            <tr
+              key={scope.module_name}
+              className="hover:bg-gray-50/50 transition-colors"
+            >
+              <td className="px-6 py-4 font-medium text-gray-900">
+                {formatModuleName(scope)}
+              </td>
               {allActions.map((action) => {
-                const isApplicable = scope.actions.includes(action);
+                const isApplicable = (scope.actions || []).includes(action);
                 const permission = `${scope.module_name}:${action}`;
                 const isChecked = selectedPermissions.includes(permission);
-                
+
                 return (
                   <td key={action} className="px-6 py-4 text-center">
                     {isApplicable ? (
                       <div className="flex justify-center">
                         <Checkbox
                           checked={isChecked}
-                          onCheckedChange={() => togglePermission(scope.module_name, action)}
+                          onCheckedChange={() =>
+                            togglePermission(scope.module_name, action)
+                          }
                           className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
                         />
                       </div>

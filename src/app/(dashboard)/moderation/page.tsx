@@ -1,231 +1,576 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { moderationService } from '@/services/moderation.service';
-import { locationService } from '@/services/location.service';
-import { ModerationCard } from '@/modules/locations/moderation-card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, Inbox, Check, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { PermissionGuard } from '@/components/common/permission-guard';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  listingsService,
+  type ApproveListingReviewPayload,
+  type ListingReviewItem,
+  type ReviewQueueFiltersResponse,
+  type ReviewTab,
+  type SaveListingCatalogPayload,
+  type RejectListingReviewPayload,
+} from "@/services/listings.service";
+import { ListingReviewTable } from "@/modules/listings/listing-review-table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Loader2, Inbox } from "lucide-react";
+import { PermissionGuard } from "@/components/common/permission-guard";
+import { PaginationBar } from "@/components/common/pagination-bar";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
 
-export default function ModerationQueuePage() {
-  const [locations, setLocations] = useState<any[]>([]);
-  const [propertyNames, setPropertyNames] = useState<any[]>([]);
-  const [customOptions, setCustomOptions] = useState<any[]>([]);
-  const [pendingMicroMarkets, setPendingMicroMarkets] = useState<any[]>([]);
+export default function ReviewListingPage() {
+  const [tab, setTab] = useState<ReviewTab>("unverified");
+  const [unverified, setUnverified] = useState<ListingReviewItem[]>([]);
+  const [verified, setVerified] = useState<ListingReviewItem[]>([]);
+  const [rejected, setRejected] = useState<ListingReviewItem[]>([]);
+  const [pageSize, setPageSize] = useState<number>(10);
+  const [unverifiedPage, setUnverifiedPage] = useState(1);
+  const [verifiedPage, setVerifiedPage] = useState(1);
+  const [rejectedPage, setRejectedPage] = useState(1);
+  const [unverifiedTotal, setUnverifiedTotal] = useState(0);
+  const [verifiedTotal, setVerifiedTotal] = useState(0);
+  const [rejectedTotal, setRejectedTotal] = useState(0);
+  const [unverifiedTotalPages, setUnverifiedTotalPages] = useState(1);
+  const [verifiedTotalPages, setVerifiedTotalPages] = useState(1);
+  const [rejectedTotalPages, setRejectedTotalPages] = useState(1);
+  const [filtersByTab, setFiltersByTab] = useState<{
+    unverified?: ReviewQueueFiltersResponse | null;
+    verified?: ReviewQueueFiltersResponse | null;
+    rejected?: ReviewQueueFiltersResponse | null;
+  }>({});
+
+  // Defaults are applied by backend when these are undefined / omitted:
+  // Resale + Residential, and propertyTypeId stays null (All).
+  const [selectedCategoryId, setSelectedCategoryId] = useState<
+    string | undefined
+  >(undefined);
+  const [selectedBuildingTypeId, setSelectedBuildingTypeId] = useState<
+    string | undefined
+  >(undefined);
+  const [selectedPropertyTypeId, setSelectedPropertyTypeId] = useState<
+    string | null
+  >(null);
+
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchModerationData = () => {
-    setIsLoading(true);
-    Promise.all([
-      moderationService.getPendingLocations(),
-      moderationService.getPendingPropertyNames(),
-      moderationService.getPendingOptions(),
-      locationService.getPendingMicroMarkets(),
-    ])
-      .then(([locs, props, opts, mms]) => {
-        setLocations(Array.isArray(locs) ? locs : []);
-        setPropertyNames(Array.isArray(props) ? props : []);
-        setCustomOptions(Array.isArray(opts) ? opts : []);
-        setPendingMicroMarkets(Array.isArray(mms) ? mms : []);
-      })
-      .catch(console.error)
-      .finally(() => setIsLoading(false));
-  };
+  const apiFilters = useMemo(() => {
+    return {
+      categoryId:
+        typeof selectedCategoryId === "string" ? selectedCategoryId : undefined,
+      buildingTypeId:
+        typeof selectedBuildingTypeId === "string"
+          ? selectedBuildingTypeId
+          : undefined,
+      propertyTypeId:
+        typeof selectedPropertyTypeId === "string"
+          ? selectedPropertyTypeId
+          : undefined,
+    };
+  }, [selectedBuildingTypeId, selectedCategoryId, selectedPropertyTypeId]);
 
-  useEffect(() => {
-    fetchModerationData();
+  const fetchTab = useCallback(
+    async (target: ReviewTab, page: number) => {
+      const result = await listingsService.getReviewQueue(
+        target,
+        page,
+        pageSize,
+        apiFilters,
+      );
+
+      // Save items + pagination totals
+      if (target === "verified") {
+        setVerified(result.items);
+        // Pagination uses filtered `total`; tab badge uses category-options sum.
+        setVerifiedTotal(result.total);
+        setVerifiedTotalPages(result.totalPages ?? 1);
+      } else if (target === "rejected") {
+        setRejected(result.items);
+        setRejectedTotal(result.total);
+        setRejectedTotalPages(result.totalPages ?? 1);
+      } else {
+        setUnverified(result.items);
+        setUnverifiedTotal(result.total);
+        setUnverifiedTotalPages(result.totalPages ?? 1);
+      }
+
+      // Save dropdown filters options for that tab
+      setFiltersByTab((prev) => ({
+        ...prev,
+        [target]: result.filters ?? null,
+      }));
+
+      // On first load (when we didn't pass ids), adopt backend-resolved defaults.
+      if (
+        target === "unverified" &&
+        result.selectedFilters &&
+        (selectedCategoryId === undefined ||
+          selectedBuildingTypeId === undefined)
+      ) {
+        const sf = result.selectedFilters;
+        if (selectedCategoryId === undefined) {
+          setSelectedCategoryId(sf.categoryId ?? undefined);
+        }
+        if (selectedBuildingTypeId === undefined) {
+          setSelectedBuildingTypeId(sf.buildingTypeId ?? undefined);
+        }
+        if (selectedPropertyTypeId === null) {
+          setSelectedPropertyTypeId(sf.propertyTypeId);
+        }
+      }
+    },
+    [
+      apiFilters,
+      pageSize,
+      selectedBuildingTypeId,
+      selectedCategoryId,
+      selectedPropertyTypeId,
+    ],
+  );
+
+  const refreshAll = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      await Promise.all([
+        fetchTab("unverified", unverifiedPage),
+        fetchTab("verified", verifiedPage),
+        fetchTab("rejected", rejectedPage),
+      ]);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [fetchTab, unverifiedPage, verifiedPage, rejectedPage]);
+
+  const handlePageChange = useCallback(
+    (target: ReviewTab, nextPage: number) => {
+      if (target === "unverified") setUnverifiedPage(nextPage);
+      if (target === "verified") setVerifiedPage(nextPage);
+      if (target === "rejected") setRejectedPage(nextPage);
+    },
+    [],
+  );
+
+  const handlePageSizeChange = useCallback((nextSize: number) => {
+    setPageSize(nextSize);
+    // Reset pages when changing pagination size to avoid drifting.
+    setUnverifiedPage(1);
+    setVerifiedPage(1);
+    setRejectedPage(1);
   }, []);
 
-  const handleApproveLocation = async (id: string) => {
-    await moderationService.approveLocation(id);
-    fetchModerationData();
+  useEffect(() => {
+    refreshAll();
+  }, [refreshAll]);
+
+  const resetPagesToFirst = useCallback(() => {
+    setUnverifiedPage(1);
+    setVerifiedPage(1);
+    setRejectedPage(1);
+  }, []);
+
+  const handleCategoryChange = (categoryId: string) => {
+    setSelectedCategoryId(categoryId);
+    // Let backend resolve defaults for building type based on category.
+    setSelectedBuildingTypeId(undefined);
+    setSelectedPropertyTypeId(null);
+    resetPagesToFirst();
   };
 
-  const handleRejectLocation = async (id: string) => {
-    await moderationService.rejectLocation(id);
-    fetchModerationData();
+  const handleBuildingTypeChange = (buildingTypeId: string) => {
+    setSelectedBuildingTypeId(buildingTypeId);
+    setSelectedPropertyTypeId(null);
+    resetPagesToFirst();
   };
 
-  const handleApproveProperty = async (id: string) => {
-    await moderationService.approvePropertyName(id);
-    fetchModerationData();
+  const handlePropertyTypeChange = (propertyTypeId: string | "__ALL__") => {
+    setSelectedPropertyTypeId(
+      propertyTypeId === "__ALL__" ? null : propertyTypeId,
+    );
+    resetPagesToFirst();
   };
 
-  const handleRejectProperty = async (id: string) => {
-    await moderationService.rejectPropertyName(id);
-    fetchModerationData();
+  const handleApprove = async (
+    id: string,
+    payload: ApproveListingReviewPayload,
+  ) => {
+    await listingsService.approveReview(id, payload);
+    await refreshAll();
   };
 
-  const handleApproveOption = async (id: string) => {
-    await moderationService.approveOption(id);
-    fetchModerationData();
+  const handleReject = async (
+    id: string,
+    payload: RejectListingReviewPayload,
+  ) => {
+    await listingsService.rejectReviewWithRemark(id, payload);
+    await refreshAll();
   };
 
-  const handleRejectOption = async (id: string) => {
-    await moderationService.rejectOption(id);
-    fetchModerationData();
+  const handleSaveToDb = async (
+    id: string,
+    payload: SaveListingCatalogPayload,
+  ) => {
+    await listingsService.saveToDb(id, payload);
+    await refreshAll();
   };
 
-  const handleApproveMicroMarket = async (id: string) => {
-    await locationService.approveMicroMarket(id);
-    fetchModerationData();
+  const handleToggleForSale = async (id: string, enabled: boolean) => {
+    await listingsService.setForSaleTitle(id, enabled);
   };
 
-  const handleRejectMicroMarket = async (id: string) => {
-    await locationService.rejectMicroMarket(id);
-    fetchModerationData();
+  const handleToggleActive = async (id: string, active: boolean) => {
+    await listingsService.setListingActive(id, active);
   };
+
+  // Verified tab badge = sum of category option totals (same as "Category (N)" heading).
+  const verifiedTabCount = useMemo(() => {
+    const cats = filtersByTab.verified?.categories ?? [];
+    if (cats.length === 0) return verifiedTotal;
+    return cats.reduce((acc, c) => acc + (c.total || 0), 0);
+  }, [filtersByTab.verified, verifiedTotal]);
 
   return (
-    <PermissionGuard permission="locations:read" fallback={<div className="p-12 text-center text-gray-500">You do not have permission to view the moderation queue.</div>}>
+    <PermissionGuard
+      permission="locations:read"
+      fallback={
+        <div className="p-12 text-center text-gray-500">
+          You do not have permission to view review listings.
+        </div>
+      }
+    >
       <div className="space-y-6 pb-12">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900">Moderation Queue</h1>
-            <p className="text-gray-500 mt-1">Review and approve user-submitted data.</p>
-          </div>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+            Review Listing
+          </h1>
+          <p className="text-gray-500 mt-1">
+            Approve custom project names / locations and publish listings for
+            other agents.
+          </p>
         </div>
 
-        <Tabs defaultValue="locations" className="w-full">
-          <TabsList className="mb-6 bg-white border shadow-sm p-1">
-            <TabsTrigger value="locations" className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-6 text-sm">
-              Locations 
+        <Tabs
+          value={tab}
+          onValueChange={(v) => setTab(v as ReviewTab)}
+          className="w-full"
+        >
+          <TabsList className="mb-6 bg-white border shadow-sm p-1 h-auto">
+            <TabsTrigger
+              value="unverified"
+              className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-6 text-sm"
+            >
+              Listing for Approval
               <span className="ml-2 bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">
-                {locations.length}
+                {unverifiedTotal}
               </span>
             </TabsTrigger>
-            <TabsTrigger value="propertyNames" className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-6 text-sm">
-              Property Names
+            <TabsTrigger
+              value="verified"
+              className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-6 text-sm"
+            >
+              Approved Listings
               <span className="ml-2 bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">
-                {propertyNames.length}
+                {verifiedTabCount}
               </span>
             </TabsTrigger>
-            <TabsTrigger value="customOptions" className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-6 text-sm">
-              Custom Options
+            <TabsTrigger
+              value="rejected"
+              className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-6 text-sm"
+            >
+              Rejected
               <span className="ml-2 bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">
-                {customOptions.length}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="microMarkets" className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-6 text-sm">
-              Micro Markets
-              <span className="ml-2 bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">
-                {pendingMicroMarkets.length}
+                {rejectedTotal}
               </span>
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="locations" className="focus-visible:outline-none">
+          <TabsContent
+            value="unverified"
+            className="focus-visible:outline-none"
+          >
             {isLoading ? (
-              <div className="py-20 flex justify-center"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>
-            ) : locations.length === 0 ? (
-              <EmptyState message="No pending locations to review." />
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {locations.map(loc => (
-                  <ModerationCard 
-                    key={loc.id} 
-                    item={loc} 
-                    type="location" 
-                    onApprove={() => handleApproveLocation(loc.id)} 
-                    onReject={() => handleRejectLocation(loc.id)} 
-                  />
-                ))}
+              <div className="py-20 flex justify-center">
+                <Loader2 className="w-8 h-8 text-primary animate-spin" />
               </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="propertyNames" className="focus-visible:outline-none">
-            {isLoading ? (
-              <div className="py-20 flex justify-center"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>
-            ) : propertyNames.length === 0 ? (
-              <EmptyState message="No pending property names to review." />
+            ) : unverified.length === 0 ? (
+              <EmptyState message="No unverified listings pending review." />
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {propertyNames.map(prop => (
-                  <ModerationCard 
-                    key={prop.id} 
-                    item={prop} 
-                    type="property-name" 
-                    onApprove={() => handleApproveProperty(prop.id)} 
-                    onReject={() => handleRejectProperty(prop.id)} 
-                  />
-                ))}
-              </div>
-            )}
-          </TabsContent>
+              (() => {
+                const filters = filtersByTab.unverified;
+                return (
+                  <div className="space-y-4">
+                    <FiltersBar
+                      filters={filters}
+                      selectedCategoryId={selectedCategoryId}
+                      selectedBuildingTypeId={selectedBuildingTypeId}
+                      selectedPropertyTypeId={selectedPropertyTypeId}
+                      totalForAllPropertyTypes={unverifiedTotal}
+                      onCategoryChange={handleCategoryChange}
+                      onBuildingTypeChange={handleBuildingTypeChange}
+                      onPropertyTypeChange={handlePropertyTypeChange}
+                    />
 
-          <TabsContent value="customOptions" className="focus-visible:outline-none">
-            {isLoading ? (
-              <div className="py-20 flex justify-center"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>
-            ) : customOptions.length === 0 ? (
-              <EmptyState message="No pending custom options to review." />
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {customOptions.map(opt => (
-                  <div key={opt.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <h4 className="font-semibold text-gray-900">{opt.option_label || opt.label}</h4>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">Field: {opt.field?.label || 'Unknown'}</span>
-                          <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">Val: {opt.option_value || opt.value}</span>
-                        </div>
-                      </div>
-                      <Badge variant="outline" className="bg-orange-50 text-orange-600 border-orange-200">Pending</Badge>
-                    </div>
-                    <div className="text-sm text-gray-500 mb-4">
-                      <p>Submitted by: <span className="font-medium text-gray-700">{opt.created_by_user?.name || 'Unknown User'}</span></p>
-                    </div>
-                    <div className="flex gap-3">
-                      <Button onClick={() => handleApproveOption(opt.id)} className="flex-1 bg-green-600 hover:bg-green-700">
-                        <Check className="w-4 h-4 mr-2" /> Approve
-                      </Button>
-                      <Button onClick={() => handleRejectOption(opt.id)} variant="outline" className="flex-1 text-red-600 border-red-200 hover:bg-red-50">
-                        <X className="w-4 h-4 mr-2" /> Reject
-                      </Button>
-                    </div>
+                    <ListingReviewTable
+                      items={unverified}
+                      mode="unverified"
+                      onApprove={handleApprove}
+                      onReject={handleReject}
+                      onSaveToDb={handleSaveToDb}
+                      onToggleForSale={handleToggleForSale}
+                    />
+
+                    <PaginationBar
+                      currentPage={unverifiedPage}
+                      totalItems={unverifiedTotal}
+                      pageSize={pageSize}
+                      totalPages={unverifiedTotalPages}
+                      onPageChange={(p) => handlePageChange("unverified", p)}
+                      onPageSizeChange={handlePageSizeChange}
+                    />
                   </div>
-                ))}
-              </div>
+                );
+              })()
             )}
           </TabsContent>
 
-          <TabsContent value="microMarkets" className="focus-visible:outline-none">
+          <TabsContent value="verified" className="focus-visible:outline-none">
             {isLoading ? (
-              <div className="py-20 flex justify-center"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>
-            ) : pendingMicroMarkets.length === 0 ? (
-              <EmptyState message="No pending micro markets to review." />
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {pendingMicroMarkets.map(mm => (
-                  <div key={mm.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <h4 className="font-semibold text-gray-900">{mm.name}</h4>
-                        <p className="text-xs text-gray-500 mt-1">City: <span className="font-medium text-gray-700">{mm.city?.name || '—'}</span></p>
-                      </div>
-                      <span className="text-xs bg-orange-50 text-orange-600 border border-orange-200 px-2 py-0.5 rounded-full">Pending</span>
-                    </div>
-                    <p className="text-sm text-gray-500 mb-4">Submitted by: <span className="font-medium text-gray-700">{mm.submitted_by_user?.name || mm.submitted_by_user?.email || 'Unknown'}</span></p>
-                    <div className="flex gap-3">
-                      <Button onClick={() => handleApproveMicroMarket(mm.id)} className="flex-1 bg-green-600 hover:bg-green-700">
-                        <Check className="w-4 h-4 mr-2" /> Approve
-                      </Button>
-                      <Button onClick={() => handleRejectMicroMarket(mm.id)} variant="outline" className="flex-1 text-red-600 border-red-200 hover:bg-red-50">
-                        <X className="w-4 h-4 mr-2" /> Reject
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+              <div className="py-20 flex justify-center">
+                <Loader2 className="w-8 h-8 text-primary animate-spin" />
               </div>
+            ) : verified.length === 0 ? (
+              <EmptyState message="No verified (published) listings yet." />
+            ) : (
+              (() => {
+                const filters = filtersByTab.verified;
+                return (
+                  <div className="space-y-4">
+                    <FiltersBar
+                      filters={filters}
+                      selectedCategoryId={selectedCategoryId}
+                      selectedBuildingTypeId={selectedBuildingTypeId}
+                      selectedPropertyTypeId={selectedPropertyTypeId}
+                      totalForAllPropertyTypes={verifiedTotal}
+                      onCategoryChange={handleCategoryChange}
+                      onBuildingTypeChange={handleBuildingTypeChange}
+                      onPropertyTypeChange={handlePropertyTypeChange}
+                    />
+
+                    <ListingReviewTable
+                      items={verified}
+                      mode="verified"
+                      onApprove={handleApprove}
+                      onReject={handleReject}
+                      onSaveToDb={handleSaveToDb}
+                      onToggleForSale={handleToggleForSale}
+                      onToggleActive={handleToggleActive}
+                    />
+
+                    <PaginationBar
+                      currentPage={verifiedPage}
+                      totalItems={verifiedTotal}
+                      pageSize={pageSize}
+                      totalPages={verifiedTotalPages}
+                      onPageChange={(p) => handlePageChange("verified", p)}
+                      onPageSizeChange={handlePageSizeChange}
+                    />
+                  </div>
+                );
+              })()
+            )}
+          </TabsContent>
+
+          <TabsContent value="rejected" className="focus-visible:outline-none">
+            {isLoading ? (
+              <div className="py-20 flex justify-center">
+                <Loader2 className="w-8 h-8 text-primary animate-spin" />
+              </div>
+            ) : rejected.length === 0 ? (
+              <EmptyState message="No rejected listings yet." />
+            ) : (
+              (() => {
+                const filters = filtersByTab.rejected;
+                return (
+                  <div className="space-y-4">
+                    <FiltersBar
+                      filters={filters}
+                      selectedCategoryId={selectedCategoryId}
+                      selectedBuildingTypeId={selectedBuildingTypeId}
+                      selectedPropertyTypeId={selectedPropertyTypeId}
+                      totalForAllPropertyTypes={rejectedTotal}
+                      onCategoryChange={handleCategoryChange}
+                      onBuildingTypeChange={handleBuildingTypeChange}
+                      onPropertyTypeChange={handlePropertyTypeChange}
+                    />
+
+                    <ListingReviewTable
+                      items={rejected}
+                      mode="rejected"
+                      onApprove={handleApprove}
+                      onReject={handleReject}
+                      onSaveToDb={handleSaveToDb}
+                      onToggleForSale={handleToggleForSale}
+                    />
+
+                    <PaginationBar
+                      currentPage={rejectedPage}
+                      totalItems={rejectedTotal}
+                      pageSize={pageSize}
+                      totalPages={rejectedTotalPages}
+                      onPageChange={(p) => handlePageChange("rejected", p)}
+                      onPageSizeChange={handlePageSizeChange}
+                    />
+                  </div>
+                );
+              })()
             )}
           </TabsContent>
         </Tabs>
       </div>
     </PermissionGuard>
+  );
+}
+
+function FiltersBar({
+  filters,
+  selectedCategoryId,
+  selectedBuildingTypeId,
+  selectedPropertyTypeId,
+  totalForAllPropertyTypes,
+  onCategoryChange,
+  onBuildingTypeChange,
+  onPropertyTypeChange,
+}: {
+  filters?: ReviewQueueFiltersResponse | null;
+  selectedCategoryId: string | undefined;
+  selectedBuildingTypeId: string | undefined;
+  selectedPropertyTypeId: string | null;
+  totalForAllPropertyTypes: number;
+  onCategoryChange: (categoryId: string) => void;
+  onBuildingTypeChange: (buildingTypeId: string) => void;
+  onPropertyTypeChange: (propertyTypeId: string | "__ALL__") => void;
+}) {
+  const propertyTypeValue = selectedPropertyTypeId ?? "__ALL__";
+  const categories = filters?.categories ?? [];
+  const buildingTypes = filters?.buildingTypes ?? [];
+  const propertyTypes = filters?.propertyTypes ?? [];
+
+  const buildingTypeSum = buildingTypes.reduce(
+    (acc, bt) => acc + (bt.total || 0),
+    0,
+  );
+  const propertyTypeSum = propertyTypes.reduce(
+    (acc, pt) => acc + (pt.total || 0),
+    0,
+  );
+
+  const categorySelected = categories.find(
+    (c) => c.categoryId === selectedCategoryId,
+  );
+  const buildingTypeSelected = buildingTypes.find(
+    (bt) => bt.buildingTypeId === selectedBuildingTypeId,
+  );
+  const propertyTypeSelected =
+    propertyTypeValue === "__ALL__"
+      ? null
+      : propertyTypes.find((pt) => pt.propertyTypeId === propertyTypeValue) ||
+        null;
+
+  const categorySum = categories.reduce((acc, c) => acc + (c.total || 0), 0);
+  const categoryLabel = categorySelected
+    ? `${categorySelected.categoryName} (${categorySelected.total})`
+    : "Select category";
+  const buildingTypeLabel = buildingTypeSelected
+    ? `${buildingTypeSelected.buildingTypeName} (${buildingTypeSelected.total})`
+    : "Select building type";
+  const propertyTypeLabel =
+    propertyTypeValue === "__ALL__" || !propertyTypeSelected
+      ? `All Property Types (${totalForAllPropertyTypes})`
+      : `${propertyTypeSelected.propertyTypeName} (${propertyTypeSelected.total})`;
+
+  return (
+    <div className="flex flex-wrap items-end gap-4">
+      <div className="min-w-[220px]">
+        <p className="text-xs text-gray-500 mb-1">
+          Category <span className="opacity-70">({categorySum})</span>
+        </p>
+        <Select
+          value={selectedCategoryId ?? ""}
+          disabled={categories.length === 0}
+          onValueChange={(v) => onCategoryChange(v)}
+        >
+          <SelectTrigger>
+            <span className="truncate">{categoryLabel}</span>
+          </SelectTrigger>
+          <SelectContent>
+            {categories.map((c) => (
+              <SelectItem key={c.categoryId} value={c.categoryId}>
+                <span className="truncate">{c.categoryName}</span>
+                <span className="opacity-70 shrink-0">({c.total})</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="min-w-[220px]">
+        <p className="text-xs text-gray-500 mb-1">
+          Building Type <span className="opacity-70">({buildingTypeSum})</span>
+        </p>
+        <Select
+          value={selectedBuildingTypeId ?? ""}
+          disabled={!selectedCategoryId || buildingTypes.length === 0}
+          onValueChange={(v) => onBuildingTypeChange(v)}
+        >
+          <SelectTrigger>
+            <span className="truncate">{buildingTypeLabel}</span>
+          </SelectTrigger>
+          <SelectContent>
+            {buildingTypes.map((bt) => (
+              <SelectItem key={bt.buildingTypeId} value={bt.buildingTypeId}>
+                <span className="truncate">{bt.buildingTypeName}</span>
+                <span className="opacity-70 shrink-0">({bt.total})</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="min-w-[260px]">
+        <p className="text-xs text-gray-500 mb-1">
+          Property Type <span className="opacity-70">({propertyTypeSum})</span>
+        </p>
+        <Select
+          value={propertyTypeValue}
+          disabled={!selectedBuildingTypeId || propertyTypes.length === 0}
+          onValueChange={(v) =>
+            onPropertyTypeChange(v === "__ALL__" ? "__ALL__" : (v as string))
+          }
+        >
+          <SelectTrigger>
+            <span className="truncate">{propertyTypeLabel}</span>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__ALL__">
+              All Property Types{" "}
+              <span className="opacity-70 shrink-0">
+                ({totalForAllPropertyTypes})
+              </span>
+            </SelectItem>
+            {propertyTypes.map((pt) => (
+              <SelectItem key={pt.propertyTypeId} value={pt.propertyTypeId}>
+                <span className="truncate">{pt.propertyTypeName}</span>
+                <span className="opacity-70 shrink-0">({pt.total})</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
   );
 }
 

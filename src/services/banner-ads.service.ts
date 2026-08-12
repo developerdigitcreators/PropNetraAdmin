@@ -93,10 +93,19 @@ export const BANNER_FILTER_STORAGE_KEY = 'banner-ads-filters';
 
 export const DEFAULT_PLACEMENTS: AdPlacementOption[] = [
   { key: 'home', label: 'Home' },
-  { key: 'popup', label: 'Home welcome popup' },
+  { key: 'popup', label: 'Home page popup' },
   { key: 'search', label: 'Search results' },
   { key: 'listing_detail', label: 'Listing detail' },
   { key: 'refer_and_earn', label: 'Refer & Earn' },
+  { key: 'chat_notification', label: 'Chat notification page' },
+  { key: 'developer_chat', label: 'Developer chat page' },
+  { key: 'developer_property', label: 'Developer Property Page' },
+  { key: 'developer_profile', label: 'Developer Profile Page' },
+  { key: 'buy_requirement', label: 'Buy Requirement Page' },
+  { key: 'rental_listing', label: 'Rental listing page' },
+  { key: 'resale_listing', label: 'Resale listing page' },
+  { key: 'developer_home', label: 'Developer Home page' },
+  { key: 'direct_builder_floor', label: 'Direct Builder floor' },
 ];
 
 export const DEFAULT_SECTIONS: AdSectionOption[] = [
@@ -329,17 +338,25 @@ export const bannerAdsService = {
     }
   },
 
-  /** Sections within a page (Top Banner, General Banner). */
-  getSections: async (): Promise<AdSectionOption[]> => {
+  /** Sections within a page (Top Banner, General Banner). Popup has General only. */
+  getSections: async (placement?: string): Promise<AdSectionOption[]> => {
     try {
-      const response = await axiosClient.get('/admin/ads/sections');
+      const response = await axiosClient.get('/admin/ads/sections', {
+        params: placement ? { placement } : undefined,
+      });
       const raw = asArray<AdSectionOption | string>(response.data);
       const mapped = mapKeyLabelOptions(raw, (key) =>
         DEFAULT_SECTIONS.find((s) => s.key === key)?.label || key
       );
-      return mapped.length ? mapped : DEFAULT_SECTIONS;
+      const list = mapped.length ? mapped : DEFAULT_SECTIONS;
+      if (placement === 'popup') {
+        return list.filter((s) => s.key === 'general');
+      }
+      return list;
     } catch {
-      return DEFAULT_SECTIONS;
+      return placement === 'popup'
+        ? DEFAULT_SECTIONS.filter((s) => s.key === 'general')
+        : DEFAULT_SECTIONS;
     }
   },
 

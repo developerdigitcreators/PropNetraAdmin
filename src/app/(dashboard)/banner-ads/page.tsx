@@ -24,6 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { AutoslideTimePicker } from '@/components/common/autoslide-time-picker';
 import { SortableTableBody } from '@/components/common/sortable-list';
+import { withCount } from '@/lib/filter-label';
 import {
   Loader2,
   Plus,
@@ -253,6 +254,16 @@ export default function BannerAdsPage() {
     [cities, stateId]
   );
 
+  const cityCountByState = useCallback(
+    (sid: string) => cities.filter((c) => c.state_id === sid || c.state?.id === sid).length,
+    [cities],
+  );
+
+  const bannerTotal = useMemo(
+    () => Object.values(sectionMap).reduce((sum, rows) => sum + (rows?.length || 0), 0),
+    [sectionMap],
+  );
+
   const stateName = states.find((s) => s.id === stateId)?.name || '';
   const cityName = cities.find((c) => c.id === cityId)?.name || '';
   const pageLabel = placements.find((p) => p.key === placement)?.label || placement;
@@ -276,10 +287,13 @@ export default function BannerAdsPage() {
         label: DEFAULT_SECTIONS.find((s) => s.key === key)?.label || key,
       });
     }
-    // Always show at least top + general
-    if (!ordered.length) return DEFAULT_SECTIONS;
-    return ordered;
-  }, [sectionsMeta, sectionMap]);
+    // Home page popup: no Top Banner section
+    const base = ordered.length ? ordered : DEFAULT_SECTIONS;
+    if (placement === 'popup') {
+      return base.filter((s) => s.key === 'general');
+    }
+    return base;
+  }, [sectionsMeta, sectionMap, placement]);
 
   useEffect(() => {
     Promise.all([
@@ -308,6 +322,22 @@ export default function BannerAdsPage() {
       .catch(console.error)
       .finally(() => setFiltersReady(true));
   }, []);
+
+  // Refresh section meta when page (placement) changes — popup has General only
+  useEffect(() => {
+    if (!placement) return;
+    bannerAdsService
+      .getSections(placement)
+      .then((sec) => {
+        setSectionsMeta(Array.isArray(sec) && sec.length ? sec : DEFAULT_SECTIONS);
+        setOpenSections((prev) => {
+          const next = { ...prev };
+          for (const s of sec) next[s.key] = prev[s.key] ?? true;
+          return next;
+        });
+      })
+      .catch(console.error);
+  }, [placement]);
 
   useEffect(() => {
     if (!filtersReady) return;
@@ -447,19 +477,27 @@ export default function BannerAdsPage() {
 
         <div className="flex flex-wrap items-center gap-3">
           <Select value={stateId} onValueChange={(v) => onStateChange(v ?? '')}>
-            <SelectTrigger className="w-48 bg-white">
-              <span>{stateName || 'Select State'}</span>
+            <SelectTrigger className="w-52 bg-white">
+              <span>
+                {stateName
+                  ? withCount(stateName, cityCountByState(stateId))
+                  : 'Select State'}
+              </span>
             </SelectTrigger>
             <SelectContent>
               {states.map((s) => (
-                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                <SelectItem key={s.id} value={s.id}>
+                  {withCount(s.name, cityCountByState(s.id))}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
 
           <Select value={cityId} onValueChange={(v) => setCityId(v ?? '')} disabled={!stateId}>
             <SelectTrigger className="w-48 bg-white">
-              <span>{cityName || (stateId ? 'Select City' : 'Select state first')}</span>
+              <span>
+                {cityName || (stateId ? 'Select City' : 'Select state first')}
+              </span>
             </SelectTrigger>
             <SelectContent>
               {citiesForState.map((c) => (
@@ -470,11 +508,21 @@ export default function BannerAdsPage() {
 
           <Select value={placement} onValueChange={(v) => setPlacement(v ?? '')} disabled={!cityId}>
             <SelectTrigger className="w-56 bg-white">
-              <span>{pageLabel || (cityId ? 'Select Page' : 'Select city first')}</span>
+              <span>
+                {pageLabel
+                  ? ready
+                    ? withCount(pageLabel, bannerTotal)
+                    : pageLabel
+                  : cityId
+                    ? 'Select Page'
+                    : 'Select city first'}
+              </span>
             </SelectTrigger>
             <SelectContent>
               {placements.map((p) => (
-                <SelectItem key={p.key} value={p.key}>{p.label}</SelectItem>
+                <SelectItem key={p.key} value={p.key}>
+                  {p.key === placement && ready ? withCount(p.label, bannerTotal) : p.label}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>

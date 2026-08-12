@@ -28,12 +28,19 @@ function NewBannerContent() {
       router.replace('/banner-ads');
       return;
     }
+    // Home page popup has no Top Banner
+    if (placement === 'popup' && section === 'top') {
+      router.replace(
+        `/banner-ads/new?stateId=${encodeURIComponent(stateId)}&cityId=${encodeURIComponent(cityId)}&placement=popup&section=general`,
+      );
+      return;
+    }
     let cancelled = false;
     Promise.all([
       locationService.getStates(),
       locationService.getCities(),
       bannerAdsService.getPlacements(),
-      bannerAdsService.getSections(),
+      bannerAdsService.getSections(placement),
     ])
       .then(([states, cities, placements, sections]) => {
         if (cancelled) return;

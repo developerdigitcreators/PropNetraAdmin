@@ -636,19 +636,10 @@ export function ListingReviewTable({
                     <TableRow className="bg-slate-50/80 hover:bg-slate-50/80">
                       <TableCell colSpan={colCount} className="px-4 py-4">
                         <div className="rounded-xl border border-gray-200 bg-white p-4">
-                          <div className="flex flex-wrap flex-col justify-between gap-2 mb-3">
+                          <div className="mb-3">
                             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                               Listing details
                             </p>
-                            {typeof item.displayTitle === "string" &&
-                              item.displayTitle && (
-                                <p className="text-sm text-gray-800">
-                                  Title:{" "}
-                                  <span className="font-medium">
-                                    {item.displayTitle}
-                                  </span>
-                                </p>
-                              )}
                           </div>
                           {detailRows.length === 0 ? (
                             <p className="text-sm text-gray-400">
@@ -658,12 +649,8 @@ export function ListingReviewTable({
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2">
                               {detailRows.map((row) => (
                                 <div key={row.key} className="text-sm min-w-0">
-                                  <span className="text-gray-400 capitalize">
-                                    {row.key
-                                      .replace(/([A-Z])/g, " $1")
-                                      .replace(/_/g, " ")
-                                      .trim()}
-                                    :{" "}
+                                  <span className="text-gray-400">
+                                    {row.label}:{" "}
                                   </span>
                                   <span className="text-gray-800 wrap-break-word">
                                     {row.value}

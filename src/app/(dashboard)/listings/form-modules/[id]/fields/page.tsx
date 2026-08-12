@@ -9,9 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Plus, Edit2, Trash2, AlertTriangle, Settings2, ArrowLeft } from 'lucide-react';
+import { Loader2, Plus, Edit2, Trash2, AlertTriangle, Settings2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { useRouter } from 'next/navigation';
 import { useParams } from 'next/navigation';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { SortableGrid } from '@/components/common/sortable-list';
@@ -78,7 +77,12 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
     if (!formData.label) return;
     setIsSubmitting(true);
     try {
-      const payload: any = { option_label: formData.label, sort_order: Number(formData.sort_order), field_id: field.id };
+      const payload: any = {
+        option_label: formData.label,
+        option_value: formData.value?.trim() || undefined,
+        sort_order: Number(formData.sort_order),
+        field_id: field.id,
+      };
       if (editingOption) {
         await moduleOptionsService.updateOption(editingOption.id, payload);
       } else {
@@ -161,10 +165,27 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
       ) : (
         <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
           <h5 className="font-medium text-sm text-gray-900 mb-3">{editingOption ? 'Edit Option' : 'Add Option'}</h5>
-          <div className="grid grid-cols-1 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-700">Display Label</label>
-              <Input value={formData.label} onChange={e => setFormData({...formData, label: e.target.value})} placeholder="e.g. Fully Furnished" className="bg-white h-9 text-sm" />
+              <Input
+                value={formData.label}
+                onChange={(e) => setFormData({ ...formData, label: e.target.value })}
+                placeholder="e.g. Fully Furnished"
+                className="bg-white h-9 text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-700">Value</label>
+              <Input
+                value={formData.value}
+                onChange={(e) => setFormData({ ...formData, value: e.target.value })}
+                placeholder="e.g. fully_furnished"
+                className="bg-white h-9 text-sm font-mono"
+              />
+              <p className="text-[10px] text-gray-500">
+                Optional — if empty, backend generates from label.
+              </p>
             </div>
           </div>
           <div className="flex justify-end gap-2 mt-4">
@@ -181,7 +202,6 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
 
 export default function FormFieldsPage() {
   const { permissions } = useAuthStore();
-  const router = useRouter();
   const params = useParams();
   const moduleId = params.id as string;
 
@@ -302,9 +322,6 @@ export default function FormFieldsPage() {
     <PermissionGuard permission="form_modules:read" fallback={<div className="p-12 text-center text-gray-500">You do not have permission to view form modules.</div>}>
       <div className="space-y-6 pb-24">
         <Breadcrumb items={[{ label: 'Form Modules', href: '/listings/form-modules' }, { label: moduleLabel }]} />
-        <Button variant="ghost" onClick={() => router.push('/listings/form-modules')} className="text-gray-500 hover:text-gray-900 -ml-2 mb-2">
-          <ArrowLeft className="w-4 h-4 mr-2" /> Back to Sections
-        </Button>
 
         <div className="flex items-center justify-between">
           <div>

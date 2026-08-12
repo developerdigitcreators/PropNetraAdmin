@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { rbacService } from '@/services/rbac.service';
 import { adminUsersService, type AppUserBucket, type SignupRemark } from '@/services/admin-users.service';
 import { locationService } from '@/services/location.service';
+import { withCount } from '@/lib/filter-label';
 import {
   Loader2,
   Plus,
@@ -90,17 +91,6 @@ function buildFilledChips(filled: Record<string, boolean>): FilledChip[] {
     { key: 'password', label: 'Password', filled: !!filled.password },
     { key: 'referId', label: 'Refer ID', filled: !!filled.referId },
   ];
-}
-
-function missingSummary(filled?: Record<string, boolean> | null, signupStep?: string) {
-  if (!filled) return '—';
-  const chips = buildFilledChips(filled);
-  const missing = chips.filter((c) => !c.filled).map((c) => (c.optional ? `${c.label} (optional)` : c.label));
-  if (missing.length === 0) {
-    if (signupStep === 'profile' || signupStep === 'password') return 'Missing: Password';
-    return '—';
-  }
-  return `Missing: ${missing.join(', ')}`;
 }
 
 function FilledFieldsCell({ filled }: { filled?: Record<string, boolean> | null }) {
@@ -323,14 +313,12 @@ function RemarksModal({
   user,
   remarks,
   onAdd,
-  onDelete,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   user: any | null;
   remarks: UserRemark[];
   onAdd: (text: string) => void | Promise<void>;
-  onDelete: (remarkId: string) => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
@@ -360,7 +348,7 @@ function RemarksModal({
           <DialogTitle>Remarks</DialogTitle>
           <DialogDescription>
             Add remarks for {user.name || user.email || 'this signup'}. Previous remarks cannot be
-            edited (append-only).
+            edited or deleted (append-only).
           </DialogDescription>
         </DialogHeader>
 
@@ -409,19 +397,7 @@ function RemarksModal({
                     key={r.id}
                     className="rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-sm"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-gray-800 whitespace-pre-wrap break-words flex-1">{r.text}</p>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="text-red-500 hover:text-red-600 hover:bg-red-50 shrink-0 -mr-1 -mt-1"
-                        title="Delete remark"
-                        onClick={() => onDelete(r.id)}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
+                    <p className="text-gray-800 whitespace-pre-wrap break-words">{r.text}</p>
                     <p className="text-[10px] text-gray-400 mt-1.5">{formatDateTime(r.createdAt)}</p>
                   </li>
                 ))}
@@ -463,7 +439,6 @@ export function AppUsersTable({ tab }: Props) {
   const [remarksMap, setRemarksMap] = useState<Record<string, UserRemark[]>>({});
   const [remarksUser, setRemarksUser] = useState<any>(null);
   const [remarksOpen, setRemarksOpen] = useState(false);
-  const [remarksSaving, setRemarksSaving] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     setIsLoading(true);
@@ -518,6 +493,29 @@ export function AppUsersTable({ tab }: Props) {
     );
   }, [cities, users]);
 
+  const countByCityName = useCallback(
+    (cityName: string) => {
+      const key = cityName.trim().toLowerCase();
+      return users.filter((u) => String(u.city || '').trim().toLowerCase() === key).length;
+    },
+    [users],
+  );
+
+  const statusCounts = useMemo(() => {
+    const counts = {
+      all: users.length,
+      pending_approval: 0,
+      active: 0,
+      suspended: 0,
+    };
+    for (const u of users) {
+      if (u.status === 'pending_approval') counts.pending_approval += 1;
+      else if (u.status === 'active') counts.active += 1;
+      else if (u.status === 'suspended') counts.suspended += 1;
+    }
+    return counts;
+  }, [users]);
+
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
     const cityName = cityFilter.trim().toLowerCase();
@@ -567,7 +565,6 @@ export function AppUsersTable({ tab }: Props) {
   };
 
   const addRemark = async (userId: string, text: string) => {
-    setRemarksSaving(true);
     try {
       const res = await adminUsersService.addRemark(userId, text);
       const list = res?.remarks || [];
@@ -578,25 +575,6 @@ export function AppUsersTable({ tab }: Props) {
     } catch (err) {
       console.error(err);
       alert('Failed to save remark.');
-    } finally {
-      setRemarksSaving(false);
-    }
-  };
-
-  const deleteRemark = async (userId: string, remarkId: string) => {
-    setRemarksSaving(true);
-    try {
-      const res = await adminUsersService.deleteRemark(userId, remarkId);
-      const list = res?.remarks || [];
-      setRemarksMap((prev) => ({ ...prev, [userId]: list }));
-      setUsers((prev) =>
-        prev.map((u) => (u.id === userId ? { ...u, remarks: list } : u)),
-      );
-    } catch (err) {
-      console.error(err);
-      alert('Failed to delete remark.');
-    } finally {
-      setRemarksSaving(false);
     }
   };
 
@@ -616,7 +594,7 @@ export function AppUsersTable({ tab }: Props) {
   };
 
   const colSpan =
-    tab === 'otp_issued' ? 6 : tab === 'otp_verified' ? 6 : 7;
+    tab === 'otp_issued' ? 6 : tab === 'otp_verified' ? 5 : 7;
 
   return (
     <>
@@ -632,14 +610,18 @@ export function AppUsersTable({ tab }: Props) {
         </div>
 
         <Select value={cityFilter} onValueChange={(v) => setCityFilter(v ?? '')}>
-          <SelectTrigger className="w-44 bg-white">
-            <span>{cityFilter || 'All cities'}</span>
+          <SelectTrigger className="w-48 bg-white">
+            <span>
+              {cityFilter
+                ? withCount(cityFilter, countByCityName(cityFilter))
+                : withCount('All cities', users.length)}
+            </span>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All cities</SelectItem>
+            <SelectItem value="">{withCount('All cities', users.length)}</SelectItem>
             {cityOptions.map((name) => (
               <SelectItem key={name} value={name}>
-                {name}
+                {withCount(name, countByCityName(name))}
               </SelectItem>
             ))}
           </SelectContent>
@@ -650,22 +632,26 @@ export function AppUsersTable({ tab }: Props) {
             value={statusFilter}
             onValueChange={(v) => setStatusFilter((v ?? '') as AccountStatusFilter)}
           >
-            <SelectTrigger className="w-44 bg-white">
+            <SelectTrigger className="w-52 bg-white">
               <span>
                 {!statusFilter
-                  ? 'All statuses'
+                  ? withCount('All statuses', statusCounts.all)
                   : statusFilter === 'pending_approval'
-                    ? 'Pending approval'
+                    ? withCount('Pending approval', statusCounts.pending_approval)
                     : statusFilter === 'suspended'
-                      ? 'Suspended'
-                      : 'Active'}
+                      ? withCount('Suspended', statusCounts.suspended)
+                      : withCount('Active', statusCounts.active)}
               </span>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All statuses</SelectItem>
-              <SelectItem value="pending_approval">Pending approval</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="suspended">Suspended</SelectItem>
+              <SelectItem value="">{withCount('All statuses', statusCounts.all)}</SelectItem>
+              <SelectItem value="pending_approval">
+                {withCount('Pending approval', statusCounts.pending_approval)}
+              </SelectItem>
+              <SelectItem value="active">{withCount('Active', statusCounts.active)}</SelectItem>
+              <SelectItem value="suspended">
+                {withCount('Suspended', statusCounts.suspended)}
+              </SelectItem>
             </SelectContent>
           </Select>
         )}
@@ -701,7 +687,6 @@ export function AppUsersTable({ tab }: Props) {
                   <>
                     <th className="px-5 py-4 font-semibold text-gray-700">Signup Step</th>
                     <th className="px-5 py-4 font-semibold text-gray-700">Filled</th>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Missing</th>
                     <th className="px-5 py-4 font-semibold text-gray-700">Session Expires</th>
                   </>
                 )}
@@ -816,9 +801,6 @@ export function AppUsersTable({ tab }: Props) {
                           </td>
                           <td className="px-5 py-4">
                             <FilledFieldsCell filled={user.filledFields} />
-                          </td>
-                          <td className="px-5 py-4 text-xs text-red-600 max-w-[160px]">
-                            {missingSummary(user.filledFields, user.signupStep)}
                           </td>
                           <td className="px-5 py-4 text-xs text-gray-600 whitespace-nowrap">
                             {formatDateTime(user.expiresAt)}
@@ -1008,9 +990,6 @@ export function AppUsersTable({ tab }: Props) {
           remarks={remarksUser ? remarksMap[remarksUser.id] || remarksUser.remarks || [] : []}
           onAdd={async (text) => {
             if (remarksUser) await addRemark(remarksUser.id, text);
-          }}
-          onDelete={async (remarkId) => {
-            if (remarksUser) await deleteRemark(remarksUser.id, remarkId);
           }}
         />
       )}

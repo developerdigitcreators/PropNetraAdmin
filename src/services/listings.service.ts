@@ -394,25 +394,200 @@ export function getSubmittedBy(item: ListingReviewItem): string {
   return '—';
 }
 
+/** Normalize camelCase / snake_case / numbered keys to snake_case for matching. */
+function normalizeDetailKey(key: string): string {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/([A-Za-z])(\d+)/g, '$1_$2')
+    .replace(/__+/g, '_')
+    .toLowerCase();
+}
+
+const AREA_UNIT_DISPLAY: Record<string, string> = {
+  sq_yd: 'sq. yd.',
+  sq_yard: 'sq. yd.',
+  sqyd: 'sq. yd.',
+  yard: 'sq. yd.',
+  yards: 'sq. yd.',
+  square_yard: 'sq. yd.',
+  square_yards: 'sq. yd.',
+  sq_ft: 'sq. ft.',
+  sq_feet: 'sq. ft.',
+  sqft: 'sq. ft.',
+  ft: 'sq. ft.',
+  feet: 'sq. ft.',
+  square_feet: 'sq. ft.',
+  square_foot: 'sq. ft.',
+  sq_m: 'sq. m.',
+  sqm: 'sq. m.',
+};
+
+/** Form-module / listing-create flow order (location / property name / micromarket omitted — shown in summary). */
+const DETAIL_FIELD_ORDER: string[] = [
+  'category',
+  'building_type',
+  'property_type',
+  'price',
+  'price_on_request',
+  'bhk',
+  'area',
+  'area_1',
+  'area_2',
+  'area_3',
+  'area_type',
+  'area_type_1',
+  'area_type_2',
+  'area_type_3',
+  'property_direction',
+  'direction',
+  'property_facing',
+  'property_status',
+  'furnishing_status',
+  'leasing_status',
+  'floor',
+  'brokerage_share',
+  'mandate_deal',
+  'tenant_info',
+  'tenant_name',
+  'rent',
+  'security_deposit',
+  'leasing_tenure',
+  'lock_in_period',
+  'road_width',
+  'lift',
+  'additional_space',
+  'amenities',
+  'geo_location',
+];
+
+const SKIP_DETAIL_KEYS = new Set([
+  'id',
+  'user_id',
+  'userid',
+  'created_at',
+  'updated_at',
+  'createdat',
+  'updatedat',
+  'images',
+  'media',
+  'documents',
+  'dynamic_data',
+  'submitted_by',
+  // Already in summary row
+  'title',
+  'display_title',
+  'property_name',
+  'location',
+  'micromarket',
+  'micro_market',
+  // Consumed when merging area size + unit
+  'area_size',
+  'area_unit',
+  'area_size_1',
+  'area_unit_1',
+  'area_size_2',
+  'area_unit_2',
+  'area_size_3',
+  'area_unit_3',
+]);
+
+function titleCaseWords(input: string): string {
+  return input
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function humanizeDetailToken(raw: string): string {
+  const s = raw.trim();
+  if (!s) return '';
+
+  const lower = s.toLowerCase().replace(/[\s.]+/g, '_').replace(/_+$/g, '');
+  if (AREA_UNIT_DISPLAY[lower]) return AREA_UNIT_DISPLAY[lower];
+  if (lower === 'yes' || lower === 'true') return 'Yes';
+  if (lower === 'no' || lower === 'false') return 'No';
+  if (lower === 'studio') return 'Studio';
+  if (lower === '6_plus_bhk') return '6+ BHK';
+  const bhkMatch = lower.match(/^(\d+)_bhk$/);
+  if (bhkMatch) return `${bhkMatch[1]} BHK`;
+
+  // UUID / long ids — leave as-is
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return s;
+  // Currency-looking or already spaced human text without underscores
+  if (!/[_-]/.test(s)) {
+    if (/^[a-z]+$/i.test(s)) return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+    return s;
+  }
+
+  return titleCaseWords(s.replace(/[_-]+/g, ' '));
+}
+
+function formatDetailLabel(key: string): string {
+  const normalized = normalizeDetailKey(key);
+  if (normalized === 'area' || /^area_\d+$/.test(normalized)) {
+    return 'Area';
+  }
+  if (normalized === 'area_type' || /^area_type_\d+$/.test(normalized)) {
+    return 'Area Type';
+  }
+  if (normalized === 'bhk') return 'BHK';
+  if (normalized === 'price_on_request') return 'Price On Request';
+  return titleCaseWords(
+    normalized
+      .replace(/_/g, ' ')
+      .replace(/\bmicromarket\b/g, 'Micro Market'),
+  );
+}
+
 function formatDetailValue(value: unknown): string {
   if (value == null || value === '') return '';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   if (typeof value === 'number') return Number.isFinite(value) ? value.toLocaleString('en-IN') : String(value);
-  if (typeof value === 'string') return value;
+  if (typeof value === 'string') return humanizeDetailToken(value);
   if (Array.isArray(value)) {
     return value
-      .map((v) => (typeof v === 'object' && v && 'name' in v ? String((v as { name?: string }).name || '') : String(v)))
+      .map((v) => {
+        if (typeof v === 'object' && v && 'name' in v) {
+          return humanizeDetailToken(String((v as { name?: string }).name || ''));
+        }
+        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+          return formatDetailValue(v);
+        }
+        return '';
+      })
       .filter(Boolean)
       .join(', ');
   }
   if (typeof value === 'object' && value && 'name' in value) {
-    return String((value as { name?: string }).name || '');
+    return humanizeDetailToken(String((value as { name?: string }).name || ''));
   }
   return '';
 }
 
-/** Flatten form + dynamicData for expanded row details. */
-export function getListingDetailRows(item: ListingReviewItem): { key: string; value: string }[] {
+function formatAreaDisplay(sizeRaw: unknown, unitRaw: unknown): string {
+  const sizeText =
+    typeof sizeRaw === 'number' && Number.isFinite(sizeRaw)
+      ? sizeRaw.toLocaleString('en-IN')
+      : sizeRaw != null && sizeRaw !== ''
+        ? String(sizeRaw).trim()
+        : '';
+  if (!sizeText) return '';
+  const unitText =
+    unitRaw == null || unitRaw === ''
+      ? ''
+      : humanizeDetailToken(String(unitRaw));
+  return unitText ? `${sizeText} ${unitText}` : sizeText;
+}
+
+function detailSortIndex(normalizedKey: string): number {
+  const idx = DETAIL_FIELD_ORDER.indexOf(normalizedKey);
+  return idx === -1 ? 1000 + normalizedKey.charCodeAt(0) : idx;
+}
+
+export type ListingDetailRow = { key: string; label: string; value: string };
+
+/** Flatten form + dynamicData for expanded row details (form flow order, human-readable). */
+export function getListingDetailRows(item: ListingReviewItem): ListingDetailRow[] {
   const form = (item.form || {}) as Record<string, unknown>;
   const dynamic =
     form.dynamicData && typeof form.dynamicData === 'object'
@@ -429,31 +604,66 @@ export function getListingDetailRows(item: ListingReviewItem): { key: string; va
   if (!merged.buildingType && item.building_type && typeof item.building_type === 'object') {
     merged.buildingType = (item.building_type as { name?: string }).name;
   }
-  if (!merged.micromarket) {
-    const mm = item.micromarket;
-    if (mm && typeof mm === 'object' && 'name' in mm) merged.micromarket = (mm as { name?: string }).name;
+
+  const byNorm = new Map<string, { originalKey: string; value: unknown }>();
+  for (const [key, value] of Object.entries(merged)) {
+    const norm = normalizeDetailKey(key);
+    if (!byNorm.has(norm)) byNorm.set(norm, { originalKey: key, value });
   }
 
-  const skip = new Set([
-    'id',
-    'userId',
-    'user_id',
-    'createdAt',
-    'updatedAt',
-    'created_at',
-    'updated_at',
-    'images',
-    'media',
-    'documents',
-  ]);
+  // Merge area size + unit → "857 sq. yd."
+  const areaSuffixes = ['', '_1', '_2', '_3'];
+  for (const suffix of areaSuffixes) {
+    const sizeEntry = byNorm.get(`area_size${suffix}`);
+    const unitEntry = byNorm.get(`area_unit${suffix}`);
+    const combined = formatAreaDisplay(sizeEntry?.value, unitEntry?.value);
+    if (combined) {
+      const areaKey = suffix ? `area${suffix}` : 'area';
+      byNorm.set(areaKey, { originalKey: areaKey, value: combined });
+    }
+    byNorm.delete(`area_size${suffix}`);
+    byNorm.delete(`area_unit${suffix}`);
+  }
 
-  return Object.entries(merged)
-    .filter(([key, value]) => !skip.has(key) && formatDetailValue(value) !== '')
-    .map(([key, value]) => ({
-      key,
-      value: formatDetailValue(value),
-    }))
-    .slice(0, 40);
+  const rows: ListingDetailRow[] = [];
+  for (const [norm, entry] of byNorm) {
+    if (SKIP_DETAIL_KEYS.has(norm)) continue;
+    // area_size_N / area_unit_N already removed; also skip bare title variants
+    if (norm.startsWith('area_size') || norm.startsWith('area_unit')) continue;
+
+    let value: string;
+    if (norm === 'area' || /^area_\d+$/.test(norm)) {
+      // Already formatted by formatAreaDisplay (or pass-through string)
+      value =
+        typeof entry.value === 'string'
+          ? entry.value
+          : formatDetailValue(entry.value);
+    } else if (norm === 'price') {
+      const num = Number(entry.value);
+      value = Number.isFinite(num)
+        ? `₹ ${num.toLocaleString('en-IN')}`
+        : formatDetailValue(entry.value);
+    } else {
+      value = formatDetailValue(entry.value);
+    }
+    if (!value) continue;
+
+    rows.push({
+      key: entry.originalKey,
+      label: formatDetailLabel(norm),
+      value,
+    });
+  }
+
+  rows.sort((a, b) => {
+    const aNorm = normalizeDetailKey(a.key);
+    const bNorm = normalizeDetailKey(b.key);
+    const diff = detailSortIndex(aNorm) - detailSortIndex(bNorm);
+    if (diff !== 0) return diff;
+    return a.label.localeCompare(b.label);
+  });
+
+  return rows.slice(0, 40);
 }
 
 /** @deprecated Use ListingReviewItem */

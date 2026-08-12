@@ -51,7 +51,9 @@ export function BannerForm({
     lockedPlacement || banner?.placement || 'home'
   );
   const [section, setSection] = useState(
-    lockedSection || banner?.section || 'general'
+    lockedPlacement === 'popup'
+      ? 'general'
+      : lockedSection || banner?.section || 'general'
   );
   const [isActive, setIsActive] = useState(
     typeof banner?.isActive === 'boolean'
@@ -75,6 +77,7 @@ export function BannerForm({
   const [helpersLoading, setHelpersLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<{ mediaUrl?: string; link?: string }>({});
 
   const mediaType = useMemo(() => detectMediaType(mediaUrl), [mediaUrl]);
 
@@ -84,7 +87,7 @@ export function BannerForm({
     Promise.all([
       bannerAdsService.getPages(),
       bannerAdsService.getPlacements(),
-      bannerAdsService.getSections(),
+      bannerAdsService.getSections(lockedPlacement || undefined),
     ])
       .then(([pageOpts, placementOpts, sectionOpts]) => {
         if (cancelled) return;
@@ -95,7 +98,8 @@ export function BannerForm({
         if (lockedPlacement) setPlacement(lockedPlacement);
         else if (!banner?.placement && placementOpts[0]) setPlacement(placementOpts[0].key);
         else if (!banner?.placement && !placementOpts.length) setPlacement('home');
-        if (lockedSection) setSection(lockedSection);
+        if (lockedPlacement === 'popup') setSection('general');
+        else if (lockedSection) setSection(lockedSection);
         else if (!banner?.section && sectionOpts[0]) setSection(sectionOpts[0].key);
       })
       .catch((err) => {
@@ -107,7 +111,8 @@ export function BannerForm({
           if (!pageKey) setPageKey('refer_and_earn');
           if (lockedPlacement) setPlacement(lockedPlacement);
           else if (!placement) setPlacement('home');
-          if (lockedSection) setSection(lockedSection);
+          if (lockedPlacement === 'popup') setSection('general');
+          else if (lockedSection) setSection(lockedSection);
           else if (!section) setSection('general');
         }
       })
@@ -159,19 +164,29 @@ export function BannerForm({
   const sectionLabel = sections.find((s) => s.key === section)?.label || section;
   const linkPageLabel = pages.find((p) => p.key === pageKey)?.label || pageKey;
 
-  const validate = (): string | null => {
-    if (!mediaUrl.trim()) return 'Media URL is required.';
-    try {
-      // eslint-disable-next-line no-new
-      new URL(mediaUrl.trim());
-    } catch {
-      return 'Media URL must be a valid URL.';
+  const validate = (): { mediaUrl?: string; link?: string } | null => {
+    const next: { mediaUrl?: string; link?: string } = {};
+
+    if (!mediaUrl.trim()) {
+      next.mediaUrl = 'Banner media URL is required.';
+    } else {
+      try {
+        // eslint-disable-next-line no-new
+        new URL(mediaUrl.trim());
+      } catch {
+        next.mediaUrl = 'Enter a valid image or video URL.';
+      }
     }
-    if (!placement) return 'Page is required.';
-    if (!section) return 'Section is required.';
-    if (addLink && linkKind === 'post' && !listingId) return 'Select a developer post.';
-    if (addLink && linkKind === 'page' && !pageKey) return 'Select a page link.';
-    return null;
+
+    if (addLink) {
+      if (linkKind === 'post' && !listingId.trim()) {
+        next.link = 'Select a developer post / listing.';
+      } else if (linkKind === 'page' && !pageKey.trim()) {
+        next.link = 'Select an internal page.';
+      }
+    }
+
+    return Object.keys(next).length ? next : null;
   };
 
   const buildPayload = (): CreateBannerPayload => {
@@ -192,11 +207,21 @@ export function BannerForm({
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const validationError = validate();
-    if (validationError) {
-      setError(validationError);
+    if (!placement || !section) {
+      setError('Page and section are required.');
       return;
     }
+    const validationErrors = validate();
+    if (validationErrors) {
+      setFieldErrors(validationErrors);
+      setError(
+        validationErrors.mediaUrl ||
+          validationErrors.link ||
+          'Please fill all mandatory fields.',
+      );
+      return;
+    }
+    setFieldErrors({});
     setError('');
     setIsSubmitting(true);
     try {
@@ -250,17 +275,27 @@ export function BannerForm({
         </div>
         <div className="space-y-1.5">
           <label className="text-sm font-medium text-gray-700">Section</label>
-          {lockedSection ? (
-            <Input value={sectionLabel || section} disabled className="bg-gray-50" />
+          {lockedSection || lockedPlacement === 'popup' ? (
+            <Input
+              value={
+                lockedPlacement === 'popup'
+                  ? 'General Banner'
+                  : sectionLabel || section
+              }
+              disabled
+              className="bg-gray-50"
+            />
           ) : (
             <Select value={section} onValueChange={(v) => setSection(v ?? 'general')}>
               <SelectTrigger className="w-full">
                 <span>{sectionLabel || 'Select section'}</span>
               </SelectTrigger>
               <SelectContent>
-                {sections.map((s) => (
-                  <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>
-                ))}
+                {sections
+                  .filter((s) => (lockedPlacement === 'popup' ? s.key === 'general' : true))
+                  .map((s) => (
+                    <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           )}
@@ -269,7 +304,9 @@ export function BannerForm({
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">
-          <label className="text-sm font-medium text-gray-700">Banner media URL</label>
+          <label className="text-sm font-medium text-gray-700">
+            Banner media URL <span className="text-red-500">*</span>
+          </label>
           <Badge variant="outline" className="gap-1 capitalize">
             {mediaType === 'video' ? <Video className="w-3 h-3" /> : <ImageIcon className="w-3 h-3" />}
             {mediaType}
@@ -277,10 +314,20 @@ export function BannerForm({
         </div>
         <Input
           value={mediaUrl}
-          onChange={(e) => setMediaUrl(e.target.value)}
+          onChange={(e) => {
+            setMediaUrl(e.target.value);
+            if (fieldErrors.mediaUrl) setFieldErrors((f) => ({ ...f, mediaUrl: undefined }));
+          }}
           placeholder="https://cdn.example.com/banner.jpg"
+          required
+          aria-invalid={!!fieldErrors.mediaUrl}
+          className={fieldErrors.mediaUrl ? 'border-red-500 focus-visible:ring-red-500' : ''}
         />
-        <p className="text-xs text-gray-500">Paste an image or video URL. Upload comes later.</p>
+        {fieldErrors.mediaUrl ? (
+          <p className="text-xs text-red-600">{fieldErrors.mediaUrl}</p>
+        ) : (
+          <p className="text-xs text-gray-500">Paste an image or video URL. Upload comes later.</p>
+        )}
         {mediaUrl && mediaType === 'image' && (
           <div className="mt-2 w-full max-w-sm h-32 rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -295,7 +342,13 @@ export function BannerForm({
             <p className="text-sm font-medium text-gray-900">Add link?</p>
             <p className="text-xs text-gray-500">When off, tapping the banner does nothing.</p>
           </div>
-          <Switch checked={addLink} onCheckedChange={setAddLink} />
+          <Switch
+            checked={addLink}
+            onCheckedChange={(v) => {
+              setAddLink(v);
+              if (!v) setFieldErrors((f) => ({ ...f, link: undefined }));
+            }}
+          />
         </div>
 
         {addLink && (
@@ -305,7 +358,10 @@ export function BannerForm({
                 type="button"
                 variant={linkKind === 'post' ? 'default' : 'outline'}
                 className={linkKind === 'post' ? 'bg-primary text-white' : ''}
-                onClick={() => setLinkKind('post')}
+                onClick={() => {
+                  setLinkKind('post');
+                  setFieldErrors((f) => ({ ...f, link: undefined }));
+                }}
               >
                 Developer project
               </Button>
@@ -313,7 +369,11 @@ export function BannerForm({
                 type="button"
                 variant={linkKind === 'page' ? 'default' : 'outline'}
                 className={linkKind === 'page' ? 'bg-primary text-white' : ''}
-                onClick={() => setLinkKind('page')}
+                onClick={() => {
+                  setLinkKind('page');
+                  setFieldErrors((f) => ({ ...f, link: undefined }));
+                  if (!pageKey && pages[0]) setPageKey(pages[0].key);
+                }}
               >
                 Internal Pages
               </Button>
@@ -321,28 +381,39 @@ export function BannerForm({
 
             {linkKind === 'post' && (
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-gray-700">Developer post</label>
+                <label className="text-sm font-medium text-gray-700">
+                  Developer post / Listing <span className="text-red-500">*</span>
+                </label>
                 <SearchableSelect
                   options={postOptions}
                   value={listingId}
-                  onValueChange={setListingId}
+                  onValueChange={(v) => {
+                    setListingId(v);
+                    if (fieldErrors.link) setFieldErrors((f) => ({ ...f, link: undefined }));
+                  }}
                   onSearch={cityId ? loadPosts : undefined}
                   loading={postsLoading}
                   placeholder="Select developer post"
                   searchPlaceholder="Search posts…"
                   emptyText="No posts for this city."
                 />
+                {fieldErrors.link && <p className="text-xs text-red-600">{fieldErrors.link}</p>}
               </div>
             )}
 
             {linkKind === 'page' && (
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-gray-700">Page</label>
+                <label className="text-sm font-medium text-gray-700">
+                  Page <span className="text-red-500">*</span>
+                </label>
                 <Select
                   value={pageKey || pages[0]?.key || 'refer_and_earn'}
-                  onValueChange={(v) => setPageKey(v ?? '')}
+                  onValueChange={(v) => {
+                    setPageKey(v ?? '');
+                    if (fieldErrors.link) setFieldErrors((f) => ({ ...f, link: undefined }));
+                  }}
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger className={`w-full ${fieldErrors.link ? 'border-red-500' : ''}`}>
                     <span>{linkPageLabel || 'Select page'}</span>
                   </SelectTrigger>
                   <SelectContent>
@@ -353,6 +424,7 @@ export function BannerForm({
                     ))}
                   </SelectContent>
                 </Select>
+                {fieldErrors.link && <p className="text-xs text-red-600">{fieldErrors.link}</p>}
               </div>
             )}
           </div>

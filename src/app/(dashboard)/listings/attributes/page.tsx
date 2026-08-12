@@ -14,6 +14,7 @@ import { Loader2, Plus, Edit2, Trash2, AlertTriangle, Check } from 'lucide-react
 import { Badge } from '@/components/ui/badge';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { SortableTableBody } from '@/components/common/sortable-list';
+import { withCount } from '@/lib/filter-label';
 
 export default function AttributesPage() {
   const { permissions } = useAuthStore();
@@ -434,13 +435,31 @@ export default function AttributesPage() {
         <TabsContent value="building_types">
           <div className="mt-4 flex items-center gap-3">
             <Select value={filterCategoryBT || undefined} onValueChange={setFilterCategoryBT}>
-              <SelectTrigger className="w-64 bg-white">
+              <SelectTrigger className="w-72 bg-white">
                 <SelectValue placeholder="Select Category">
-                  {filterCategoryBT ? categories.find(c => c.id === filterCategoryBT)?.name : undefined}
+                  {filterCategoryBT
+                    ? withCount(
+                        categories.find((c) => c.id === filterCategoryBT)?.name || 'Category',
+                        buildingTypes.filter(
+                          (b) =>
+                            b.category_id === filterCategoryBT ||
+                            b.category?.id === filterCategoryBT,
+                        ).length,
+                      )
+                    : undefined}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                {categories.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {withCount(
+                      c.name,
+                      buildingTypes.filter(
+                        (b) => b.category_id === c.id || b.category?.id === c.id,
+                      ).length,
+                    )}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -453,23 +472,64 @@ export default function AttributesPage() {
                 const bts = buildingTypes.filter(b => b.category_id === v || b.category?.id === v);
                 setFilterBuildingTypePT(bts.length > 0 ? bts[0].id : '');
             }}>
-              <SelectTrigger className="w-64 bg-white">
+              <SelectTrigger className="w-72 bg-white">
                 <SelectValue placeholder="Select Category">
-                  {filterCategoryPT ? categories.find(c => c.id === filterCategoryPT)?.name : undefined}
+                  {filterCategoryPT
+                    ? withCount(
+                        categories.find((c) => c.id === filterCategoryPT)?.name || 'Category',
+                        buildingTypes.filter(
+                          (b) =>
+                            b.category_id === filterCategoryPT ||
+                            b.category?.id === filterCategoryPT,
+                        ).length,
+                      )
+                    : undefined}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                {categories.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {withCount(
+                      c.name,
+                      buildingTypes.filter(
+                        (b) => b.category_id === c.id || b.category?.id === c.id,
+                      ).length,
+                    )}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Select value={filterBuildingTypePT || undefined} onValueChange={setFilterBuildingTypePT} disabled={!filterCategoryPT}>
-              <SelectTrigger className="w-64 bg-white">
+              <SelectTrigger className="w-72 bg-white">
                 <SelectValue placeholder="Select Building Type">
-                  {filterBuildingTypePT ? buildingTypes.find(b => b.id === filterBuildingTypePT)?.name : undefined}
+                  {filterBuildingTypePT
+                    ? withCount(
+                        buildingTypes.find((b) => b.id === filterBuildingTypePT)?.name ||
+                          'Building Type',
+                        propertyTypes.filter(
+                          (p) =>
+                            (p.building_type_id || p.building_type?.id) === filterBuildingTypePT,
+                        ).length,
+                      )
+                    : undefined}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {buildingTypes.filter(b => b.category_id === filterCategoryPT || b.category?.id === filterCategoryPT).map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                {buildingTypes
+                  .filter(
+                    (b) =>
+                      b.category_id === filterCategoryPT || b.category?.id === filterCategoryPT,
+                  )
+                  .map((b) => (
+                    <SelectItem key={b.id} value={b.id}>
+                      {withCount(
+                        b.name,
+                        propertyTypes.filter(
+                          (p) => (p.building_type_id || p.building_type?.id) === b.id,
+                        ).length,
+                      )}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>

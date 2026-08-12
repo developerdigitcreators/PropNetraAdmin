@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Plus, Edit2, Trash2, AlertTriangle, Search } from 'lucide-react';
 import { Breadcrumb } from '@/components/common/breadcrumb';
+import { withCount } from '@/lib/filter-label';
 
 function isApproved(status?: string) {
   return status === 'approved' || status === 'admin_added';
@@ -187,6 +188,18 @@ export default function PropertyNamesPage() {
     return matchCity && matchMM && matchSearch;
   });
 
+  const approvedNames = propertyNames.filter((p) => isApproved(p.status));
+  const countByCity = (cityId: string) =>
+    approvedNames.filter((p) => p.city_id === cityId || p.city?.id === cityId).length;
+  const countByMm = (mmId: string) =>
+    approvedNames.filter(
+      (p) =>
+        (p.micro_market_id === mmId || p.micro_market?.id === mmId) &&
+        (!filterCityId || p.city_id === filterCityId || p.city?.id === filterCityId),
+    ).length;
+  const allCitiesCount = approvedNames.length;
+  const allMmCount = filterCityId ? countByCity(filterCityId) : approvedNames.length;
+
   const selectedStateName = states.find((s) => s.id === form.state_id)?.name;
   const selectedCityName = cities.find((c) => c.id === form.city_id)?.name;
   const selectedMmName = microMarkets.find((m) => m.id === form.micro_market_id)?.name;
@@ -222,24 +235,36 @@ export default function PropertyNamesPage() {
               setFilterMmId('');
             }}
           >
-            <SelectTrigger className="w-36">
-              {filterCityName ? <span>{filterCityName}</span> : <SelectValue placeholder="All Cities" />}
+            <SelectTrigger className="w-44">
+              <span>
+                {filterCityName
+                  ? withCount(filterCityName, countByCity(filterCityId))
+                  : withCount('All Cities', allCitiesCount)}
+              </span>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Cities</SelectItem>
+              <SelectItem value="">{withCount('All Cities', allCitiesCount)}</SelectItem>
               {cities.map((c) => (
-                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                <SelectItem key={c.id} value={c.id}>
+                  {withCount(c.name, countByCity(c.id))}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Select value={filterMmId} onValueChange={(v) => setFilterMmId(v ?? '')} disabled={!filterCityId}>
-            <SelectTrigger className="w-44">
-              {filterMmName ? <span>{filterMmName}</span> : <SelectValue placeholder="All Micro Markets" />}
+            <SelectTrigger className="w-52">
+              <span>
+                {filterMmName
+                  ? withCount(filterMmName, countByMm(filterMmId))
+                  : withCount('All Micro Markets', allMmCount)}
+              </span>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Micro Markets</SelectItem>
+              <SelectItem value="">{withCount('All Micro Markets', allMmCount)}</SelectItem>
               {availableMMs.map((m) => (
-                <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                <SelectItem key={m.id} value={m.id}>
+                  {withCount(m.name, countByMm(m.id))}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>

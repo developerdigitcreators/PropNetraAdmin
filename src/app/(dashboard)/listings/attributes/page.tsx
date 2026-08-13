@@ -125,10 +125,15 @@ export default function AttributesPage() {
           const selectedCatIds = formData.category_ids || [];
           
           let idsToCreate: string[] = [];
-          if (selectedCatIds.includes(originalCatId)) {
+          if (selectedCatIds.length === 0) {
+            await listingConfigService.updateBuildingType(editingItem.id, {
+              ...payload,
+              category_id: null,
+            });
+          } else if (selectedCatIds.includes(originalCatId)) {
             await listingConfigService.updateBuildingType(editingItem.id, { ...payload, category_id: originalCatId });
             idsToCreate = selectedCatIds.filter((id: string) => id !== originalCatId);
-          } else if (selectedCatIds.length > 0) {
+          } else {
             await listingConfigService.updateBuildingType(editingItem.id, { ...payload, category_id: selectedCatIds[0] });
             idsToCreate = selectedCatIds.slice(1);
           }
@@ -144,10 +149,15 @@ export default function AttributesPage() {
           const selectedBtIds = formData.building_type_ids || [];
           
           let idsToCreate: string[] = [];
-          if (selectedBtIds.includes(originalBtId)) {
+          if (selectedBtIds.length === 0) {
+            await listingConfigService.updatePropertyType(editingItem.id, {
+              ...payload,
+              building_type_id: null,
+            });
+          } else if (selectedBtIds.includes(originalBtId)) {
             await listingConfigService.updatePropertyType(editingItem.id, { ...payload, building_type_id: originalBtId });
             idsToCreate = selectedBtIds.filter((id: string) => id !== originalBtId);
-          } else if (selectedBtIds.length > 0) {
+          } else {
             await listingConfigService.updatePropertyType(editingItem.id, { ...payload, building_type_id: selectedBtIds[0] });
             idsToCreate = selectedBtIds.slice(1);
           }

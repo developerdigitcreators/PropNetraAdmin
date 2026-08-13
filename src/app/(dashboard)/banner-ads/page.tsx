@@ -383,10 +383,9 @@ export default function BannerAdsPage() {
 
   const saveAutoslide = async (nextRaw: string) => {
     const next = normalizeAutoslideValue(nextRaw, DEFAULT_AUTOSLIDE);
-    if (!ready || !next || next === autoslide) return;
+    if (!ready || !canUpdate || !next || next === autoslide) return;
     const prev = autoslide;
     setAutoslide(next);
-    if (!canUpdate) return;
     setSavingAutoslide(true);
     try {
       await bannerAdsService.updateSettings({

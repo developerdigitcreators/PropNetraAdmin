@@ -9,6 +9,12 @@ export type RejectListingReviewPayload = {
   propertyNameRemark?: string;
   locationRemark?: string;
   microMarketRemark?: string;
+  propertyName?: string;
+  propertyNameId?: string;
+  locationName?: string;
+  locationId?: string;
+  microMarketName?: string;
+  microMarketId?: string;
 };
 
 export type ListingHighlightRef = {
@@ -413,6 +419,13 @@ export function getCatalogSavedId(
   field: 'propertyName' | 'location' | 'microMarket',
 ): string {
   return item.catalogSave?.[field]?.savedId || '';
+}
+
+export function getCatalogOriginalName(
+  item: ListingReviewItem,
+  field: 'propertyName' | 'location' | 'microMarket',
+): string {
+  return item.catalogSave?.[field]?.originalName || '';
 }
 
 export function isMicroMarketPending(item: ListingReviewItem): boolean {

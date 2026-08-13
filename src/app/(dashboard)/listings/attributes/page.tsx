@@ -73,14 +73,16 @@ export default function AttributesPage() {
   const handleOpenModal = (item: any = null) => {
     setEditingItem(item);
     if (item) {
+      const categoryId = item.category_id || item.category?.id || '';
+      const buildingTypeId = item.building_type_id || item.building_type?.id || '';
       setFormData({ 
         name: item.name, 
         sort_order: item.sort_order || item.phase || 1, 
         is_active: item.is_active ?? true,
-        category_id: item.category_id || item.category?.id || '',
-        category_ids: item.category_id || item.category?.id ? [item.category_id || item.category?.id] : [],
-        building_type_id: item.building_type_id || item.building_type?.id || '',
-        building_type_ids: item.building_type_id || item.building_type?.id ? [item.building_type_id || item.building_type?.id] : [],
+        category_id: categoryId,
+        category_ids: categoryId ? [categoryId] : [],
+        building_type_id: buildingTypeId,
+        building_type_ids: buildingTypeId ? [buildingTypeId] : [],
         icon_url: item.icon_url || ''
       });
     } else {

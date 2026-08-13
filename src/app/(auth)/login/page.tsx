@@ -72,9 +72,19 @@ export default function LoginPage() {
           : res;
 
       const user = payload?.user;
-      const accessToken = payload?.token || payload?.accessToken;
+      const accessToken =
+        typeof payload?.token === 'string'
+          ? payload.token
+          : typeof payload?.accessToken === 'string'
+            ? payload.accessToken
+            : '';
       const perms = user?.permissions || [];
       const roles = normalizeRoles(user);
+
+      if (!accessToken) {
+        setError('Login failed: no access token received. Please try again.');
+        return;
+      }
 
       setAuthData(user, accessToken, perms);
 

@@ -21,6 +21,7 @@ export const useAuthStore = create<AuthState>()(
       accessToken: null,
       permissions: new Set(),
       setAuthData: (user, token, permissions) => {
+        if (!token) return;
         // Also save token to cookie for Next.js middleware
         Cookies.set('access_token', token, { expires: 1 });
         set({

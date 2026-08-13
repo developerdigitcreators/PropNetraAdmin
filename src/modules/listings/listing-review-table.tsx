@@ -1,9 +1,11 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { locationService } from "@/services/location.service";
 import {
   canToggleForSaleTitle,
+  getCatalogSavedId,
+  getCatalogSavedName,
   getHighlightedLocationName,
   getHighlightedPropertyName,
   getHighlightedMicroMarketId,
@@ -13,8 +15,10 @@ import {
   getListingPrice,
   getListingPropertyTypeName,
   getSubmittedBy,
+  hasCatalogSave,
   isForSaleTitleEnabled,
   isLocationPending,
+  isMicroMarketPending,
   isPropertyNamePending,
   type ApproveListingReviewPayload,
   type ListingReviewItem,
@@ -26,12 +30,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/common/searchable-select";
 import {
   Dialog,
   DialogContent,
@@ -49,6 +48,7 @@ import {
 } from "@/components/ui/table";
 import {
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Database,
@@ -73,14 +73,136 @@ type RowDraft = {
   forSale: boolean;
 };
 
+type CatalogPick = {
+  id: string;
+  name: string;
+};
+
+type CatalogOption = {
+  id: string;
+  name: string;
+  status?: string | null;
+};
+
 type SaveDraft = {
   forSale: boolean;
-  savePropertyName: boolean;
-  saveLocation: boolean;
-  propertyName: string;
-  locationName: string;
-  microMarketId: string;
+  propertyName: CatalogPick;
+  location: CatalogPick;
+  microMarket: CatalogPick;
 };
+
+function isApprovedCatalogStatus(status?: string | null) {
+  if (!status) return true;
+  return status === "approved" || status === "admin_added";
+}
+
+function asCatalogOptions(raw: unknown): CatalogOption[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((x) => x as Record<string, unknown>)
+    .filter((x) => typeof x.id === "string" && typeof x.name === "string")
+    .filter((x) => isApprovedCatalogStatus(typeof x.status === "string" ? x.status : null))
+    .map((x) => ({
+      id: x.id as string,
+      name: x.name as string,
+      status: typeof x.status === "string" ? x.status : null,
+    }));
+}
+
+function toSelectOptions(list: CatalogOption[]) {
+  return list.map((item) => ({ value: item.id, label: item.name }));
+}
+
+function pickFromCatalog(
+  item: ListingReviewItem,
+  field: "propertyName" | "location" | "microMarket",
+  originalName: string,
+  originalId: string,
+): CatalogPick {
+  const savedId = getCatalogSavedId(item, field);
+  const savedName = getCatalogSavedName(item, field);
+  if (savedId || savedName) {
+    return { id: savedId, name: savedName || originalName };
+  }
+  return { id: originalId, name: originalName };
+}
+
+function CompareField({
+  label,
+  original,
+  right,
+}: {
+  label: string;
+  original: string;
+  right: ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-sm font-medium text-gray-900">{label}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">Original</p>
+          <div className="h-8 rounded-lg border border-gray-200 bg-gray-50 px-2.5 text-sm text-gray-700 flex items-center">
+            <span className="truncate">{original || "—"}</span>
+          </div>
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">
+            Saved / corrected
+          </p>
+          {right}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CatalogPickSelect({
+  options,
+  value,
+  disabled,
+  loading,
+  placeholder,
+  onChange,
+}: {
+  options: CatalogOption[];
+  value: CatalogPick;
+  disabled?: boolean;
+  loading?: boolean;
+  placeholder: string;
+  onChange?: (next: CatalogPick) => void;
+}) {
+  const selectOptions = toSelectOptions(options);
+  const known = options.some((o) => o.id === value.id);
+  const selectValue = known ? value.id : value.name ? "__custom__" : "";
+  const optionsWithCustom =
+    !known && value.name
+      ? [...selectOptions, { value: "__custom__", label: value.name }]
+      : selectOptions;
+
+  return (
+    <SearchableSelect
+      options={optionsWithCustom}
+      value={selectValue}
+      selectedLabel={value.name}
+      disabled={disabled}
+      loading={loading}
+      allowCreate={!disabled}
+      placeholder={placeholder}
+      emptyText="No options found."
+      onValueChange={(id) => {
+        if (!onChange || id === "__custom__") return;
+        const found = options.find((o) => o.id === id);
+        onChange({ id: id || "", name: found?.name || "" });
+      }}
+      onCreate={
+        disabled
+          ? undefined
+          : (name) => onChange?.({ id: "", name })
+      }
+    />
+  );
+}
 
 function buildRowDraft(item: ListingReviewItem): RowDraft {
   return { forSale: isForSaleTitleEnabled(item) };
@@ -89,12 +211,24 @@ function buildRowDraft(item: ListingReviewItem): RowDraft {
 function buildSaveDraft(item: ListingReviewItem, forSale: boolean): SaveDraft {
   return {
     forSale,
-    // Property-name mode (forSale OFF): no checkboxes — always save PN + location + MM.
-    savePropertyName: !forSale,
-    saveLocation: !forSale,
-    propertyName: getHighlightedPropertyName(item),
-    locationName: getHighlightedLocationName(item),
-    microMarketId: getHighlightedMicroMarketId(item),
+    propertyName: pickFromCatalog(
+      item,
+      "propertyName",
+      getHighlightedPropertyName(item),
+      typeof item.property_name?.id === "string" ? item.property_name.id : "",
+    ),
+    location: pickFromCatalog(
+      item,
+      "location",
+      getHighlightedLocationName(item),
+      typeof item.location?.id === "string" ? item.location.id : "",
+    ),
+    microMarket: pickFromCatalog(
+      item,
+      "microMarket",
+      getHighlightedMicroMarketName(item),
+      getHighlightedMicroMarketId(item),
+    ),
   };
 }
 
@@ -117,7 +251,10 @@ export function ListingReviewTable({
   const [saveOpen, setSaveOpen] = useState<{ id: string } | null>(null);
   const [saveDraft, setSaveDraft] = useState<SaveDraft | null>(null);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
-  const [microMarkets, setMicroMarkets] = useState<Array<{ id: string; name: string }>>([]);
+  const [microMarkets, setMicroMarkets] = useState<CatalogOption[]>([]);
+  const [propertyNames, setPropertyNames] = useState<CatalogOption[]>([]);
+  const [locations, setLocations] = useState<CatalogOption[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
   const [activeById, setActiveById] = useState<Record<string, boolean>>({});
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const [isGrabbing, setIsGrabbing] = useState(false);
@@ -151,28 +288,38 @@ export function ListingReviewTable({
     setSaveOpen({ id: item.id });
   };
 
+  const catalogDialogOpen = !!saveOpen || confirm?.action === "reject";
+
   useEffect(() => {
-    if (!saveOpen) return;
+    if (!catalogDialogOpen) return;
     let cancelled = false;
-    locationService
-      .getMicroMarkets()
-      .then((mm: unknown) => {
+    const load = async () => {
+      setCatalogLoading(true);
+      try {
+        const [mm, locs, pns] = await Promise.all([
+          locationService.getMicroMarkets(),
+          locationService.getLocations(),
+          locationService.getPropertyNames(),
+        ]);
         if (cancelled) return;
-        if (!Array.isArray(mm)) return;
-        const list = mm
-          .map((x) => x as Record<string, unknown>)
-          .filter((x) => typeof x.id === "string" && typeof x.name === "string")
-          .map((x) => ({ id: x.id as string, name: x.name as string }));
-        setMicroMarkets(list);
-      })
-      .catch((err) => {
+        setMicroMarkets(asCatalogOptions(mm));
+        setLocations(asCatalogOptions(locs));
+        setPropertyNames(asCatalogOptions(pns));
+      } catch (err) {
         console.error(err);
-        if (!cancelled) setMicroMarkets([]);
-      });
+        if (cancelled) return;
+        setMicroMarkets([]);
+        setLocations([]);
+        setPropertyNames([]);
+      } finally {
+        if (!cancelled) setCatalogLoading(false);
+      }
+    };
+    void load();
     return () => {
       cancelled = true;
     };
-  }, [saveOpen]);
+  }, [catalogDialogOpen]);
 
   const handleToggleForSale = async (
     item: ListingReviewItem,
@@ -221,8 +368,9 @@ export function ListingReviewTable({
     setBusyId(id);
     try {
       if (action === "reject") {
+        const forSale = draft.forSale;
         const payload: RejectListingReviewPayload = {};
-        if (rejectRemarksDraft.rejectPropertyName) {
+        if (!forSale && rejectRemarksDraft.rejectPropertyName) {
           payload.rejectPropertyName = true;
           payload.propertyNameRemark =
             rejectRemarksDraft.propertyNameRemark?.trim() || undefined;
@@ -268,20 +416,21 @@ export function ListingReviewTable({
   const handleSaveToDb = async () => {
     if (!saveOpen || !saveDraft) return;
 
+    const locReady = !!(saveDraft.location.id || saveDraft.location.name.trim());
+    const mmReady = !!(saveDraft.microMarket.id || saveDraft.microMarket.name.trim());
+    const pnReady = !!(saveDraft.propertyName.id || saveDraft.propertyName.name.trim());
+
     if (saveDraft.forSale) {
-      if (!saveDraft.saveLocation) {
-        alert("Select location to save.");
+      if (!locReady) {
+        alert("Select or enter a location.");
         return;
       }
-    } else {
-      // Property-name mode: PN + location + micromarket are always included.
-      if (!saveDraft.propertyName.trim() || !saveDraft.locationName.trim()) {
-        alert("Property name and location are required.");
-        return;
-      }
+    } else if (!pnReady || !locReady) {
+      alert("Property name and location are required.");
+      return;
     }
-    if (!saveDraft.microMarketId) {
-      alert("Select a micro market.");
+    if (!mmReady) {
+      alert("Select or enter a micro market.");
       return;
     }
 
@@ -292,16 +441,21 @@ export function ListingReviewTable({
             savePropertyName: false,
             saveLocation: true,
             saveMicroMarket: true,
-            locationName: saveDraft.locationName.trim() || undefined,
-            microMarketId: saveDraft.microMarketId,
+            locationId: saveDraft.location.id || undefined,
+            locationName: saveDraft.location.name.trim() || undefined,
+            microMarketId: saveDraft.microMarket.id || undefined,
+            microMarketName: saveDraft.microMarket.name.trim() || undefined,
           }
         : {
             savePropertyName: true,
             saveLocation: true,
             saveMicroMarket: true,
-            propertyName: saveDraft.propertyName.trim(),
-            locationName: saveDraft.locationName.trim(),
-            microMarketId: saveDraft.microMarketId,
+            propertyNameId: saveDraft.propertyName.id || undefined,
+            propertyName: saveDraft.propertyName.name.trim() || undefined,
+            locationId: saveDraft.location.id || undefined,
+            locationName: saveDraft.location.name.trim() || undefined,
+            microMarketId: saveDraft.microMarket.id || undefined,
+            microMarketName: saveDraft.microMarket.name.trim() || undefined,
           };
       await onSaveToDb(saveOpen.id, payload);
       setSaveOpen(null);
@@ -314,6 +468,13 @@ export function ListingReviewTable({
     }
   };
 
+  const saveDraftReady =
+    !!saveDraft &&
+    !!(saveDraft.location.id || saveDraft.location.name.trim()) &&
+    !!(saveDraft.microMarket.id || saveDraft.microMarket.name.trim()) &&
+    (saveDraft.forSale ||
+      !!(saveDraft.propertyName.id || saveDraft.propertyName.name.trim()));
+
   if (items.length === 0) {
     return (
       <div className="bg-gray-50/50 border border-dashed border-gray-200 rounded-2xl p-16 text-center text-sm text-gray-500">
@@ -325,7 +486,9 @@ export function ListingReviewTable({
   }
 
   const saveItem = saveOpen ? items.find((i) => i.id === saveOpen.id) : null;
-  const saveLocPending = saveItem ? isLocationPending(saveItem) : false;
+  const originalPn = saveItem ? getHighlightedPropertyName(saveItem) : "";
+  const originalLoc = saveItem ? getHighlightedLocationName(saveItem) : "";
+  const originalMm = saveItem ? getHighlightedMicroMarketName(saveItem) : "";
 
   return (
     <>
@@ -407,7 +570,9 @@ export function ListingReviewTable({
               const pn = getHighlightedPropertyName(item) || "—";
               const loc = getHighlightedLocationName(item) || "—";
               const canToggle = canToggleForSaleTitle(item);
-              const canSave = pnPending || locPending;
+              const mmPending = isMicroMarketPending(item);
+              const catalogSaved = hasCatalogSave(item);
+              const canSave = pnPending || locPending || mmPending;
               const rowBusy = busyId === item.id;
               const expanded = !!expandedIds[item.id];
               const detailRows = expanded ? getListingDetailRows(item) : [];
@@ -539,7 +704,17 @@ export function ListingReviewTable({
 
                     {mode !== "rejected" ? (
                       <TableCell className="align-top">
-                        {canSave ? (
+                        {catalogSaved ? (
+                          <button
+                            type="button"
+                            title="Saved to DB — click to review or edit"
+                            disabled={rowBusy}
+                            onClick={() => openSaveDialog(item)}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-green-600 hover:bg-green-50 disabled:opacity-50"
+                          >
+                            <CheckCircle2 className="w-6 h-6" />
+                          </button>
+                        ) : canSave ? (
                           <Button
                             size="sm"
                             variant="outline"
@@ -683,161 +858,72 @@ export function ListingReviewTable({
           }
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-xl sm:max-w-xl overflow-visible">
           <DialogHeader>
             <DialogTitle>Save to DB</DialogTitle>
             <DialogDescription>
-              Choose what to approve into the catalog. This does not approve or
-              reject the listing.
+              Catalog only — the user post stays unchanged. Left is original,
+              right is what will be saved (editable).
             </DialogDescription>
           </DialogHeader>
 
           {saveDraft && (
             <div className="space-y-4 py-2">
               {!saveDraft.forSale ? (
-                <div className="rounded-xl border border-gray-200 p-3 space-y-3">
-                  <div className="space-y-1.5">
-                    <p className="text-sm font-medium text-gray-900">Property name</p>
-                    <Input
+                <CompareField
+                  label="Property name"
+                  original={originalPn}
+                  right={
+                    <CatalogPickSelect
+                      options={propertyNames}
                       value={saveDraft.propertyName}
-                      onChange={(e) =>
+                      loading={catalogLoading}
+                      placeholder="Select or type property name"
+                      onChange={(next) =>
                         setSaveDraft((prev) =>
-                          prev ? { ...prev, propertyName: e.target.value } : prev,
+                          prev ? { ...prev, propertyName: next } : prev,
                         )
                       }
-                      placeholder="Edit property name"
                     />
-                  </div>
+                  }
+                />
+              ) : null}
 
-                  <div className="space-y-1.5">
-                    <p className="text-sm font-medium text-gray-900">Location</p>
-                    <Input
-                      value={saveDraft.locationName}
-                      onChange={(e) =>
-                        setSaveDraft((prev) =>
-                          prev ? { ...prev, locationName: e.target.value } : prev,
-                        )
-                      }
-                      placeholder="Edit location name"
-                    />
-                  </div>
+              <CompareField
+                label="Location"
+                original={originalLoc}
+                right={
+                  <CatalogPickSelect
+                    options={locations}
+                    value={saveDraft.location}
+                    loading={catalogLoading}
+                    placeholder="Select or type location"
+                    onChange={(next) =>
+                      setSaveDraft((prev) =>
+                        prev ? { ...prev, location: next } : prev,
+                      )
+                    }
+                  />
+                }
+              />
 
-                  <div className="space-y-1.5">
-                    <p className="text-sm font-medium text-gray-900">Micro market</p>
-                    <Select
-                      value={saveDraft.microMarketId}
-                      onValueChange={(v) =>
-                        setSaveDraft((prev) =>
-                          prev ? { ...prev, microMarketId: v || "" } : prev,
-                        )
-                      }
-                      disabled={!microMarkets.length}
-                    >
-                      <SelectTrigger className="h-8">
-                        <span className="truncate">
-                          {microMarkets.find((mm) => mm.id === saveDraft.microMarketId)
-                            ?.name ||
-                            (saveItem
-                              ? getHighlightedMicroMarketName(saveItem) ||
-                                "Select micro market"
-                              : "Select micro market")}
-                        </span>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {microMarkets.length === 0 ? (
-                          <SelectItem value="__none__" disabled>
-                            No micro markets found
-                          </SelectItem>
-                        ) : (
-                          microMarkets.map((mm) => (
-                            <SelectItem key={mm.id} value={mm.id}>
-                              {mm.name}
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              ) : (
-                saveLocPending && (
-                  <div className="rounded-xl border border-gray-200 p-3 space-y-2">
-                    <label className="flex items-start gap-2 cursor-pointer">
-                      <Checkbox
-                        checked={saveDraft.saveLocation}
-                        onCheckedChange={(v) =>
-                          setSaveDraft((prev) =>
-                            prev ? { ...prev, saveLocation: !!v } : prev,
-                          )
-                        }
-                        className="mt-0.5"
-                      />
-                      <span className="text-sm">
-                        <span className="font-medium text-gray-900">
-                          Save location
-                        </span>
-                        <span className="block text-xs text-gray-500">
-                          Default: not selected
-                        </span>
-                      </span>
-                    </label>
-                    {saveDraft.saveLocation && (
-                      <>
-                        <Input
-                          value={saveDraft.locationName}
-                          onChange={(e) =>
-                            setSaveDraft((prev) =>
-                              prev
-                                ? { ...prev, locationName: e.target.value }
-                                : prev,
-                            )
-                          }
-                          placeholder="Edit location name"
-                        />
-                        <div className="space-y-2">
-                          <p className="text-sm font-medium text-gray-900">
-                            Micro market
-                          </p>
-                          <Select
-                            value={saveDraft.microMarketId}
-                            onValueChange={(v) =>
-                              setSaveDraft((prev) =>
-                                prev ? { ...prev, microMarketId: v || "" } : prev,
-                              )
-                            }
-                            disabled={!microMarkets.length}
-                          >
-                            <SelectTrigger className="h-8">
-                              <span className="truncate">
-                                {microMarkets.find(
-                                  (mm) => mm.id === saveDraft.microMarketId,
-                                )?.name ||
-                                  (saveItem
-                                    ? getHighlightedMicroMarketName(saveItem) ||
-                                      "Select micro market"
-                                    : "Select micro market")}
-                              </span>
-                            </SelectTrigger>
-                            <SelectContent>
-                              {microMarkets.length === 0 ? (
-                                <SelectItem value="__none__" disabled>
-                                  No micro markets found
-                                </SelectItem>
-                              ) : (
-                                microMarkets.map((mm) => (
-                                  <SelectItem key={mm.id} value={mm.id}>
-                                    {mm.name}
-                                  </SelectItem>
-                                ))
-                              )}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )
-              )}
+              <CompareField
+                label="Micro market"
+                original={originalMm}
+                right={
+                  <CatalogPickSelect
+                    options={microMarkets}
+                    value={saveDraft.microMarket}
+                    loading={catalogLoading}
+                    placeholder="Select or type micro market"
+                    onChange={(next) =>
+                      setSaveDraft((prev) =>
+                        prev ? { ...prev, microMarket: next } : prev,
+                      )
+                    }
+                  />
+                }
+              />
             </div>
           )}
 
@@ -855,15 +941,7 @@ export function ListingReviewTable({
             </Button>
             <Button
               className="flex-1 bg-primary text-white hover:bg-primary/90"
-              disabled={
-                !!busyId ||
-                !saveDraft ||
-                (saveDraft.forSale
-                  ? !saveDraft.saveLocation || !saveDraft.microMarketId
-                  : !saveDraft.propertyName.trim() ||
-                    !saveDraft.locationName.trim() ||
-                    !saveDraft.microMarketId)
-              }
+              disabled={!!busyId || !saveDraftReady}
               onClick={handleSaveToDb}
             >
               {busyId && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
@@ -879,7 +957,7 @@ export function ListingReviewTable({
           if (!open && !busyId) setConfirm(null);
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-xl sm:max-w-xl overflow-visible">
           <DialogHeader>
             <DialogTitle>Are you sure?</DialogTitle>
             <DialogDescription>
@@ -891,14 +969,13 @@ export function ListingReviewTable({
 
           {confirm?.action === "reject" && (() => {
             const item = items.find((i) => i.id === confirm?.id);
+            const forSale = item ? getDraft(item).forSale : false;
             const pnPending = item ? isPropertyNamePending(item) : false;
             const locPending = item ? isLocationPending(item) : false;
-            const mmHighlight = item?.highlights?.newMicroMarket;
-            const mmStatus =
-              mmHighlight && typeof mmHighlight === "object"
-                ? mmHighlight.status
-                : null;
-            const mmPending = mmStatus === "pending";
+            const mmPending = item ? isMicroMarketPending(item) : false;
+            const showPn = !forSale && pnPending;
+            const showLoc = locPending;
+            const showMm = mmPending;
 
             const anySelected =
               !!rejectRemarksDraft.rejectPropertyName ||
@@ -914,10 +991,26 @@ export function ListingReviewTable({
                 !rejectRemarksDraft.microMarketRemark?.trim()) ||
               !anySelected;
 
+            const rejectPick = (
+              field: "propertyName" | "location" | "microMarket",
+              originalName: string,
+              originalId: string,
+              options: CatalogOption[],
+            ) =>
+              item ? (
+                <CatalogPickSelect
+                  options={options}
+                  value={pickFromCatalog(item, field, originalName, originalId)}
+                  disabled
+                  loading={catalogLoading}
+                  placeholder="Not saved yet"
+                />
+              ) : null;
+
             return (
               <div className="space-y-3 pt-2">
-                {pnPending && (
-                  <div className="rounded-xl border border-gray-200 p-3 space-y-2">
+                {showPn && item && (
+                  <div className="rounded-xl border border-gray-200 p-3 space-y-3">
                     <label className="flex items-start gap-2 cursor-pointer">
                       <Checkbox
                         checked={!!rejectRemarksDraft.rejectPropertyName}
@@ -933,6 +1026,18 @@ export function ListingReviewTable({
                         Reject property name
                       </span>
                     </label>
+                    <CompareField
+                      label="Property name"
+                      original={getHighlightedPropertyName(item)}
+                      right={rejectPick(
+                        "propertyName",
+                        getHighlightedPropertyName(item),
+                        typeof item.property_name?.id === "string"
+                          ? item.property_name.id
+                          : "",
+                        propertyNames,
+                      )}
+                    />
                     {rejectRemarksDraft.rejectPropertyName && (
                       <Input
                         value={rejectRemarksDraft.propertyNameRemark || ""}
@@ -948,8 +1053,8 @@ export function ListingReviewTable({
                   </div>
                 )}
 
-                {locPending && (
-                  <div className="rounded-xl border border-gray-200 p-3 space-y-2">
+                {showLoc && item && (
+                  <div className="rounded-xl border border-gray-200 p-3 space-y-3">
                     <label className="flex items-start gap-2 cursor-pointer">
                       <Checkbox
                         checked={!!rejectRemarksDraft.rejectLocation}
@@ -965,6 +1070,16 @@ export function ListingReviewTable({
                         Reject location
                       </span>
                     </label>
+                    <CompareField
+                      label="Location"
+                      original={getHighlightedLocationName(item)}
+                      right={rejectPick(
+                        "location",
+                        getHighlightedLocationName(item),
+                        typeof item.location?.id === "string" ? item.location.id : "",
+                        locations,
+                      )}
+                    />
                     {rejectRemarksDraft.rejectLocation && (
                       <Input
                         value={rejectRemarksDraft.locationRemark || ""}
@@ -980,8 +1095,8 @@ export function ListingReviewTable({
                   </div>
                 )}
 
-                {mmPending && (
-                  <div className="rounded-xl border border-gray-200 p-3 space-y-2">
+                {showMm && item && (
+                  <div className="rounded-xl border border-gray-200 p-3 space-y-3">
                     <label className="flex items-start gap-2 cursor-pointer">
                       <Checkbox
                         checked={!!rejectRemarksDraft.rejectMicroMarket}
@@ -997,6 +1112,16 @@ export function ListingReviewTable({
                         Reject micro market
                       </span>
                     </label>
+                    <CompareField
+                      label="Micro market"
+                      original={getHighlightedMicroMarketName(item)}
+                      right={rejectPick(
+                        "microMarket",
+                        getHighlightedMicroMarketName(item),
+                        getHighlightedMicroMarketId(item),
+                        microMarkets,
+                      )}
+                    />
                     {rejectRemarksDraft.rejectMicroMarket && (
                       <Input
                         value={rejectRemarksDraft.microMarketRemark || ""}
@@ -1012,13 +1137,13 @@ export function ListingReviewTable({
                   </div>
                 )}
 
-                {!pnPending && !locPending && !mmPending && (
+                {!showPn && !showLoc && !showMm && (
                   <p className="text-xs text-amber-700">
                     Nothing pending to reject on this listing.
                   </p>
                 )}
 
-                {requiredMissing && (pnPending || locPending || mmPending) && (
+                {requiredMissing && (showPn || showLoc || showMm) && (
                   <p className="text-xs text-red-600">
                     Select at least one option and fill its reject remark.
                   </p>
@@ -1063,7 +1188,7 @@ export function ListingReviewTable({
               onClick={handleConfirmAction}
             >
               {busyId && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Confirm
+              {confirm?.action === "reject" ? "Reject" : "Confirm"}
             </Button>
           </div>
         </DialogContent>

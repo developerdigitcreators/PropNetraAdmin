@@ -22,6 +22,9 @@ type SearchableSelectProps = {
   searchPlaceholder?: string;
   emptyText?: string;
   className?: string;
+  allowCreate?: boolean;
+  selectedLabel?: string;
+  onCreate?: (query: string) => void;
 };
 
 export function SearchableSelect({
@@ -35,6 +38,9 @@ export function SearchableSelect({
   searchPlaceholder = 'Search…',
   emptyText = 'No results found.',
   className,
+  allowCreate = false,
+  selectedLabel,
+  onCreate,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -44,6 +50,12 @@ export function SearchableSelect({
     () => options.find((o) => o.value === value),
     [options, value]
   );
+  const displayLabel = selected?.label || selectedLabel || '';
+  const createQuery = query.trim();
+  const canCreate =
+    allowCreate &&
+    !!createQuery &&
+    !options.some((o) => o.label.toLowerCase() === createQuery.toLowerCase());
 
   const filtered = useMemo(() => {
     if (onSearch) return options;
@@ -90,11 +102,11 @@ export function SearchableSelect({
           'flex h-8 w-full items-center justify-between gap-2 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none transition-colors',
           'focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50',
           'disabled:cursor-not-allowed disabled:opacity-50',
-          !selected && 'text-muted-foreground'
+          !displayLabel && 'text-muted-foreground'
         )}
       >
         <span className="truncate text-left">
-          {selected?.label || placeholder}
+          {displayLabel || placeholder}
         </span>
         <span className="flex items-center gap-1 shrink-0">
           {value && !disabled && (
@@ -133,26 +145,41 @@ export function SearchableSelect({
               <div className="flex items-center justify-center gap-2 px-3 py-6 text-sm text-gray-500">
                 <Loader2 className="size-4 animate-spin" /> Loading…
               </div>
-            ) : filtered.length === 0 ? (
+            ) : filtered.length === 0 && !canCreate ? (
               <div className="px-3 py-6 text-center text-sm text-gray-500">{emptyText}</div>
             ) : (
-              filtered.map((option) => {
-                const active = option.value === value;
-                return (
+              <>
+                {filtered.map((option) => {
+                  const active = option.value === value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => pick(option.value)}
+                      className={cn(
+                        'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+                        active ? 'bg-primary-light text-primary' : 'hover:bg-gray-50 text-gray-900'
+                      )}
+                    >
+                      <Check className={cn('size-3.5 shrink-0', active ? 'opacity-100' : 'opacity-0')} />
+                      <span className="truncate">{option.label}</span>
+                    </button>
+                  );
+                })}
+                {canCreate && onCreate && (
                   <button
-                    key={option.value}
                     type="button"
-                    onClick={() => pick(option.value)}
-                    className={cn(
-                      'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                      active ? 'bg-primary-light text-primary' : 'hover:bg-gray-50 text-gray-900'
-                    )}
+                    onClick={() => {
+                      onCreate(createQuery);
+                      setOpen(false);
+                      setQuery('');
+                    }}
+                    className="mt-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-primary hover:bg-primary-light"
                   >
-                    <Check className={cn('size-3.5 shrink-0', active ? 'opacity-100' : 'opacity-0')} />
-                    <span className="truncate">{option.label}</span>
+                    Use “{createQuery}”
                   </button>
-                );
-              })
+                )}
+              </>
             )}
           </div>
         </div>

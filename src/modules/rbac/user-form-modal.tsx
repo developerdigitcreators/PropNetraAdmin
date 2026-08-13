@@ -29,9 +29,17 @@ interface UserFormModalProps {
   user?: any;
   roles?: any[];
   onSuccess: () => void;
+  hidePassword?: boolean;
 }
 
-export function UserFormModal({ open, onOpenChange, user, roles = [], onSuccess }: UserFormModalProps) {
+export function UserFormModal({
+  open,
+  onOpenChange,
+  user,
+  roles = [],
+  onSuccess,
+  hidePassword = false,
+}: UserFormModalProps) {
   const isEdit = !!user;
 
   const {
@@ -80,7 +88,7 @@ export function UserFormModal({ open, onOpenChange, user, roles = [], onSuccess 
     try {
       if (isEdit) {
         const updateData = { ...data };
-        if (!updateData.password) {
+        if (hidePassword || !updateData.password) {
           delete updateData.password;
         }
         await adminUsersService.updateUser(user.id, updateData);
@@ -135,18 +143,20 @@ export function UserFormModal({ open, onOpenChange, user, roles = [], onSuccess 
             {errors.contact && <p className="text-red-500 text-xs">{errors.contact.message}</p>}
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">
-              {isEdit ? 'New Password (Optional)' : 'Password'}
-            </label>
-            <Input
-              type="password"
-              placeholder="••••••••"
-              {...register('password')}
-              className={errors.password ? 'border-red-500' : ''}
-            />
-            {errors.password && <p className="text-red-500 text-xs">{errors.password.message}</p>}
-          </div>
+          {!hidePassword && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">
+                {isEdit ? 'New Password (Optional)' : 'Password'}
+              </label>
+              <Input
+                type="password"
+                placeholder="••••••••"
+                {...register('password')}
+                className={errors.password ? 'border-red-500' : ''}
+              />
+              {errors.password && <p className="text-red-500 text-xs">{errors.password.message}</p>}
+            </div>
+          )}
 
           {!isEdit && (
             <div className="space-y-2">

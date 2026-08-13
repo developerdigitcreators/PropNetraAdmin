@@ -4,49 +4,72 @@ import { usePathname } from 'next/navigation';
 import { ReactNode } from 'react';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { PermissionGuard } from '@/components/common/permission-guard';
+import { useAuthStore } from '@/store/use-auth-store';
+import {
+  APP_USERS_ANY_READ,
+  defaultAppUsersPath,
+  readPermissionsForTab,
+} from '@/modules/app-users/app-users-access';
 
-const PAGE_LABELS: Record<string, string> = {
-  '/app-users/master-data': 'Master Data',
-  '/app-users/otp-issued': 'OTP Issued',
-  '/app-users/otp-verified': 'OTP Verified',
+const PAGE_COPY: Record<string, { label: string; permission: string | string[]; description: string }> = {
+  '/app-users/master-data': {
+    label: 'Master Data',
+    permission: readPermissionsForTab('app_users_master'),
+    description: 'Manage registered app users (Agents, Builders, etc).',
+  },
+  '/app-users/otp-issued': {
+    label: 'OTP Issued',
+    permission: readPermissionsForTab('app_users_otp_issued'),
+    description: 'Signups waiting for email / phone OTP verification.',
+  },
+  '/app-users/otp-verified': {
+    label: 'OTP Verified',
+    permission: readPermissionsForTab('app_users_otp_verified'),
+    description: 'OTP verified signups with company or password still pending.',
+  },
 };
 
 export default function AppUsersLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const pageLabel =
-    Object.entries(PAGE_LABELS).find(([path]) => pathname.startsWith(path))?.[1] ||
-    'Master Data';
+  const hasPermission = useAuthStore((s) => s.hasPermission);
+  const page = Object.entries(PAGE_COPY).find(([path]) => pathname.startsWith(path))?.[1];
+  const parentHref = defaultAppUsersPath(hasPermission);
+
+  if (!page) return <>{children}</>;
 
   return (
     <PermissionGuard
-      permission="users:read"
+      permission={APP_USERS_ANY_READ}
       fallback={
         <div className="p-12 text-center text-gray-500">
           You do not have permission to view app users.
         </div>
       }
     >
-      <div className="space-y-6 pb-12">
-        <Breadcrumb
-          items={[
-            { label: 'App Users', href: '/app-users/master-data' },
-            { label: pageLabel },
-          ]}
-        />
+      <PermissionGuard
+        permission={page.permission}
+        fallback={
+          <div className="p-12 text-center text-gray-500">
+            You do not have permission to view {page.label}.
+          </div>
+        }
+      >
+        <div className="space-y-6 pb-12">
+          <Breadcrumb
+            items={[
+              { label: 'App Users', href: parentHref },
+              { label: page.label },
+            ]}
+          />
 
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">{pageLabel}</h1>
-          <p className="text-gray-500 mt-1">
-            {pageLabel === 'Master Data'
-              ? 'Manage registered app users (Agents, Builders, etc).'
-              : pageLabel === 'OTP Issued'
-                ? 'Signups waiting for email / phone OTP verification.'
-                : 'OTP verified signups with company or password still pending.'}
-          </p>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">{page.label}</h1>
+            <p className="text-gray-500 mt-1">{page.description}</p>
+          </div>
+
+          {children}
         </div>
-
-        {children}
-      </div>
+      </PermissionGuard>
     </PermissionGuard>
   );
 }

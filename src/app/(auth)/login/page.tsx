@@ -60,8 +60,19 @@ export default function LoginPage() {
 
       const res = await authService.login(data);
 
-      const { user, token } = res.data || res;
-      const accessToken = token || res.accessToken;
+      // authService returns response body (already unwrapped by axios interceptor when
+      // backend sends { success, data }). Still support a nested `{ data: {...} }` shape.
+      const payload =
+        res &&
+        typeof res === 'object' &&
+        res.data &&
+        typeof res.data === 'object' &&
+        (res.data.user != null || res.data.token != null || res.data.accessToken != null)
+          ? res.data
+          : res;
+
+      const user = payload?.user;
+      const accessToken = payload?.token || payload?.accessToken;
       const perms = user?.permissions || [];
       const roles = normalizeRoles(user);
 

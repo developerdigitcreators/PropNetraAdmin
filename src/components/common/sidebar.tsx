@@ -11,16 +11,24 @@ import {
   Settings,
   Building2,
   Image as ImageIcon,
+  Bell,
   ChevronDown,
 } from "lucide-react";
 import { PermissionGuard } from "@/components/common/permission-guard";
+import { useAuthStore } from "@/store/use-auth-store";
+import {
+  APP_USERS_ANY_READ,
+  APP_USER_TAB_ACCESS,
+  defaultAppUsersPath,
+  readPermissionsForTab,
+} from "@/modules/app-users/app-users-access";
 
-type MenuChild = { name: string; path: string };
+type MenuChild = { name: string; path: string; permission?: string | string[] };
 type MenuItem = {
   name: string;
   path: string;
   icon: typeof LayoutDashboard;
-  permission: string;
+  permission: string | string[];
   children?: MenuChild[];
   defaultChildPath?: string;
 };
@@ -75,6 +83,12 @@ const MENU_ITEMS: MenuItem[] = [
     permission: "ads:read",
   },
   {
+    name: "Notifications",
+    path: "/notifications",
+    icon: Bell,
+    permission: "notifications:read",
+  },
+  {
     name: "RBAC Roles",
     path: "/rbac/roles",
     icon: Shield,
@@ -90,21 +104,24 @@ const MENU_ITEMS: MenuItem[] = [
     name: "App Users",
     path: "/app-users",
     icon: Users,
-    permission: "users:read",
-    defaultChildPath: "/app-users/master-data",
-    children: [
-      { name: "Master Data", path: "/app-users/master-data" },
-      { name: "OTP Issued", path: "/app-users/otp-issued" },
-      { name: "OTP Verified", path: "/app-users/otp-verified" },
-    ],
+    permission: APP_USERS_ANY_READ,
+    defaultChildPath: "/app-users/otp-issued",
+    children: APP_USER_TAB_ACCESS.map((tab) => ({
+      name: tab.name,
+      path: tab.path,
+      permission: readPermissionsForTab(tab.module),
+    })),
   },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const hasPermission = useAuthStore((s) => s.hasPermission);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     "/app-users": pathname.startsWith("/app-users") || pathname.startsWith("/rbac/app-users"),
   });
+
+  const appUsersDefaultPath = defaultAppUsersPath(hasPermission);
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col hidden md:flex">
@@ -133,7 +150,11 @@ export function Sidebar() {
                   <>
                     <div className="flex items-center gap-0.5">
                       <Link
-                        href={item.defaultChildPath || item.path}
+                        href={
+                          item.path === "/app-users"
+                            ? appUsersDefaultPath
+                            : item.defaultChildPath || item.path
+                        }
                         className={`flex-1 flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                           isActive
                             ? "bg-primary-light text-primary"
@@ -166,7 +187,7 @@ export function Sidebar() {
                         {item.children!.map((child) => {
                           const childIsActive =
                             pathname === child.path || pathname.startsWith(`${child.path}/`);
-                          return (
+                          const link = (
                             <Link
                               key={child.path}
                               href={child.path}
@@ -178,6 +199,13 @@ export function Sidebar() {
                             >
                               {child.name}
                             </Link>
+                          );
+                          return child.permission ? (
+                            <PermissionGuard key={child.path} permission={child.permission}>
+                              {link}
+                            </PermissionGuard>
+                          ) : (
+                            link
                           );
                         })}
                       </div>

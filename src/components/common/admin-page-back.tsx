@@ -12,7 +12,7 @@ function resolveBackHref(pathname: string): string {
     return '/listings/form-modules';
   }
   if (pathname.startsWith('/rbac/app-users')) {
-    return '/app-users/master-data';
+    return '/app-users';
   }
   return '/';
 }

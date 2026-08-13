@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
@@ -11,7 +11,6 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Plus, Edit2, Trash2, AlertTriangle, Search, MapPin, Upload, Download, FileSpreadsheet, X } from 'lucide-react';
 import { Breadcrumb } from '@/components/common/breadcrumb';
-import { PageBackButton } from '@/components/common/page-back-button';
 import { withCount } from '@/lib/filter-label';
 
 type Level = 'states' | 'cities' | 'micro_markets' | 'locations';
@@ -965,20 +964,6 @@ export default function LocationManagementPage() {
     goToLocations(mmId, mm?.name || '');
   };
 
-  const goBackOneLevel = () => {
-    if (level === 'locations') {
-      goToMicroMarkets(nav.cityId, nav.cityName);
-      return;
-    }
-    if (level === 'micro_markets') {
-      goToCities(nav.stateId, nav.stateName);
-      return;
-    }
-    if (level === 'cities') {
-      resetToStates();
-    }
-  };
-
   const breadcrumbItems = useMemo(() => {
     const items: { label: string; onClick?: () => void }[] = [];
 
@@ -1041,18 +1026,6 @@ export default function LocationManagementPage() {
   return (
     <div className="space-y-6 pb-24">
       <Breadcrumb items={breadcrumbItems} />
-      {level !== 'states' && (
-        <PageBackButton
-          onClick={goBackOneLevel}
-          label={
-            level === 'cities'
-              ? 'Back to States'
-              : level === 'micro_markets'
-                ? 'Back to Cities'
-                : 'Back to Micro Markets'
-          }
-        />
-      )}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-gray-900">Location Management</h1>

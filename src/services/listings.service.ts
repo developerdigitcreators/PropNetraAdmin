@@ -34,11 +34,13 @@ export type ListingReviewItem = {
     microMarket?: string;
     [key: string]: unknown;
   } | null;
+  catalogSave?: ListingCatalogSave | null;
   actions?: {
     canToggleForSaleTitle?: boolean;
     canSavePropertyName?: boolean;
     canSaveLocation?: boolean;
     canSaveMicroMarket?: boolean;
+    catalogSaved?: boolean;
     canApprove?: boolean;
     canReject?: boolean;
     canGoLive?: boolean;
@@ -66,13 +68,33 @@ export type ApproveListingReviewPayload = {
   showForSaleInLocation?: boolean;
 };
 
+export type CatalogSaveField = {
+  originalName?: string | null;
+  originalId?: string | null;
+  savedId?: string | null;
+  savedName?: string | null;
+  savedBy?: string | null;
+  savedAt?: string | null;
+  previousSavedName?: string | null;
+  previousSavedId?: string | null;
+};
+
+export type ListingCatalogSave = {
+  propertyName?: CatalogSaveField | null;
+  location?: CatalogSaveField | null;
+  microMarket?: CatalogSaveField | null;
+};
+
 export type SaveListingCatalogPayload = {
   savePropertyName?: boolean;
   saveLocation?: boolean;
   propertyName?: string;
+  propertyNameId?: string;
   locationName?: string;
+  locationId?: string;
   saveMicroMarket?: boolean;
   microMarketId?: string;
+  microMarketName?: string;
 };
 
 export type ListingReviewQueueResult = {
@@ -356,15 +378,47 @@ export function getHighlightedMicroMarketName(item: ListingReviewItem): string {
 }
 
 export function isPropertyNamePending(item: ListingReviewItem): boolean {
-  if (item.actions?.canSavePropertyName) return true;
-  if (item.highlights?.newPropertyName) return true;
+  const pn = item.highlights?.newPropertyName;
+  if (typeof pn === 'string') return !!pn;
+  if (pn && typeof pn === 'object') {
+    return pn.status === 'pending_review' || pn.status === 'pending';
+  }
   return item.property_name?.status === 'pending_review';
 }
 
 export function isLocationPending(item: ListingReviewItem): boolean {
-  if (item.actions?.canSaveLocation) return true;
-  if (item.highlights?.newLocation) return true;
+  const loc = item.highlights?.newLocation;
+  if (typeof loc === 'string') return !!loc;
+  if (loc && typeof loc === 'object') {
+    return loc.status === 'pending_review' || loc.status === 'pending';
+  }
   return item.location?.status === 'pending_review';
+}
+
+export function hasCatalogSave(item: ListingReviewItem): boolean {
+  if (item.actions?.catalogSaved) return true;
+  const cs = item.catalogSave;
+  return !!(cs?.propertyName?.savedId || cs?.location?.savedId || cs?.microMarket?.savedId);
+}
+
+export function getCatalogSavedName(
+  item: ListingReviewItem,
+  field: 'propertyName' | 'location' | 'microMarket',
+): string {
+  return item.catalogSave?.[field]?.savedName || '';
+}
+
+export function getCatalogSavedId(
+  item: ListingReviewItem,
+  field: 'propertyName' | 'location' | 'microMarket',
+): string {
+  return item.catalogSave?.[field]?.savedId || '';
+}
+
+export function isMicroMarketPending(item: ListingReviewItem): boolean {
+  const mm = item.highlights?.newMicroMarket;
+  if (mm && typeof mm === 'object') return mm.status === 'pending';
+  return false;
 }
 
 export function isForSaleTitleEnabled(item: ListingReviewItem): boolean {

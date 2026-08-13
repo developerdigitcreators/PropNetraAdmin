@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 
-/** Legacy path → nested App Users Master Data */
+/** Legacy path → App Users (OTP Issued default, or first allowed tab) */
 export default function LegacyAppUsersRedirect() {
-  redirect('/app-users/master-data');
+  redirect('/app-users');
 }

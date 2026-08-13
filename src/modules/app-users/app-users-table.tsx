@@ -1,9 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { AssignRoleModal } from '@/modules/rbac/assign-role-modal';
 import { UserFormModal } from '@/modules/rbac/user-form-modal';
-import { DeleteUserAlert } from '@/modules/rbac/delete-user-alert';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -14,14 +12,14 @@ import { rbacService } from '@/services/rbac.service';
 import { adminUsersService, type AppUserBucket, type SignupRemark } from '@/services/admin-users.service';
 import { locationService } from '@/services/location.service';
 import { withCount } from '@/lib/filter-label';
+import { useAuthStore } from '@/store/use-auth-store';
+import { moduleForAppUsersTab } from '@/modules/app-users/app-users-access';
 import {
   Loader2,
   Plus,
   Edit2,
-  Trash2,
   Check,
   X,
-  Shield,
   CheckCircle2,
   Eye,
   Search,
@@ -313,12 +311,14 @@ function RemarksModal({
   user,
   remarks,
   onAdd,
+  canUpdate,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   user: any | null;
   remarks: UserRemark[];
   onAdd: (text: string) => void | Promise<void>;
+  canUpdate: boolean;
 }) {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
@@ -347,8 +347,9 @@ function RemarksModal({
         <DialogHeader>
           <DialogTitle>Remarks</DialogTitle>
           <DialogDescription>
-            Add remarks for {user.name || user.email || 'this signup'}. Previous remarks cannot be
-            edited or deleted (append-only).
+            {canUpdate
+              ? `Add remarks for ${user.name || user.email || 'this signup'}. Previous remarks cannot be edited or deleted (append-only).`
+              : `Remarks for ${user.name || user.email || 'this signup'}.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -359,28 +360,30 @@ function RemarksModal({
             <p className="text-xs text-gray-400">{user.contact || '—'}</p>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-xs font-medium uppercase tracking-wide text-gray-400">
-              Add remark
-            </label>
-            <textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              rows={3}
-              placeholder="Write a remark…"
-              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-y min-h-[72px]"
-            />
-            <Button
-              type="button"
-              onClick={() => void submit()}
-              disabled={!draft.trim() || busy}
-              className="bg-primary text-white hover:bg-primary/90"
-              size="sm"
-            >
-              {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Plus className="w-4 h-4 mr-1.5" />}
-              Add remark
-            </Button>
-          </div>
+          {canUpdate && (
+            <div className="space-y-2">
+              <label className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                Add remark
+              </label>
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={3}
+                placeholder="Write a remark…"
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-y min-h-[72px]"
+              />
+              <Button
+                type="button"
+                onClick={() => void submit()}
+                disabled={!draft.trim() || busy}
+                className="bg-primary text-white hover:bg-primary/90"
+                size="sm"
+              >
+                {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Plus className="w-4 h-4 mr-1.5" />}
+                Add remark
+              </Button>
+            </div>
+          )}
 
           <div className="space-y-2">
             <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
@@ -415,6 +418,10 @@ type Props = {
 };
 
 export function AppUsersTable({ tab }: Props) {
+  const hasPermission = useAuthStore((s) => s.hasPermission);
+  const tabModule = moduleForAppUsersTab(tab);
+  const canCreate = hasPermission(tabModule, 'create');
+  const canUpdate = hasPermission(tabModule, 'update');
   const bucket: AppUserBucket =
     tab === 'otp_issued' ? 'otp_issued' : tab === 'otp_verified' ? 'otp_verified' : 'master';
 
@@ -427,12 +434,8 @@ export function AppUsersTable({ tab }: Props) {
   const [cities, setCities] = useState<{ id: string; name: string }[]>([]);
 
   const [roles, setRoles] = useState<any[]>([]);
-  const [assignRoleUser, setAssignRoleUser] = useState<any>(null);
-  const [assignRoleOpen, setAssignRoleOpen] = useState(false);
   const [formUser, setFormUser] = useState<any>(null);
   const [formOpen, setFormOpen] = useState(false);
-  const [deleteUser, setDeleteUser] = useState<any>(null);
-  const [deleteOpen, setDeleteOpen] = useState(false);
   const [viewUser, setViewUser] = useState<any>(null);
   const [viewOpen, setViewOpen] = useState(false);
   const [togglingActiveId, setTogglingActiveId] = useState<string | null>(null);
@@ -656,7 +659,7 @@ export function AppUsersTable({ tab }: Props) {
           </Select>
         )}
 
-        {tab === 'master' && (
+        {tab === 'master' && canCreate && (
           <Button
             onClick={() => {
               setFormUser(null);
@@ -830,7 +833,7 @@ export function AppUsersTable({ tab }: Props) {
                                 <div className="flex items-center gap-2">
                                   <Switch
                                     checked={isActive}
-                                    disabled={busy}
+                                    disabled={busy || !canUpdate}
                                     onCheckedChange={(checked) => {
                                       void handleToggleActive(user, checked);
                                     }}
@@ -881,7 +884,7 @@ export function AppUsersTable({ tab }: Props) {
                                 void openRemarks(user);
                               }}
                               className="text-primary hover:text-primary hover:bg-primary-light"
-                              title="Add remarks"
+                              title={canUpdate ? 'Add remarks' : 'View remarks'}
                             >
                               <MessageSquarePlus className="w-4 h-4" />
                             </Button>
@@ -903,7 +906,7 @@ export function AppUsersTable({ tab }: Props) {
 
                           {tab === 'master' && (
                             <>
-                              {canApprove && (
+                              {canApprove && canUpdate && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -931,42 +934,20 @@ export function AppUsersTable({ tab }: Props) {
                               >
                                 <Eye className="w-4 h-4" />
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setAssignRoleUser(user);
-                                  setAssignRoleOpen(true);
-                                }}
-                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                title="Assign Role"
-                              >
-                                <Shield className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setFormUser(user);
-                                  setFormOpen(true);
-                                }}
-                                className="text-gray-500 hover:text-gray-700"
-                                title="Edit"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setDeleteUser(user);
-                                  setDeleteOpen(true);
-                                }}
-                                className="text-red-500 hover:text-red-600 hover:bg-red-50"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
+                              {canUpdate && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setFormUser(user);
+                                    setFormOpen(true);
+                                  }}
+                                  className="text-gray-500 hover:text-gray-700"
+                                  title="Edit"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </Button>
+                              )}
                             </>
                           )}
                         </div>
@@ -988,37 +969,22 @@ export function AppUsersTable({ tab }: Props) {
           onOpenChange={setRemarksOpen}
           user={remarksUser}
           remarks={remarksUser ? remarksMap[remarksUser.id] || remarksUser.remarks || [] : []}
+          canUpdate={canUpdate}
           onAdd={async (text) => {
             if (remarksUser) await addRemark(remarksUser.id, text);
           }}
         />
       )}
 
-      {tab === 'master' && (
-        <>
-          <UserFormModal
-            open={formOpen}
-            onOpenChange={setFormOpen}
-            user={formUser}
-            roles={roles}
-            onSuccess={fetchUsers}
-          />
-          <DeleteUserAlert
-            open={deleteOpen}
-            onOpenChange={setDeleteOpen}
-            user={deleteUser}
-            onSuccess={fetchUsers}
-          />
-          {assignRoleUser && (
-            <AssignRoleModal
-              user={assignRoleUser}
-              roles={roles}
-              open={assignRoleOpen}
-              onOpenChange={setAssignRoleOpen}
-              onSuccess={fetchUsers}
-            />
-          )}
-        </>
+      {tab === 'master' && (canCreate || canUpdate) && (
+        <UserFormModal
+          open={formOpen}
+          onOpenChange={setFormOpen}
+          user={formUser}
+          roles={roles}
+          onSuccess={fetchUsers}
+          hidePassword={!!formUser}
+        />
       )}
     </>
   );

@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
-import { PermissionGuard } from '@/components/common/permission-guard';
 import { listingConfigService } from '@/services/listing-config.service';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -11,16 +10,81 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Loader2, Plus, Edit2, Trash2, AlertTriangle, Check } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { SortableTableBody } from '@/components/common/sortable-list';
 import { withCount } from '@/lib/filter-label';
 
+type AttributeRef = {
+  id: string;
+  name: string;
+};
+
+type ListingAttribute = {
+  id: string;
+  name: string;
+  phase?: number;
+  sort_order?: number;
+  is_active: boolean;
+  icon_url?: string | null;
+  category_id?: string | null;
+  category?: AttributeRef | null;
+  building_type_id?: string | null;
+  building_type?: (AttributeRef & { category?: AttributeRef | null }) | null;
+};
+
+type AttributeFormData = {
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  category_id: string;
+  category_ids: string[];
+  building_type_id: string;
+  building_type_ids: string[];
+  icon_url: string;
+};
+
+type AttributeWritePayload = {
+  name: string;
+  is_active: boolean;
+  phase?: number;
+  sort_order?: number;
+  icon_url?: string;
+  category_id?: string | null;
+  building_type_id?: string | null;
+};
+
+type AttributeTab = 'categories' | 'building_types' | 'property_types';
+
+const EMPTY_FORM: AttributeFormData = {
+  name: '',
+  sort_order: 1,
+  is_active: true,
+  category_id: '',
+  category_ids: [],
+  building_type_id: '',
+  building_type_ids: [],
+  icon_url: '',
+};
+
+function asAttributeList(data: unknown): ListingAttribute[] {
+  if (Array.isArray(data)) return data as ListingAttribute[];
+  if (data && typeof data === 'object') {
+    const nested = (data as { data?: unknown; items?: unknown }).data
+      ?? (data as { items?: unknown }).items;
+    if (Array.isArray(nested)) return nested as ListingAttribute[];
+  }
+  return [];
+}
+
+function isAttributeTab(value: string | number | null): value is AttributeTab {
+  return value === 'categories' || value === 'building_types' || value === 'property_types';
+}
+
 export default function AttributesPage() {
   const { permissions } = useAuthStore();
-  const [categories, setCategories] = useState<any[]>([]);
-  const [buildingTypes, setBuildingTypes] = useState<any[]>([]);
-  const [propertyTypes, setPropertyTypes] = useState<any[]>([]);
+  const [categories, setCategories] = useState<ListingAttribute[]>([]);
+  const [buildingTypes, setBuildingTypes] = useState<ListingAttribute[]>([]);
+  const [propertyTypes, setPropertyTypes] = useState<ListingAttribute[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Filters
@@ -29,15 +93,14 @@ export default function AttributesPage() {
   const [filterBuildingTypePT, setFilterBuildingTypePT] = useState<string>('');
 
   // Modals state
-  const [activeTab, setActiveTab] = useState('categories');
+  const [activeTab, setActiveTab] = useState<AttributeTab>('categories');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<any>(null);
+  const [editingItem, setEditingItem] = useState<ListingAttribute | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isMultiSelectOpen, setIsMultiSelectOpen] = useState(false);
 
-  // Form State
-  const [formData, setFormData] = useState<any>({ name: '', sort_order: 1, is_active: true, category_id: '', building_type_id: '', icon_url: '' });
+  const [formData, setFormData] = useState<AttributeFormData>(EMPTY_FORM);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -47,15 +110,20 @@ export default function AttributesPage() {
         listingConfigService.getBuildingTypes(),
         listingConfigService.getPropertyTypes()
       ]);
-      setCategories(cats);
-      setBuildingTypes(bTypes);
-      setPropertyTypes(pTypes);
+      const nextCats = asAttributeList(cats);
+      const nextBuildingTypes = asAttributeList(bTypes);
+      const nextPropertyTypes = asAttributeList(pTypes);
+      setCategories(nextCats);
+      setBuildingTypes(nextBuildingTypes);
+      setPropertyTypes(nextPropertyTypes);
 
-      if (cats.length > 0) {
-        if (!filterCategoryBT) setFilterCategoryBT(cats[0].id);
+      if (nextCats.length > 0) {
+        if (!filterCategoryBT) setFilterCategoryBT(nextCats[0].id);
         if (!filterCategoryPT) {
-          setFilterCategoryPT(cats[0].id);
-          const relatedBts = bTypes.filter((b: any) => b.category_id === cats[0].id || b.category?.id === cats[0].id);
+          setFilterCategoryPT(nextCats[0].id);
+          const relatedBts = nextBuildingTypes.filter(
+            (b) => b.category_id === nextCats[0].id || b.category?.id === nextCats[0].id,
+          );
           if (relatedBts.length > 0) setFilterBuildingTypePT(relatedBts[0].id);
         }
       }
@@ -67,10 +135,13 @@ export default function AttributesPage() {
   };
 
   useEffect(() => {
-    fetchData();
+    const init = async () => {
+      await fetchData();
+    };
+    init();
   }, []);
 
-  const handleOpenModal = (item: any = null) => {
+  const handleOpenModal = (item: ListingAttribute | null = null) => {
     setEditingItem(item);
     if (item) {
       const categoryId = item.category_id || item.category?.id || '';
@@ -91,13 +162,13 @@ export default function AttributesPage() {
       else if (activeTab === 'building_types') maxPhase = Math.max(0, ...buildingTypes.map(b => b.phase || b.sort_order || 0));
       else if (activeTab === 'property_types') maxPhase = Math.max(0, ...propertyTypes.map(p => p.phase || p.sort_order || 0));
       
-      setFormData({ name: '', sort_order: maxPhase + 1, is_active: true, category_id: '', category_ids: [], building_type_id: '', building_type_ids: [], icon_url: '' });
+      setFormData({ ...EMPTY_FORM, sort_order: maxPhase + 1 });
     }
     setIsMultiSelectOpen(false);
     setIsModalOpen(true);
   };
 
-  const handleOpenDelete = (item: any) => {
+  const handleOpenDelete = (item: ListingAttribute) => {
     setEditingItem(item);
     setIsDeleteModalOpen(true);
   };
@@ -106,7 +177,7 @@ export default function AttributesPage() {
     if (!formData.name) return;
     setIsSubmitting(true);
     try {
-      const payload: any = { name: formData.name, is_active: formData.is_active };
+      const payload: AttributeWritePayload = { name: formData.name, is_active: formData.is_active };
       
       if (activeTab === 'categories') payload.phase = Number(formData.sort_order);
       else payload.sort_order = Number(formData.sort_order);
@@ -121,7 +192,7 @@ export default function AttributesPage() {
       if (editingItem) {
         if (activeTab === 'categories') await listingConfigService.updateCategory(editingItem.id, payload);
         else if (activeTab === 'building_types') {
-          const originalCatId = editingItem.category_id || editingItem.category?.id;
+          const originalCatId = editingItem.category_id || editingItem.category?.id || '';
           const selectedCatIds = formData.category_ids || [];
           
           let idsToCreate: string[] = [];
@@ -130,7 +201,7 @@ export default function AttributesPage() {
               ...payload,
               category_id: null,
             });
-          } else if (selectedCatIds.includes(originalCatId)) {
+          } else if (originalCatId && selectedCatIds.includes(originalCatId)) {
             await listingConfigService.updateBuildingType(editingItem.id, { ...payload, category_id: originalCatId });
             idsToCreate = selectedCatIds.filter((id: string) => id !== originalCatId);
           } else {
@@ -145,7 +216,7 @@ export default function AttributesPage() {
           }
         }
         else if (activeTab === 'property_types') {
-          const originalBtId = editingItem.building_type_id || editingItem.building_type?.id;
+          const originalBtId = editingItem.building_type_id || editingItem.building_type?.id || '';
           const selectedBtIds = formData.building_type_ids || [];
           
           let idsToCreate: string[] = [];
@@ -154,7 +225,7 @@ export default function AttributesPage() {
               ...payload,
               building_type_id: null,
             });
-          } else if (selectedBtIds.includes(originalBtId)) {
+          } else if (originalBtId && selectedBtIds.includes(originalBtId)) {
             await listingConfigService.updatePropertyType(editingItem.id, { ...payload, building_type_id: originalBtId });
             idsToCreate = selectedBtIds.filter((id: string) => id !== originalBtId);
           } else {
@@ -171,21 +242,29 @@ export default function AttributesPage() {
       } else {
         if (activeTab === 'categories') await listingConfigService.createCategory(payload);
         else if (activeTab === 'building_types') {
-          if (formData.category_ids && formData.category_ids.length > 0) {
-            await Promise.all(formData.category_ids.map((cId: string) => 
+          const categoryIds = (formData.category_ids || []).filter(Boolean);
+          if (categoryIds.length > 0) {
+            await Promise.all(categoryIds.map((cId: string) => 
               listingConfigService.createBuildingType({ ...payload, category_id: cId })
             ));
           } else {
-            await listingConfigService.createBuildingType({ ...payload, category_id: formData.category_id });
+            await listingConfigService.createBuildingType({
+              ...payload,
+              category_id: formData.category_id || null,
+            });
           }
         }
         else if (activeTab === 'property_types') {
-          if (formData.building_type_ids && formData.building_type_ids.length > 0) {
-            await Promise.all(formData.building_type_ids.map((bId: string) => 
+          const buildingTypeIds = (formData.building_type_ids || []).filter(Boolean);
+          if (buildingTypeIds.length > 0) {
+            await Promise.all(buildingTypeIds.map((bId: string) => 
               listingConfigService.createPropertyType({ ...payload, building_type_id: bId })
             ));
           } else {
-            await listingConfigService.createPropertyType({ ...payload, building_type_id: formData.building_type_id });
+            await listingConfigService.createPropertyType({
+              ...payload,
+              building_type_id: formData.building_type_id || null,
+            });
           }
         }
       }
@@ -198,7 +277,7 @@ export default function AttributesPage() {
     }
   };
 
-  const handleToggleStatus = async (item: any, newValue: boolean) => {
+  const handleToggleStatus = async (item: ListingAttribute, newValue: boolean) => {
     try {
       if (activeTab === 'categories') {
         await listingConfigService.updateCategory(item.id, { is_active: newValue });
@@ -214,7 +293,7 @@ export default function AttributesPage() {
   };
 
   const handleUpdateSortOrder = async (
-    item: any,
+    item: ListingAttribute,
     newSortOrder: number,
     type: string = activeTab,
   ) => {
@@ -237,7 +316,10 @@ export default function AttributesPage() {
     }
   };
 
-  const handleReorder = async (type: string, ordered: Array<any & { sortOrder: number }>) => {
+  const handleReorder = async (
+    type: string,
+    ordered: Array<ListingAttribute & { sortOrder: number }>,
+  ) => {
     const source =
       type === 'categories'
         ? categories
@@ -273,7 +355,7 @@ export default function AttributesPage() {
     }
   };
 
-  const sortByOrder = (data: any[]) =>
+  const sortByOrder = (data: ListingAttribute[]) =>
     [...data].sort(
       (a, b) =>
         (a.phase ?? a.sort_order ?? 0) - (b.phase ?? b.sort_order ?? 0) ||
@@ -302,7 +384,7 @@ export default function AttributesPage() {
   const canUpdate = permissions.has(activeTab === 'categories' ? 'listing_categories:update' : activeTab === 'building_types' ? 'building_types:update' : 'property_types:update');
   const canDelete = permissions.has(activeTab === 'categories' ? 'listing_categories:delete' : activeTab === 'building_types' ? 'building_types:delete' : 'property_types:delete');
 
-  const renderTable = (data: any[], type: string) => {
+  const renderTable = (data: ListingAttribute[], type: string) => {
     const sorted = sortByOrder(data);
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mt-6">
@@ -437,7 +519,13 @@ export default function AttributesPage() {
         )}
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => {
+          if (isAttributeTab(v)) setActiveTab(v);
+        }}
+        className="w-full"
+      >
         <TabsList className="bg-white border shadow-sm p-1">
           <TabsTrigger value="categories" className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-6">Property Categories</TabsTrigger>
           <TabsTrigger value="building_types" className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-6">Building Types</TabsTrigger>
@@ -446,7 +534,7 @@ export default function AttributesPage() {
         <TabsContent value="categories">{renderTable(categories, 'categories')}</TabsContent>
         <TabsContent value="building_types">
           <div className="mt-4 flex items-center gap-3">
-            <Select value={filterCategoryBT || undefined} onValueChange={setFilterCategoryBT}>
+            <Select value={filterCategoryBT || undefined} onValueChange={(v) => setFilterCategoryBT(v ?? '')}>
               <SelectTrigger className="w-72 bg-white">
                 <SelectValue placeholder="Select Category">
                   {filterCategoryBT
@@ -479,9 +567,10 @@ export default function AttributesPage() {
         </TabsContent>
         <TabsContent value="property_types">
           <div className="mt-4 flex items-center gap-3">
-            <Select value={filterCategoryPT || undefined} onValueChange={(v) => { 
-                setFilterCategoryPT(v); 
-                const bts = buildingTypes.filter(b => b.category_id === v || b.category?.id === v);
+            <Select value={filterCategoryPT || undefined} onValueChange={(v) => {
+                const next = v ?? '';
+                setFilterCategoryPT(next);
+                const bts = buildingTypes.filter(b => b.category_id === next || b.category?.id === next);
                 setFilterBuildingTypePT(bts.length > 0 ? bts[0].id : '');
             }}>
               <SelectTrigger className="w-72 bg-white">
@@ -511,7 +600,7 @@ export default function AttributesPage() {
                 ))}
               </SelectContent>
             </Select>
-            <Select value={filterBuildingTypePT || undefined} onValueChange={setFilterBuildingTypePT} disabled={!filterCategoryPT}>
+            <Select value={filterBuildingTypePT || undefined} onValueChange={(v) => setFilterBuildingTypePT(v ?? '')} disabled={!filterCategoryPT}>
               <SelectTrigger className="w-72 bg-white">
                 <SelectValue placeholder="Select Building Type">
                   {filterBuildingTypePT

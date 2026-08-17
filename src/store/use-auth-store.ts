@@ -7,7 +7,7 @@ interface AuthState {
   activeRole: string | null;
   accessToken: string | null;
   permissions: Set<string>;
-  setAuthData: (user: any, token: string, permissions: string[]) => void;
+  setAuthData: (user: any, token: string, permissions: string[], persistCookie?: boolean) => void;
   setActiveRole: (role: string) => void;
   hasPermission: (moduleName: string, action: string) => boolean;
   logout: () => void;
@@ -20,10 +20,13 @@ export const useAuthStore = create<AuthState>()(
       activeRole: null,
       accessToken: null,
       permissions: new Set(),
-      setAuthData: (user, token, permissions) => {
+      setAuthData: (user, token, permissions, persistCookie = true) => {
         if (!token) return;
-        // Also save token to cookie for Next.js middleware
-        Cookies.set('access_token', token, { expires: 1 });
+        // Cookie is what middleware uses. Delay it until the workspace is chosen
+        // so a refresh on /login cannot skip role selection.
+        if (persistCookie) {
+          Cookies.set('access_token', token, { expires: 1 });
+        }
         set({
           user,
           accessToken: token,
@@ -32,6 +35,8 @@ export const useAuthStore = create<AuthState>()(
       },
       setActiveRole: (role) => {
         Cookies.set('active_role', role, { expires: 1 });
+        const token = get().accessToken;
+        if (token) Cookies.set('access_token', token, { expires: 1 });
         set({ activeRole: role });
       },
       hasPermission: (moduleName, action) => {

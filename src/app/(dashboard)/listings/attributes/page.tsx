@@ -118,14 +118,24 @@ export default function AttributesPage() {
       setPropertyTypes(nextPropertyTypes);
 
       if (nextCats.length > 0) {
-        if (!filterCategoryBT) setFilterCategoryBT(nextCats[0].id);
-        if (!filterCategoryPT) {
-          setFilterCategoryPT(nextCats[0].id);
-          const relatedBts = nextBuildingTypes.filter(
-            (b) => b.category_id === nextCats[0].id || b.category?.id === nextCats[0].id,
-          );
-          if (relatedBts.length > 0) setFilterBuildingTypePT(relatedBts[0].id);
-        }
+        const btCatValid = nextCats.some((c) => c.id === filterCategoryBT);
+        const nextBtCat = btCatValid ? filterCategoryBT : nextCats[0].id;
+        if (nextBtCat !== filterCategoryBT) setFilterCategoryBT(nextBtCat);
+
+        const ptCatValid = nextCats.some((c) => c.id === filterCategoryPT);
+        const nextPtCat = ptCatValid ? filterCategoryPT : nextCats[0].id;
+        if (nextPtCat !== filterCategoryPT) setFilterCategoryPT(nextPtCat);
+
+        const relatedBts = nextBuildingTypes.filter(
+          (b) => b.category_id === nextPtCat || b.category?.id === nextPtCat,
+        );
+        const btValid = relatedBts.some((b) => b.id === filterBuildingTypePT);
+        const nextBt = btValid ? filterBuildingTypePT : relatedBts[0]?.id || '';
+        if (nextBt !== filterBuildingTypePT) setFilterBuildingTypePT(nextBt);
+      } else {
+        setFilterCategoryBT('');
+        setFilterCategoryPT('');
+        setFilterBuildingTypePT('');
       }
     } catch (err) {
       console.error('Failed to fetch data', err);
@@ -185,7 +195,7 @@ export default function AttributesPage() {
       if (activeTab === 'building_types' && editingItem) {
         // We will handle category_id directly in the update logic below
       }
-      if (activeTab === 'property_types') {
+      if (activeTab === 'property_types' || activeTab === 'categories') {
         payload.icon_url = formData.icon_url;
       }
 

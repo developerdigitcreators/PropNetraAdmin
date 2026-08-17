@@ -303,13 +303,23 @@ export default function BannerAdsPage() {
       bannerAdsService.getSections(),
     ])
       .then(([s, c, p, sec]) => {
-        setStates(Array.isArray(s) ? s : []);
-        setCities(Array.isArray(c) ? c : []);
+        const nextStates = Array.isArray(s) ? s : [];
+        const nextCities = Array.isArray(c) ? c : [];
+        setStates(nextStates);
+        setCities(nextCities);
         setPlacements(Array.isArray(p) && p.length ? p : []);
         setSectionsMeta(Array.isArray(sec) && sec.length ? sec : DEFAULT_SECTIONS);
         const stored = readStoredFilters();
-        if (stored.stateId) setStateId(stored.stateId);
-        if (stored.cityId) setCityId(stored.cityId);
+        const stateExists = nextStates.some((st) => st.id === stored.stateId);
+        const nextStateId = stateExists ? stored.stateId : '';
+        const storedCity = nextCities.find((city) => city.id === stored.cityId);
+        const cityMatchesState = !!(
+          storedCity &&
+          nextStateId &&
+          (storedCity.state_id === nextStateId || storedCity.state?.id === nextStateId)
+        );
+        if (nextStateId) setStateId(nextStateId);
+        if (cityMatchesState) setCityId(stored.cityId);
         if (stored.placement && (p || []).some((opt: AdPlacementOption) => opt.key === stored.placement)) {
           setPlacement(stored.placement);
         }

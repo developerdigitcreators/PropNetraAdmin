@@ -13,6 +13,7 @@ import {
   Image as ImageIcon,
   Bell,
   ChevronDown,
+  Clapperboard,
 } from "lucide-react";
 import { PermissionGuard } from "@/components/common/permission-guard";
 import { useAuthStore } from "@/store/use-auth-store";
@@ -81,6 +82,12 @@ const MENU_ITEMS: MenuItem[] = [
     path: "/banner-ads",
     icon: ImageIcon,
     permission: "ads:read",
+  },
+  {
+    name: "NetraReels",
+    path: "/netra-reels",
+    icon: Clapperboard,
+    permission: "netra_reels:read",
   },
   {
     name: "Notifications",

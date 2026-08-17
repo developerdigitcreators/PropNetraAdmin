@@ -1,148 +1,217 @@
-'use client';
+"use client";
 
-import { useCallback, useEffect, useState } from 'react';
-import { useAuthStore } from '@/store/use-auth-store';
+import { useEffect, useMemo, useState } from "react";
+import { useAuthStore } from "@/store/use-auth-store";
 import {
   notificationsService,
   notificationApiError,
+  DEFAULT_BROADCAST_MEDIA_KINDS,
+  type BroadcastCity,
+  type BroadcastKeyLabel,
+  type ConnectChannel,
   type NotificationCampaign,
-} from '@/services/notifications.service';
-import { BroadcastToCityDialog } from '@/modules/notifications/broadcast-to-city-dialog';
-import { NotificationsOpsPanel } from '@/modules/notifications/notifications-ops-panel';
-import { PermissionGuard } from '@/components/common/permission-guard';
-import { Breadcrumb } from '@/components/common/breadcrumb';
-import { PaginationBar } from '@/components/common/pagination-bar';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+} from "@/services/notifications.service";
+import { PermissionGuard } from "@/components/common/permission-guard";
+import { Breadcrumb } from "@/components/common/breadcrumb";
+import { SearchableSelect } from "@/components/common/searchable-select";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { GroupsRail } from "@/modules/notifications/chat/groups-rail";
+import { UpdatesThread } from "@/modules/notifications/chat/updates-thread";
+import { GroupFeedThread } from "@/modules/notifications/chat/group-feed-thread";
+import { MessageComposer } from "@/modules/notifications/chat/message-composer";
+import { SendPreviewDialog } from "@/modules/notifications/chat/send-preview-dialog";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Loader2, Megaphone } from 'lucide-react';
-
-type PageTab = 'broadcasts' | 'ops';
-
-function formatDateTime(value?: string | null) {
-  if (!value) return '—';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString(undefined, {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function statusClass(status?: string | null) {
-  const s = (status || '').toLowerCase();
-  if (s === 'sent' || s === 'delivered' || s === 'success') return 'bg-green-100 text-green-700';
-  if (s === 'failed' || s === 'error') return 'bg-red-100 text-red-700';
-  if (s === 'pending' || s === 'queued') return 'bg-orange-100 text-orange-700';
-  return 'bg-gray-100 text-gray-700';
-}
-
-function formatLabel(format?: string) {
-  const f = (format || 'text').toLowerCase();
-  if (f === 'text_image' || f === 'text+image') return 'text+image';
-  return 'text';
-}
+  campaignToDraft,
+  draftToBroadcastPayload,
+  draftToUpdatePayload,
+  emptyDraft,
+  type BroadcastDraft,
+} from "@/modules/notifications/chat/draft";
+import { ArrowLeft, Lock, MapPin, Megaphone, Smartphone, Users } from "lucide-react";
+import { PopupsPanel } from "@/modules/notifications/popups/popups-panel";
+import { useNotificationsRealtime } from "@/modules/notifications/use-notifications-realtime";
 
 export default function NotificationsPage() {
   const hasPermission = useAuthStore((s) => s.hasPermission);
-  const canSend = hasPermission('notifications', 'create') || hasPermission('notifications', 'send');
-  const [tab, setTab] = useState<PageTab>('broadcasts');
-  const [success, setSuccess] = useState('');
+  const canWrite =
+    hasPermission("notifications", "create") ||
+    hasPermission("notifications", "send");
+  const canUpdate = hasPermission("notifications", "update");
+  const canDelete = hasPermission("notifications", "delete");
 
-  const [campaigns, setCampaigns] = useState<NotificationCampaign[]>([]);
-  const [campaignsLoading, setCampaignsLoading] = useState(true);
-  const [campaignsError, setCampaignsError] = useState('');
-  const [campaignPage, setCampaignPage] = useState(1);
-  const [campaignPageSize, setCampaignPageSize] = useState(20);
-  const [campaignTotal, setCampaignTotal] = useState(0);
-  const [campaignTotalPages, setCampaignTotalPages] = useState(1);
-  const [broadcastOpen, setBroadcastOpen] = useState(false);
-  const [selectedCampaign, setSelectedCampaign] = useState<NotificationCampaign | null>(null);
-  const [campaignDetailLoading, setCampaignDetailLoading] = useState(false);
+  const [cities, setCities] = useState<BroadcastCity[]>([]);
+  const [citiesLoading, setCitiesLoading] = useState(true);
+  const [cityId, setCityId] = useState("");
 
-  const fetchCampaigns = useCallback(async (query: { page: number; limit: number }) => {
-    setCampaignsLoading(true);
-    setCampaignsError('');
-    try {
-      const result = await notificationsService.getCampaigns(query);
-      setCampaigns(result.items);
-      setCampaignTotal(result.total);
-      setCampaignTotalPages(result.totalPages);
-    } catch (err) {
-      setCampaigns([]);
-      setCampaignTotal(0);
-      setCampaignTotalPages(1);
-      setCampaignsError(notificationApiError(err, 'Failed to load broadcasts.'));
-    } finally {
-      setCampaignsLoading(false);
-    }
-  }, []);
+  const [channels, setChannels] = useState<ConnectChannel[]>([]);
+  const [channelsLoading, setChannelsLoading] = useState(true);
+  const [activeChannelId, setActiveChannelId] = useState("");
+
+  const [pages, setPages] = useState<BroadcastKeyLabel[]>([]);
+  const [mediaKinds, setMediaKinds] = useState<BroadcastKeyLabel[]>(
+    DEFAULT_BROADCAST_MEDIA_KINDS,
+  );
+  const [broadcastChannelId, setBroadcastChannelId] = useState("");
+
+  const [draft, setDraft] = useState<BroadcastDraft>(emptyDraft());
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+
+  const [showThreadOnMobile, setShowThreadOnMobile] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [toast, setToast] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [activeTab, setActiveTab] = useState("groups");
 
   useEffect(() => {
-    if (tab !== 'broadcasts') return;
     let cancelled = false;
-    (async () => {
-      try {
-        const result = await notificationsService.getCampaigns({
-          page: campaignPage,
-          limit: campaignPageSize,
-        });
+    Promise.all([
+      notificationsService
+        .getBroadcastCities()
+        .catch(() => [] as BroadcastCity[]),
+      notificationsService.getChannels(),
+    ])
+      .then(([nextCities, nextChannels]) => {
         if (cancelled) return;
-        setCampaigns(result.items);
-        setCampaignTotal(result.total);
-        setCampaignTotalPages(result.totalPages);
-        setCampaignsError('');
-      } catch (err) {
+        setCities(nextCities);
+        setCityId((current) => current || nextCities[0]?.id || "");
+        setChannels(nextChannels);
+        setActiveChannelId(
+          (current) =>
+            current ||
+            nextChannels.find((c) => c.allowAdminBroadcast)?.id ||
+            nextChannels[0]?.id ||
+            "",
+        );
+      })
+      .catch((err) => {
         if (cancelled) return;
-        setCampaigns([]);
-        setCampaignTotal(0);
-        setCampaignTotalPages(1);
-        setCampaignsError(notificationApiError(err, 'Failed to load broadcasts.'));
-      } finally {
-        if (!cancelled) setCampaignsLoading(false);
-      }
-    })();
+        setLoadError(notificationApiError(err, "Failed to load groups."));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setCitiesLoading(false);
+        setChannelsLoading(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [tab, campaignPage, campaignPageSize]);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    notificationsService
+      .getBroadcastOptions()
+      .then((options) => {
+        if (cancelled) return;
+        setPages(options.pages);
+        const kinds = options.mediaKinds.filter(
+          (k) => !["text", "none", "plain"].includes(k.key.toLowerCase()),
+        );
+        setMediaKinds(kinds.length ? kinds : DEFAULT_BROADCAST_MEDIA_KINDS);
+        if (options.channels[0]) setBroadcastChannelId(options.channels[0].id);
+      })
+      .catch(() => {
+        if (!cancelled) setPages([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // A fresh draft targets whichever city the header is showing.
+  useEffect(() => {
+    if (!cityId) return;
+    setDraft((current) =>
+      current.cityIds.length === 0
+        ? { ...current, cityIds: [cityId] }
+        : current,
+    );
+  }, [cityId]);
+
+  const activeChannel = useMemo(
+    () => channels.find((c) => c.id === activeChannelId) || null,
+    [channels, activeChannelId],
+  );
+  const cityName = useMemo(
+    () => cities.find((c) => c.id === cityId)?.name || "",
+    [cities, cityId],
+  );
+  const cityOptions = useMemo(
+    () => cities.map((c) => ({ value: c.id, label: c.name })),
+    [cities],
+  );
 
   const showToast = (message: string) => {
-    setSuccess(message);
-    window.setTimeout(() => setSuccess(''), 4000);
+    setToast(message);
+    window.setTimeout(() => setToast(""), 4000);
   };
 
-  const handleQueued = (message: string) => {
-    showToast(message);
-    setCampaignPage(1);
-    fetchCampaigns({ page: 1, limit: campaignPageSize });
-    window.setTimeout(() => fetchCampaigns({ page: 1, limit: campaignPageSize }), 2500);
-    window.setTimeout(() => fetchCampaigns({ page: 1, limit: campaignPageSize }), 6000);
+  const resetComposer = () => {
+    setDraft(emptyDraft(cityId ? [cityId] : []));
+    setEditingId(null);
   };
 
-  const openCampaign = async (campaign: NotificationCampaign) => {
-    setSelectedCampaign(campaign);
-    if (!campaign.id) return;
-    setCampaignDetailLoading(true);
+  const startEdit = (campaign: NotificationCampaign) => {
+    setDraft(campaignToDraft(campaign));
+    setEditingId(campaign.id);
+    setShowThreadOnMobile(true);
+  };
+
+  const startResend = (campaign: NotificationCampaign) => {
+    setDraft(campaignToDraft(campaign));
+    setEditingId(null);
+    setSubmitError("");
+    setPreviewOpen(true);
+  };
+
+  const confirmSubmit = async () => {
+    setSubmitting(true);
+    setSubmitError("");
     try {
-      const detail = await notificationsService.getCampaign(campaign.id);
-      setSelectedCampaign(detail);
+      if (editingId) {
+        await notificationsService.updateCampaign(
+          editingId,
+          draftToUpdatePayload(draft),
+        );
+        showToast("Broadcast updated. The in-app card now shows your changes.");
+      } else {
+        const channelId = broadcastChannelId || activeChannelId;
+        await notificationsService.broadcast(
+          draftToBroadcastPayload(draft, channelId),
+        );
+        showToast(
+          "Broadcast queued. It appears in the thread once delivery finishes.",
+        );
+      }
+      setPreviewOpen(false);
+      resetComposer();
+      setRefreshKey((k) => k + 1);
+      // Delivery is queued, so nudge the thread again once the worker catches up.
+      window.setTimeout(() => setRefreshKey((k) => k + 1), 3000);
     } catch (err) {
-      setCampaignsError(notificationApiError(err, 'Failed to load campaign.'));
+      setSubmitError(
+        notificationApiError(
+          err,
+          editingId
+            ? "Failed to save changes."
+            : "Failed to send this broadcast.",
+        ),
+      );
     } finally {
-      setCampaignDetailLoading(false);
+      setSubmitting(false);
     }
   };
+
+  const isUpdatesChannel = !!activeChannel?.allowAdminBroadcast;
+
+  const { groupsTick, popupsTick, feedEvent } = useNotificationsRealtime({
+    cityId,
+    channelId: activeChannelId,
+  });
 
   return (
     <PermissionGuard
@@ -153,214 +222,205 @@ export default function NotificationsPage() {
         </div>
       }
     >
-      <div className="space-y-6 pb-12">
-        <Breadcrumb items={[{ label: 'Notifications' }]} />
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900">Notifications</h1>
-            <p className="text-gray-500 mt-1">
-              PropNetra Updates city broadcasts. Listing groups are automatic.
-            </p>
-          </div>
-          {canSend && tab === 'broadcasts' && (
-            <Button onClick={() => setBroadcastOpen(true)} className="bg-primary text-white hover:bg-primary/90">
-              <Megaphone className="w-4 h-4 mr-2" /> Broadcast to city
-            </Button>
-          )}
-        </div>
+      <div className="space-y-4">
+        <Breadcrumb items={[{ label: "Notifications" }]} />
 
-        {success && (
+        {toast && (
           <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-            {success}
+            {toast}
           </div>
         )}
-        {tab === 'broadcasts' && campaignsError && (
+        {loadError && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {campaignsError}
+            {loadError}
           </div>
         )}
 
-        <Tabs
-          value={tab}
-          onValueChange={(v) => {
-            const next = (v as PageTab) || 'broadcasts';
-            setTab(next);
-            if (next === 'broadcasts') setCampaignsLoading(true);
-          }}
-          className="w-full"
-        >
-          <TabsList className="mb-2 bg-white border shadow-sm p-1 h-auto">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="h-auto border bg-white p-1 shadow-sm">
             <TabsTrigger
-              value="broadcasts"
-              className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-6 text-sm"
+              value="groups"
+              className="gap-1.5 rounded-md px-5 data-[state=active]:bg-primary-light data-[state=active]:text-primary"
             >
-              Broadcasts
+              <Users className="w-4 h-4" />
+              Groups
             </TabsTrigger>
             <TabsTrigger
-              value="ops"
-              className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-6 text-sm"
+              value="popups"
+              className="gap-1.5 rounded-md px-5 data-[state=active]:bg-primary-light data-[state=active]:text-primary"
             >
-              Ops
+              <Smartphone className="w-4 h-4" />
+              In-App Popup
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="broadcasts" className="focus-visible:outline-none space-y-4">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="px-6 py-4 font-semibold text-gray-700">Title</th>
-                    <th className="px-6 py-4 font-semibold text-gray-700">Channel</th>
-                    <th className="px-6 py-4 font-semibold text-gray-700">Cities</th>
-                    <th className="px-6 py-4 font-semibold text-gray-700">Format</th>
-                    <th className="px-6 py-4 font-semibold text-gray-700">Status</th>
-                    <th className="px-6 py-4 font-semibold text-gray-700">Feed</th>
-                    <th className="px-6 py-4 font-semibold text-gray-700">Push</th>
-                    <th className="px-6 py-4 font-semibold text-gray-700">Sent</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {campaignsLoading ? (
-                    <tr>
-                      <td colSpan={8} className="px-6 py-12 text-center">
-                        <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
-                      </td>
-                    </tr>
-                  ) : campaigns.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="px-6 py-16 text-center text-gray-500">
-                        <Megaphone className="w-8 h-8 mx-auto mb-3 text-gray-300" />
-                        No broadcasts yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    campaigns.map((item, idx) => (
-                      <tr
-                        key={item.id || `campaign-${idx}`}
-                        className="hover:bg-gray-50/50 cursor-pointer"
-                        onClick={() => openCampaign(item)}
-                      >
-                        <td className="px-6 py-4 font-medium text-gray-900 max-w-56 truncate">
-                          {item.title || '—'}
-                        </td>
-                        <td className="px-6 py-4 text-gray-700">{item.channelName || '—'}</td>
-                        <td className="px-6 py-4 text-gray-600 max-w-48 truncate">
-                          {item.cityNames.length > 0 ? item.cityNames.join(', ') : '—'}
-                        </td>
-                        <td className="px-6 py-4 text-gray-600">{formatLabel(item.format)}</td>
-                        <td className="px-6 py-4">
-                          <div className="space-y-1">
-                            <Badge className={statusClass(item.status || 'pending')}>
-                              {item.status || 'pending'}
-                            </Badge>
-                            {(item.status || '').toLowerCase() === 'failed' && item.errorMessage ? (
-                              <p className="text-xs text-red-600 max-w-48 truncate" title={item.errorMessage}>
-                                {item.errorMessage}
-                              </p>
-                            ) : null}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-gray-700">{item.feedItemCount}</td>
-                        <td className="px-6 py-4 text-gray-700">{item.pushSuccessCount}</td>
-                        <td className="px-6 py-4 text-gray-500 whitespace-nowrap">
-                          {formatDateTime(item.sentAt || item.createdAt)}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+          <TabsContent value="groups" className="mt-4">
+        <div className="flex h-[calc(100vh-19rem)] min-h-[520px] overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <GroupsRail
+            channels={channels}
+            loading={channelsLoading}
+            activeChannelId={activeChannelId}
+            onSelect={(id) => {
+              setActiveChannelId(id);
+              setEditingId(null);
+              setShowThreadOnMobile(true);
+            }}
+            className={
+              showThreadOnMobile
+                ? "hidden w-full shrink-0 lg:flex lg:w-80"
+                : "flex w-full shrink-0 lg:w-80"
+            }
+          />
 
-            {!campaignsLoading && campaignTotal > 0 && (
-              <PaginationBar
-                currentPage={campaignPage}
-                totalItems={campaignTotal}
-                pageSize={campaignPageSize}
-                totalPages={campaignTotalPages}
-                onPageChange={(p) => {
-                  setCampaignsLoading(true);
-                  setCampaignPage(p);
-                }}
-                onPageSizeChange={(size) => {
-                  setCampaignsLoading(true);
-                  setCampaignPageSize(size);
-                  setCampaignPage(1);
-                }}
-              />
+          <div
+            className={
+              showThreadOnMobile
+                ? "flex min-w-0 flex-1 flex-col"
+                : "hidden min-w-0 flex-1 flex-col lg:flex"
+            }
+          >
+            {!activeChannel ? (
+              <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-gray-500">
+                {channelsLoading
+                  ? "Loading groups…"
+                  : "Pick a group to see its messages."}
+              </div>
+            ) : (
+              <>
+                <div className="flex shrink-0 justify-between items-center gap-3 border-b border-gray-100 px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => setShowThreadOnMobile(false)}
+                      aria-label="Back to groups"
+                      className="lg:hidden"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                    </Button>
+                    <span
+                      className={
+                        isUpdatesChannel
+                          ? "flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-white"
+                          : "flex size-9 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-500"
+                      }
+                    >
+                      {isUpdatesChannel ? (
+                        <Megaphone className="w-4 h-4" />
+                      ) : (
+                        <Users className="w-4 h-4" />
+                      )}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-gray-900">
+                        {activeChannel.name}
+                      </p>
+                      <p className="flex items-center gap-1 text-[11px] text-gray-500">
+                        {isUpdatesChannel ? (
+                          `${cityName || "No city selected"} · full history`
+                        ) : (
+                          <>
+                            <Lock className="w-3 h-3" />{" "}
+                            {cityName || "No city selected"} · read only
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white py-1 pl-3 pr-1">
+                    <MapPin className="w-3.5 h-3.5 text-primary" />
+                    <div className="w-40">
+                      <SearchableSelect
+                        options={cityOptions}
+                        value={cityId}
+                        onValueChange={(v) => v && setCityId(v)}
+                        loading={citiesLoading}
+                        placeholder="Select city"
+                        searchPlaceholder="Search city…"
+                        emptyText="No cities found."
+                        className="[&>button]:border-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {isUpdatesChannel ? (
+                  <>
+                    <UpdatesThread
+                      channelName={activeChannel.name}
+                      pages={pages}
+                      canWrite={canWrite}
+                      canDelete={canDelete}
+                      refreshKey={refreshKey + groupsTick}
+                      onResend={startResend}
+                      onEdit={startEdit}
+                      onDeleted={showToast}
+                    />
+                    {canWrite ? (
+                      <MessageComposer
+                        draft={draft}
+                        onChange={setDraft}
+                        cities={cities}
+                        citiesLoading={citiesLoading}
+                        pages={pages}
+                        mediaKinds={mediaKinds}
+                        mode={editingId ? "edit" : "create"}
+                        submitting={submitting}
+                        onSubmit={() => {
+                          setSubmitError("");
+                          setPreviewOpen(true);
+                        }}
+                        onCancelEdit={resetComposer}
+                      />
+                    ) : (
+                      <p className="shrink-0 border-t border-gray-100 px-4 py-4 text-center text-xs text-gray-500">
+                        You have read-only access to Notifications.
+                      </p>
+                    )}
+                  </>
+                ) : cityId ? (
+                  <GroupFeedThread
+                    channel={activeChannel}
+                    cityId={cityId}
+                    cityName={cityName}
+                    feedEvent={feedEvent}
+                  />
+                ) : (
+                  <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-gray-500">
+                    Pick a city above to read this group.
+                  </div>
+                )}
+              </>
             )}
+          </div>
+        </div>
           </TabsContent>
 
-          <TabsContent value="ops" className="focus-visible:outline-none space-y-4">
-            <NotificationsOpsPanel canToggle={canSend} />
+          <TabsContent value="popups" className="mt-4">
+            <PopupsPanel
+              cities={cities}
+              citiesLoading={citiesLoading}
+              canWrite={canWrite}
+              canUpdate={canUpdate}
+              canDelete={canDelete}
+              popupsTick={popupsTick}
+              onToast={showToast}
+            />
           </TabsContent>
         </Tabs>
-
-        <BroadcastToCityDialog
-          open={broadcastOpen}
-          onClose={() => setBroadcastOpen(false)}
-          onQueued={handleQueued}
-        />
-
-        <Dialog open={!!selectedCampaign} onOpenChange={(open) => !open && setSelectedCampaign(null)}>
-          <DialogContent className="sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>{selectedCampaign?.title || 'Broadcast'}</DialogTitle>
-              <DialogDescription>Campaign detail</DialogDescription>
-            </DialogHeader>
-            {campaignDetailLoading ? (
-              <div className="py-8 flex justify-center">
-                <Loader2 className="w-6 h-6 animate-spin text-primary" />
-              </div>
-            ) : selectedCampaign ? (
-              <div className="grid grid-cols-2 gap-3 text-sm py-2">
-                <Detail label="Channel" value={selectedCampaign.channelName} />
-                <Detail label="Format" value={formatLabel(selectedCampaign.format)} />
-                <Detail
-                  label="Cities"
-                  value={
-                    selectedCampaign.cityNames.length > 0
-                      ? selectedCampaign.cityNames.join(', ')
-                      : undefined
-                  }
-                />
-                <Detail label="Status" value={selectedCampaign.status || 'pending'} />
-                <Detail label="Feed" value={String(selectedCampaign.feedItemCount)} />
-                <Detail label="Push" value={String(selectedCampaign.pushSuccessCount)} />
-                <Detail
-                  label="Sent"
-                  value={formatDateTime(selectedCampaign.sentAt || selectedCampaign.createdAt)}
-                />
-                <Detail label="Link" value={selectedCampaign.linkType || 'none'} />
-                {selectedCampaign.pageKey ? (
-                  <Detail label="Page" value={selectedCampaign.pageKey} />
-                ) : null}
-                {selectedCampaign.errorMessage ? (
-                  <div className="col-span-2">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">Error</p>
-                    <p className="text-red-700">{selectedCampaign.errorMessage}</p>
-                  </div>
-                ) : null}
-                {selectedCampaign.body ? (
-                  <div className="col-span-2">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">Body</p>
-                    <p className="text-gray-800">{selectedCampaign.body}</p>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </DialogContent>
-        </Dialog>
       </div>
-    </PermissionGuard>
-  );
-}
 
-function Detail({ label, value }: { label: string; value?: string | null }) {
-  return (
-    <div>
-      <p className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">{label}</p>
-      <p className="text-gray-800">{value || '—'}</p>
-    </div>
+      <SendPreviewDialog
+        open={previewOpen}
+        draft={draft}
+        cities={cities}
+        pages={pages}
+        mode={editingId ? "edit" : "create"}
+        submitting={submitting}
+        error={submitError}
+        onClose={() => setPreviewOpen(false)}
+        onConfirm={confirmSubmit}
+      />
+    </PermissionGuard>
   );
 }

@@ -146,6 +146,7 @@ export type NotificationCampaign = {
   linkType?: string | null;
   listingId?: string | null;
   pageKey?: string | null;
+  media: BroadcastMedia[];
   createdAt?: string | null;
   sentAt?: string | null;
 };
@@ -157,6 +158,155 @@ export type CampaignListResult = {
   limit: number;
   totalPages: number;
   serverPaginated: boolean;
+};
+
+export type UpdateCampaignPayload = {
+  title?: string;
+  body?: string;
+  cardTitle?: string;
+  cardBody?: string;
+  bodyFormat?: BroadcastBodyFormat;
+  format?: BroadcastFormat;
+  imageUrl?: string;
+  media?: BroadcastMedia[];
+  ctas?: BroadcastCta[];
+  linkType?: BroadcastLinkType;
+  listingId?: string;
+  pageKey?: string;
+};
+
+/** A Groups channel as the app sees it. PropNetra Updates has allowAdminBroadcast. */
+export type ConnectChannel = {
+  id: string;
+  slug: string;
+  name: string;
+  kind: string;
+  sortOrder: number;
+  allowAdminBroadcast: boolean;
+  source: string;
+};
+
+export type ConnectFeedItem = {
+  id: string;
+  channelId: string;
+  cityId: string;
+  listingId?: string | null;
+  event?: string | null;
+  title: string;
+  body: string;
+  payload: Record<string, unknown>;
+  expiresAt?: string | null;
+  createdAt?: string | null;
+};
+
+export type ConnectFeedResult = {
+  items: ConnectFeedItem[];
+  cityName: string;
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+};
+
+export type InAppPopupStatus = 'draft' | 'active' | 'expired' | 'inactive';
+
+export type PopupAudience =
+  | 'all'
+  | 'elite'
+  | 'pro'
+  | 'network'
+  | 'network_unsubscribed'
+  | 'network_subscribed';
+
+export type PopupPlaceScope = 'global' | 'city' | 'location';
+
+export type PopupLocation = {
+  id: string;
+  name: string;
+  cityId: string;
+};
+
+export type PopupAudienceOption = BroadcastKeyLabel & {
+  children?: PopupAudienceOption[];
+};
+
+export type InAppPopup = {
+  id: string;
+  title: string;
+  body: string;
+  bodyFormat: BroadcastBodyFormat;
+  imageUrl?: string | null;
+  ctaLabel: string;
+  cityIds: string[];
+  cityNames: string[];
+  locationIds: string[];
+  locationNames: string[];
+  audience: PopupAudience;
+  audienceLabel: string;
+  placeScope: PopupPlaceScope;
+  linkType: BroadcastLinkType;
+  listingId?: string | null;
+  pageKey?: string | null;
+  pageLabel?: string | null;
+  screen?: string | null;
+  isActive: boolean;
+  status: InAppPopupStatus;
+  seenCount: number;
+  publishedAt?: string | null;
+  expiresAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+export type InAppPopupOptions = {
+  linkTypes: BroadcastKeyLabel[];
+  pageKeys: BroadcastKeyLabel[];
+  bodyFormats: BroadcastKeyLabel[];
+  audiences: PopupAudienceOption[];
+};
+
+export type PopupLocationsResult = {
+  city: BroadcastCity;
+  items: PopupLocation[];
+};
+
+export type InAppPopupListResult = {
+  items: InAppPopup[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  serverPaginated: boolean;
+};
+
+export type CreateInAppPopupPayload = {
+  title: string;
+  body: string;
+  bodyFormat?: BroadcastBodyFormat;
+  imageUrl?: string;
+  ctaLabel?: string;
+  cityIds?: string[];
+  locationIds?: string[];
+  audience?: PopupAudience;
+  linkType?: BroadcastLinkType;
+  listingId?: string;
+  pageKey?: string;
+  publish?: boolean;
+};
+
+export type UpdateInAppPopupPayload = {
+  title?: string;
+  body?: string;
+  bodyFormat?: BroadcastBodyFormat;
+  imageUrl?: string | null;
+  ctaLabel?: string;
+  cityIds?: string[];
+  locationIds?: string[];
+  audience?: PopupAudience;
+  linkType?: BroadcastLinkType;
+  listingId?: string | null;
+  pageKey?: string | null;
+  isActive?: boolean;
 };
 
 export type OpsCityAlerts = {
@@ -294,12 +444,13 @@ function asChannels(data: unknown): SystemChannel[] {
       const id = str(r.id || r.channelId || r.channel_id || r.slug || r.key);
       const name = str(r.name || r.title || r.label || r.slug || r.key);
       if (!id) return null;
-      return {
+      const channel: SystemChannel = {
         id,
         name: name || id,
         slug: str(r.slug || r.key) || undefined,
         kind: str(r.kind || r.type) || undefined,
       };
+      return channel;
     })
     .filter((c): c is SystemChannel => !!c);
 }
@@ -407,6 +558,17 @@ export function normalizeBroadcastOptions(raw: unknown): BroadcastOptions {
   };
 }
 
+export function asMediaList(raw: unknown): BroadcastMedia[] {
+  return asArrayUnknown(raw)
+    .map((row) => {
+      const r = (row && typeof row === 'object' ? row : {}) as Record<string, unknown>;
+      const url = str(r.url).trim();
+      if (!url) return null;
+      return { kind: str(r.kind || r.type) || 'image', url };
+    })
+    .filter((m): m is BroadcastMedia => !!m);
+}
+
 function asStringArray(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.map(str).filter(Boolean);
@@ -462,8 +624,51 @@ export function normalizeCampaign(raw: unknown): NotificationCampaign {
     linkType: str(n.linkType || n.link_type) || null,
     listingId: str(n.listingId || n.listing_id) || null,
     pageKey: str(n.pageKey || n.page_key) || null,
+    media: asMediaList(n.media),
     createdAt: str(n.createdAt || n.created_at) || null,
     sentAt: str(n.sentAt || n.sent_at) || null,
+  };
+}
+
+export function normalizeConnectChannel(raw: unknown): ConnectChannel | null {
+  const c = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const id = str(c.id);
+  if (!id) return null;
+  const slug = str(c.slug || c.key);
+  const allowAdminBroadcast =
+    c.allowAdminBroadcast === true ||
+    c.allow_admin_broadcast === true ||
+    isPropNetraUpdatesChannel({ slug, name: str(c.name) });
+  return {
+    id,
+    slug,
+    name: str(c.name || c.title) || slug || id,
+    kind: str(c.kind || c.type) || 'system',
+    sortOrder: Number(c.sortOrder ?? c.sort_order ?? 0) || 0,
+    allowAdminBroadcast,
+    source: str(c.source) || (allowAdminBroadcast ? 'admin' : 'listing'),
+  };
+}
+
+export function normalizeConnectFeedItem(raw: unknown): ConnectFeedItem | null {
+  const f = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const id = str(f.id);
+  if (!id) return null;
+  const payload =
+    f.payload && typeof f.payload === 'object' && !Array.isArray(f.payload)
+      ? (f.payload as Record<string, unknown>)
+      : {};
+  return {
+    id,
+    channelId: str(f.channelId || f.channel_id),
+    cityId: str(f.cityId || f.city_id),
+    listingId: str(f.listingId || f.listing_id) || null,
+    event: str(f.event) || null,
+    title: str(f.title),
+    body: str(f.body),
+    payload,
+    expiresAt: str(f.expiresAt || f.expires_at) || null,
+    createdAt: str(f.createdAt || f.created_at) || null,
   };
 }
 
@@ -501,6 +706,184 @@ function asCampaignListResult(data: unknown, page: number, limit: number): Campa
   }
 
   return { items: [], total: 0, page, limit, totalPages: 1, serverPaginated: false };
+}
+
+function asPopupListResult(data: unknown, page: number, limit: number): InAppPopupListResult {
+  if (data && typeof data === 'object') {
+    const obj = data as Record<string, unknown>;
+    const meta =
+      obj.meta && typeof obj.meta === 'object'
+        ? (obj.meta as Record<string, unknown>)
+        : obj;
+    const rawItems = obj.items || obj.popups || obj.data || obj.rows;
+    const items = Array.isArray(rawItems) ? rawItems.map(normalizeInAppPopup) : [];
+    const hasPaging =
+      meta.total != null || meta.page != null || meta.totalPages != null || meta.limit != null;
+    const total = Number(meta.total ?? obj.total ?? items.length) || items.length;
+    const p = Number(meta.page ?? obj.page ?? page) || page;
+    const l = Number(meta.limit ?? obj.limit ?? limit) || limit;
+    const totalPages =
+      Number(meta.totalPages ?? meta.total_pages ?? Math.max(1, Math.ceil(total / l))) || 1;
+    return {
+      items,
+      total,
+      page: p,
+      limit: l,
+      totalPages,
+      serverPaginated: hasPaging,
+    };
+  }
+
+  if (Array.isArray(data)) {
+    const items = data.map(normalizeInAppPopup);
+    return {
+      items,
+      total: items.length,
+      page: 1,
+      limit: items.length || limit,
+      totalPages: 1,
+      serverPaginated: false,
+    };
+  }
+
+  return { items: [], total: 0, page, limit, totalPages: 1, serverPaginated: false };
+}
+
+export function normalizeInAppPopup(raw: unknown): InAppPopup {
+  const n = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const cityIds = asStringArray(n.cityIds || n.city_ids);
+  const cityNamesRaw = n.cityNames ?? n.city_names;
+  const cityNames = Array.isArray(cityNamesRaw)
+    ? cityNamesRaw
+        .map((c) => (typeof c === 'string' ? c : str((c as Record<string, unknown>)?.name)))
+        .filter(Boolean)
+    : [];
+  const linkTypeRaw = str(n.linkType || n.link_type || 'none').toLowerCase();
+  const linkType = (
+    linkTypeRaw === 'post' || linkTypeRaw === 'page' ? linkTypeRaw : 'none'
+  ) as BroadcastLinkType;
+  const statusRaw = str(n.status).toLowerCase();
+  const status: InAppPopupStatus =
+    statusRaw === 'draft' ||
+    statusRaw === 'active' ||
+    statusRaw === 'expired' ||
+    statusRaw === 'inactive'
+      ? statusRaw
+      : 'inactive';
+  const locationIds = asStringArray(n.locationIds || n.location_ids);
+  const locationNamesRaw = n.locationNames ?? n.location_names;
+  const locationNames = Array.isArray(locationNamesRaw)
+    ? locationNamesRaw
+        .map((loc) => (typeof loc === 'string' ? loc : str((loc as Record<string, unknown>)?.name)))
+        .filter(Boolean)
+    : [];
+  const audienceRaw = str(n.audience || 'all').toLowerCase();
+  const audience = (
+    [
+      'all',
+      'elite',
+      'pro',
+      'network',
+      'network_unsubscribed',
+      'network_subscribed',
+    ] as const
+  ).includes(audienceRaw as PopupAudience)
+    ? (audienceRaw as PopupAudience)
+    : 'all';
+  const placeScopeRaw = str(n.placeScope || n.place_scope).toLowerCase();
+  const placeScope: PopupPlaceScope =
+    placeScopeRaw === 'location' || placeScopeRaw === 'city' || placeScopeRaw === 'global'
+      ? placeScopeRaw
+      : cityIds.length
+        ? locationIds.length
+          ? 'location'
+          : 'city'
+        : 'global';
+
+  return {
+    id: str(n.id),
+    title: str(n.title),
+    body: str(n.body),
+    bodyFormat: (n.bodyFormat === 'markdown' || n.body_format === 'markdown'
+      ? 'markdown'
+      : 'plain') as BroadcastBodyFormat,
+    imageUrl: str(n.imageUrl || n.image_url) || null,
+    ctaLabel: str(n.ctaLabel || n.cta_label) || 'View',
+    cityIds,
+    cityNames,
+    locationIds,
+    locationNames,
+    audience,
+    audienceLabel: str(n.audienceLabel || n.audience_label) || 'All users',
+    placeScope,
+    linkType,
+    listingId: str(n.listingId || n.listing_id) || null,
+    pageKey: str(n.pageKey || n.page_key) || null,
+    pageLabel: str(n.pageLabel || n.page_label) || null,
+    screen: str(n.screen) || null,
+    isActive: n.isActive === true || n.is_active === true,
+    status,
+    seenCount: Number(n.seenCount ?? n.seen_count ?? 0) || 0,
+    publishedAt: str(n.publishedAt || n.published_at) || null,
+    expiresAt: str(n.expiresAt || n.expires_at) || null,
+    createdAt: str(n.createdAt || n.created_at) || null,
+    updatedAt: str(n.updatedAt || n.updated_at) || null,
+  };
+}
+
+export function flattenPopupAudiences(options: PopupAudienceOption[]): BroadcastKeyLabel[] {
+  const items: BroadcastKeyLabel[] = [];
+  const walk = (nodes: PopupAudienceOption[]) => {
+    for (const node of nodes) {
+      if (node.key) items.push({ key: node.key, label: node.label || node.key });
+      if (node.children?.length) walk(node.children);
+    }
+  };
+  walk(options);
+  return items;
+}
+
+function asPopupAudienceOptions(raw: unknown): PopupAudienceOption[] {
+  return asArrayUnknown(raw)
+    .map((row) => {
+      if (!row || typeof row !== 'object') return null;
+      const r = row as Record<string, unknown>;
+      const key = str(r.key);
+      if (!key) return null;
+      const childrenRaw = r.children;
+      const children = Array.isArray(childrenRaw)
+        ? asPopupAudienceOptions(childrenRaw)
+        : undefined;
+      return {
+        key,
+        label: str(r.label || r.name) || key,
+        ...(children?.length ? { children } : {}),
+      };
+    })
+    .filter((item): item is PopupAudienceOption => !!item);
+}
+
+export function normalizePopupOptions(raw: unknown): InAppPopupOptions {
+  const obj = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const nested =
+    obj.options && typeof obj.options === 'object' && !Array.isArray(obj.options)
+      ? (obj.options as Record<string, unknown>)
+      : obj.data && typeof obj.data === 'object' && !Array.isArray(obj.data)
+        ? (obj.data as Record<string, unknown>)
+        : obj;
+  const linkTypes = asKeyLabelList(nested.linkTypes || nested.link_types).map((item) => ({
+    key: String(normalizeLinkTypeKey(item.key)),
+    label: item.label,
+  }));
+  const pageKeys = asKeyLabelList(nested.pageKeys || nested.page_keys || nested.pages);
+  const bodyFormats = asKeyLabelList(nested.bodyFormats || nested.body_formats);
+  const audiences = asPopupAudienceOptions(nested.audiences);
+  return {
+    linkTypes: linkTypes.length ? linkTypes : DEFAULT_BROADCAST_LINK_TYPES,
+    pageKeys,
+    bodyFormats,
+    audiences,
+  };
 }
 
 function asListResult(data: unknown, page: number, limit: number): NotificationListResult {
@@ -740,6 +1123,64 @@ export const notificationsService = {
     };
   },
 
+  /** Every Groups channel the app shows. General inbox is user-specific and not listed here. */
+  getChannels: async (): Promise<ConnectChannel[]> => {
+    const response = await axiosClient.get('/connect/channels');
+    return asArrayUnknown(response.data)
+      .map(normalizeConnectChannel)
+      .filter((c): c is ConnectChannel => !!c)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+  },
+
+  /** City-scoped cards inside one group. Expired cards are dropped server-side. */
+  getChannelFeed: async (params: {
+    channelId: string;
+    cityId: string;
+    page?: number;
+    limit?: number;
+  }): Promise<ConnectFeedResult> => {
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 30;
+    const response = await axiosClient.get(
+      `/connect/channels/${params.channelId}/feed`,
+      { params: { cityId: params.cityId, page, limit } },
+    );
+    const data = (response.data && typeof response.data === 'object'
+      ? response.data
+      : {}) as Record<string, unknown>;
+    const city = (data.city && typeof data.city === 'object'
+      ? data.city
+      : {}) as Record<string, unknown>;
+    const items = asArrayUnknown(data.items)
+      .map(normalizeConnectFeedItem)
+      .filter((f): f is ConnectFeedItem => !!f);
+    const total = Number(data.total ?? items.length) || items.length;
+    return {
+      items,
+      cityName: str(city.name),
+      total,
+      page: Number(data.page ?? page) || page,
+      limit: Number(data.limit ?? limit) || limit,
+      totalPages: Number(data.totalPages ?? Math.max(1, Math.ceil(total / limit))) || 1,
+    };
+  },
+
+  updateCampaign: async (
+    id: string,
+    payload: UpdateCampaignPayload,
+  ): Promise<NotificationCampaign> => {
+    const response = await axiosClient.patch(
+      `/admin/notifications/campaigns/${id}`,
+      payload,
+    );
+    return normalizeCampaign(response.data);
+  },
+
+  deleteCampaign: async (id: string) => {
+    const response = await axiosClient.delete(`/admin/notifications/campaigns/${id}`);
+    return response.data as { id: string; deleted: boolean; feedItemsDeleted: number };
+  },
+
   getCampaign: async (id: string): Promise<NotificationCampaign> => {
     const response = await axiosClient.get(`/admin/notifications/campaigns/${id}`);
     const data = response.data;
@@ -762,5 +1203,85 @@ export const notificationsService = {
       params: PROPNETRA_UPDATES_QUERY,
     });
     return normalizeOps(response.data);
+  },
+
+  getPopupOptions: async (): Promise<InAppPopupOptions> => {
+    const response = await axiosClient.get('/admin/notifications/popups/options');
+    return normalizePopupOptions(response.data);
+  },
+
+  getPopupLocations: async (cityId: string): Promise<PopupLocationsResult> => {
+    const response = await axiosClient.get('/admin/notifications/popups/locations', {
+      params: { cityId },
+    });
+    const data = (response.data && typeof response.data === 'object'
+      ? response.data
+      : {}) as Record<string, unknown>;
+    const cityRaw = data.city && typeof data.city === 'object' ? data.city : {};
+    const cityObj = cityRaw as Record<string, unknown>;
+    const items = asArrayUnknown(data.items)
+      .map((row) => {
+        const r = (row && typeof row === 'object' ? row : {}) as Record<string, unknown>;
+        const id = str(r.id);
+        const name = str(r.name);
+        if (!id || !name) return null;
+        return {
+          id,
+          name,
+          cityId: str(r.cityId || r.city_id || cityId),
+        };
+      })
+      .filter((item): item is PopupLocation => !!item);
+    return {
+      city: {
+        id: str(cityObj.id || cityId),
+        name: str(cityObj.name) || 'City',
+      },
+      items,
+    };
+  },
+
+  listPopups: async (
+    params: { page?: number; limit?: number } = {},
+  ): Promise<InAppPopupListResult> => {
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 20;
+    const response = await axiosClient.get('/admin/notifications/popups', {
+      params: { page, limit },
+    });
+    return asPopupListResult(response.data, page, limit);
+  },
+
+  getPopup: async (id: string): Promise<InAppPopup> => {
+    const response = await axiosClient.get(`/admin/notifications/popups/${id}`);
+    const data = response.data;
+    const inner =
+      data && typeof data === 'object' && 'popup' in (data as object)
+        ? (data as { popup: unknown }).popup
+        : data;
+    return normalizeInAppPopup(inner);
+  },
+
+  createPopup: async (payload: CreateInAppPopupPayload): Promise<InAppPopup> => {
+    const response = await axiosClient.post('/admin/notifications/popups', payload);
+    return normalizeInAppPopup(response.data);
+  },
+
+  updatePopup: async (
+    id: string,
+    payload: UpdateInAppPopupPayload,
+  ): Promise<InAppPopup> => {
+    const response = await axiosClient.put(`/admin/notifications/popups/${id}`, payload);
+    return normalizeInAppPopup(response.data);
+  },
+
+  publishPopup: async (id: string): Promise<InAppPopup> => {
+    const response = await axiosClient.post(`/admin/notifications/popups/${id}/publish`);
+    return normalizeInAppPopup(response.data);
+  },
+
+  deletePopup: async (id: string) => {
+    const response = await axiosClient.delete(`/admin/notifications/popups/${id}`);
+    return response.data as { success?: boolean };
   },
 };

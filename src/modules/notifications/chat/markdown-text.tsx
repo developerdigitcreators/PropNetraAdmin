@@ -3,7 +3,7 @@
 import { Fragment, type ReactNode } from 'react';
 
 const MARKER_HINT =
-  /(\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~|\[[^\]\n]+\]\(https:[^)\s]+\)|^\s*-\s+|^\s*\d+\.\s+)/m;
+  /(\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~|\{#[0-9a-fA-F]{3,6}\}[^\n]*\{\/#\}|\[[^\]\n]+\]\(https:[^)\s]+\)|^\s*-\s+|^\s*\d+\.\s+)/m;
 
 function shouldRenderMarkers(value: string, format?: string | null) {
   if (format === 'markdown') return true;
@@ -32,6 +32,27 @@ function parseInline(text: string, { keyPrefix }: ParseOpts): ReactNode[] {
         {parseInline(label, { keyPrefix: `${keyPrefix}-ll` })}
       </a>,
       ...parseInline(after, { keyPrefix: `${keyPrefix}-la` }),
+    ];
+  }
+
+  const color = /\{#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\}([^\n]*?)\{\/#\}/.exec(text);
+  if (color?.index != null) {
+    const [full, hex, inner] = color;
+    const before = text.slice(0, color.index);
+    const after = text.slice(color.index + full.length);
+    const expanded =
+      hex.length === 3
+        ? hex
+            .split('')
+            .map((ch) => `${ch}${ch}`)
+            .join('')
+        : hex;
+    return [
+      ...parseInline(before, { keyPrefix: `${keyPrefix}-cb` }),
+      <span key={`${keyPrefix}-color`} style={{ color: `#${expanded}` }}>
+        {parseInline(inner, { keyPrefix: `${keyPrefix}-ci` })}
+      </span>,
+      ...parseInline(after, { keyPrefix: `${keyPrefix}-ca` }),
     ];
   }
 

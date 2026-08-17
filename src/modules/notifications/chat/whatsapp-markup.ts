@@ -1,8 +1,9 @@
 import type { JSONContent } from '@tiptap/core';
+import { normalizeHex, wrapColorMarkers } from './text-color';
 
 /**
  * Bridges the rich editor and the wire format. The app renders WhatsApp markers
- * (`*bold*`, `_italic_`, `~strike~`, `[label](https://…)`, `-` / `1.` lists), so the
+ * (`*bold*`, `_italic_`, `~strike~`, `{#rrggbb}color{/#}`, `[label](https://…)`, `-` / `1.` lists), so the
  * editor shows real formatting while everything stored and sent stays marker text.
  */
 
@@ -33,6 +34,10 @@ function inlineToMarkers(nodes: JSONContent[] = []): string {
         const marker = MARK_MARKER[mark.type];
         if (marker) out = wrapCore(out, marker);
       }
+      const color = normalizeHex(
+        marks.find((m) => m.type === 'textColor')?.attrs?.color,
+      );
+      if (color) out = wrapColorMarkers(out, color);
       const href = marks.find((m) => m.type === 'link')?.attrs?.href;
       if (typeof href === 'string' && href) out = `[${out}](${href})`;
       return out;
@@ -79,6 +84,29 @@ function applyMarks(value: string): string {
     .replace(/~([^~\n]+)~/g, '<s>$1</s>');
 }
 
+const COLOR_MARK = /\{#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\}([^\n]*?)\{\/#\}/g;
+
+function applyColorAndMarks(value: string): string {
+  const colors: string[] = [];
+  const withTokens = value.replace(
+    COLOR_MARK,
+    (_match, hex: string, inner: string) => {
+      const token = `\u0001${colors.length}\u0001`;
+      const color = normalizeHex(`#${hex}`);
+      if (!color) return inner;
+      colors.push(
+        `<span data-color="${color}" style="color:${color}">${applyMarks(inner)}</span>`,
+      );
+      return token;
+    },
+  );
+
+  return applyMarks(withTokens).replace(
+    /\u0001(\d+)\u0001/g,
+    (_match, index: string) => colors[Number(index)] ?? '',
+  );
+}
+
 function inlineToHtml(raw: string): string {
   const links: string[] = [];
   // Pull links out first so underscores or asterisks inside a URL are left alone.
@@ -86,12 +114,12 @@ function inlineToHtml(raw: string): string {
     /\[([^\]\n]+)\]\((https:[^)\s]*)\)/g,
     (_match, label: string, href: string) => {
       const token = `\u0000${links.length}\u0000`;
-      links.push(`<a href="${href}">${applyMarks(label)}</a>`);
+      links.push(`<a href="${href}">${applyColorAndMarks(label)}</a>`);
       return token;
     },
   );
 
-  return applyMarks(withTokens).replace(
+  return applyColorAndMarks(withTokens).replace(
     /\u0000(\d+)\u0000/g,
     (_match, index: string) => links[Number(index)] ?? '',
   );

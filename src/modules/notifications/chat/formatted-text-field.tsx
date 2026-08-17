@@ -11,6 +11,9 @@ import StarterKit from "@tiptap/starter-kit";
 import { Placeholder } from "@tiptap/extensions";
 import { cn } from "@/lib/utils";
 import { docToMarkers, markersToHtml } from "./whatsapp-markup";
+import { EmojiPicker } from "./emoji-picker";
+import { ColorPicker } from "./color-picker";
+import { TextColor } from "./text-color-mark";
 import {
   Bold,
   Italic,
@@ -77,6 +80,7 @@ export function FormattedTextField({
         listKeymap: multiline ? {} : false,
         link: { openOnClick: false, autolink: false },
       }),
+      TextColor,
       Placeholder.configure({ placeholder: placeholder ?? "" }),
     ],
     content: markersToHtml(value),
@@ -161,6 +165,7 @@ function Toolbar({
       bulletList: !!instance?.isActive("bulletList"),
       orderedList: !!instance?.isActive("orderedList"),
       link: !!instance?.isActive("link"),
+      textColor: (instance?.getAttributes("textColor")?.color as string) || null,
     }),
   });
 
@@ -234,6 +239,25 @@ function Toolbar({
         active={active?.link}
         onClick={toggleLink}
       />
+      <ColorPicker
+        color={active?.textColor}
+        onSelect={(next) =>
+          run(() => {
+            if (next) editor.chain().focus().setTextColor(next).run();
+            else editor.chain().focus().unsetTextColor().run();
+          })
+        }
+      />
+      {multiline && (
+        <>
+          <span className="mx-0.5 h-4 w-px bg-gray-200" />
+          <EmojiPicker
+            onSelect={(emoji) =>
+              editor.chain().focus().insertContent(emoji).run()
+            }
+          />
+        </>
+      )}
     </div>
   );
 }

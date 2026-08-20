@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { locationService } from '@/services/location.service';
+import { listingConfigService } from '@/services/listing-config.service';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
@@ -13,6 +14,34 @@ import { Loader2, Plus, Edit2, Trash2, Search } from 'lucide-react';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { withCount } from '@/lib/filter-label';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
+
+function pickStr(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function asList(data: unknown): any[] {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === 'object') {
+    const nested = (data as { data?: unknown; items?: unknown }).data
+      ?? (data as { items?: unknown }).items;
+    if (Array.isArray(nested)) return nested;
+  }
+  return [];
+}
+
+function normalizePropertyName(raw: any) {
+  const propertyType = raw?.property_type || raw?.propertyType || null;
+  const propertyTypeId = pickStr(raw?.property_type_id, raw?.propertyTypeId, propertyType?.id);
+  return {
+    ...raw,
+    property_type: propertyType,
+    property_type_id: propertyTypeId,
+    image_url: pickStr(raw?.image_url, raw?.imageUrl),
+  };
+}
 
 function isApproved(status?: string) {
   return status === 'approved' || status === 'admin_added';
@@ -57,24 +86,29 @@ export default function PropertyNamesPage() {
     state_id: '',
     city_id: '',
     micro_market_id: '',
+    property_type_id: '',
+    image_url: '',
     location_ids: [] as string[],
   });
+  const [propertyTypes, setPropertyTypes] = useState<any[]>([]);
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [s, c, mm, locs, pns] = await Promise.all([
+      const [s, c, mm, locs, pns, pts] = await Promise.all([
         locationService.getStates(),
         locationService.getCities(),
         locationService.getMicroMarkets(),
         locationService.getLocations(),
         locationService.getPropertyNames(),
+        listingConfigService.getPropertyTypes().catch(() => []),
       ]);
-      setStates(Array.isArray(s) ? s : []);
-      setCities(Array.isArray(c) ? c : []);
-      setMicroMarkets(Array.isArray(mm) ? mm : []);
-      setLocations(Array.isArray(locs) ? locs : []);
-      setPropertyNames(Array.isArray(pns) ? pns : []);
+      setStates(asList(s));
+      setCities(asList(c));
+      setMicroMarkets(asList(mm));
+      setLocations(asList(locs));
+      setPropertyNames(asList(pns).map(normalizePropertyName));
+      setPropertyTypes(asList(pts));
     } catch (e) {
       console.error(e);
     } finally {
@@ -113,6 +147,8 @@ export default function PropertyNamesPage() {
         state_id: resolveStateId(cityId),
         city_id: cityId,
         micro_market_id: item.micro_market_id || item.micro_market?.id || '',
+        property_type_id: pickStr(item.property_type_id, item.property_type?.id, item.propertyType?.id),
+        image_url: pickStr(item.image_url, item.imageUrl),
         location_ids: (item.locations || []).map((l: any) => l.id),
       });
     } else {
@@ -122,6 +158,8 @@ export default function PropertyNamesPage() {
         state_id: cityId ? resolveStateId(cityId) : '',
         city_id: cityId,
         micro_market_id: filterMmId,
+        property_type_id: '',
+        image_url: '',
         location_ids: [],
       });
     }
@@ -138,13 +176,15 @@ export default function PropertyNamesPage() {
   };
 
   const save = async () => {
-    if (!form.name || !form.city_id || !form.micro_market_id) return;
+    if (!form.name || !form.city_id || !form.micro_market_id || !form.property_type_id || !form.image_url.trim()) return;
     setIsSubmitting(true);
     try {
       const payload = {
         name: form.name,
         city_id: form.city_id,
         micro_market_id: form.micro_market_id,
+        property_type_id: form.property_type_id,
+        image_url: form.image_url.trim(),
         location_ids: form.location_ids,
       };
       if (editing) await locationService.updatePropertyName(editing.id, payload);
@@ -277,6 +317,8 @@ export default function PropertyNamesPage() {
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="px-6 py-4 font-semibold text-gray-700">Property Name</th>
+                <th className="px-6 py-4 font-semibold text-gray-700">Type</th>
+                <th className="px-6 py-4 font-semibold text-gray-700">Share image</th>
                 <th className="px-6 py-4 font-semibold text-gray-700">Micro Market</th>
                 <th className="px-6 py-4 font-semibold text-gray-700">City</th>
                 <th className="px-6 py-4 font-semibold text-gray-700">Linked Locations</th>
@@ -287,18 +329,26 @@ export default function PropertyNamesPage() {
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center">
+                  <td colSpan={8} className="px-6 py-12 text-center">
                     <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">No property names found.</td>
+                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500">No property names found.</td>
                 </tr>
               ) : (
                 filtered.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50/50">
                     <td className="px-6 py-4 font-medium text-gray-900">{item.name}</td>
+                    <td className="px-6 py-4 text-gray-500">{item.property_type?.name || '—'}</td>
+                    <td className="px-6 py-4">
+                      {item.image_url ? (
+                        <img src={item.image_url} alt="" className="h-10 w-16 object-cover rounded border bg-gray-50" />
+                      ) : (
+                        <span className="text-gray-400 text-xs italic">Uses type default</span>
+                      )}
+                    </td>
                     <td className="px-6 py-4 text-gray-500">{item.micro_market?.name || '—'}</td>
                     <td className="px-6 py-4 text-gray-500">{item.city?.name || '—'}</td>
                     <td className="px-6 py-4">
@@ -368,6 +418,57 @@ export default function PropertyNamesPage() {
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="e.g. DLF The Camellias"
                 />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Property type <span className="text-red-500">*</span>
+                </label>
+                <Select
+                  value={form.property_type_id}
+                  onValueChange={(v) => setForm({ ...form, property_type_id: v ?? '' })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Apartment, SCO, Plot…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {propertyTypes.length === 0 ? (
+                      <div className="px-3 py-2 text-sm text-gray-500">
+                        Add property types under Agent Listing Attributes first.
+                      </div>
+                    ) : (
+                      propertyTypes.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
+                          {t.building_type?.name || t.buildingType?.name
+                            ? ` (${t.building_type?.name || t.buildingType?.name})`
+                            : ''}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Share / WhatsApp image URL <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  value={form.image_url}
+                  onChange={(e) => setForm({ ...form, image_url: e.target.value })}
+                  placeholder="https://…/crest-1200x630.jpg"
+                />
+                <p className="text-xs text-gray-500">
+                  Required. Public HTTPS JPEG/PNG, roughly 1200×630. Overrides the property-type
+                  default for this project.
+                </p>
+                {form.image_url.trim() ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={form.image_url.trim()}
+                    alt=""
+                    className="h-16 w-28 rounded border bg-gray-50 object-cover"
+                  />
+                ) : null}
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">State</label>
@@ -475,7 +576,14 @@ export default function PropertyNamesPage() {
               <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
               <Button
                 onClick={save}
-                disabled={isSubmitting || !form.name || !form.city_id || !form.micro_market_id}
+                disabled={
+                  isSubmitting ||
+                  !form.name ||
+                  !form.city_id ||
+                  !form.micro_market_id ||
+                  !form.property_type_id ||
+                  !form.image_url.trim()
+                }
               >
                 {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save
               </Button>

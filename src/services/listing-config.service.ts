@@ -1,6 +1,27 @@
 import { axiosClient } from '@/lib/axios-client';
 import { deleteWithRemark } from '@/lib/delete-with-remark';
 
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const nested = (value as { data?: unknown }).data;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    return nested as Record<string, unknown>;
+  }
+  return value as Record<string, unknown>;
+}
+
+function pickStr(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+export type ShareOgSettings = {
+  client_list_share_image_url: string;
+  og_fallback_image_url: string;
+};
+
 export const listingConfigService = {
   getCategories: async () => {
     const response = await axiosClient.get('/admin/listing-config/categories');
@@ -15,6 +36,38 @@ export const listingConfigService = {
   getPropertyTypes: async () => {
     const response = await axiosClient.get('/admin/listing-config/property-types');
     return response.data;
+  },
+
+  getShareOg: async (): Promise<ShareOgSettings> => {
+    const response = await axiosClient.get('/admin/listing-config/share-og');
+    const row = asRecord(response.data);
+    return {
+      client_list_share_image_url: pickStr(
+        row.client_list_share_image_url,
+        row.clientListShareImageUrl,
+      ),
+      og_fallback_image_url: pickStr(row.og_fallback_image_url, row.ogFallbackImageUrl),
+    };
+  },
+
+  updateShareOg: async (payload: {
+    client_list_share_image_url?: string | null;
+    og_fallback_image_url?: string | null;
+  }): Promise<ShareOgSettings> => {
+    const response = await axiosClient.put('/admin/listing-config/share-og', payload);
+    const row = asRecord(response.data);
+    return {
+      client_list_share_image_url: pickStr(
+        row.client_list_share_image_url,
+        row.clientListShareImageUrl,
+        payload.client_list_share_image_url,
+      ),
+      og_fallback_image_url: pickStr(
+        row.og_fallback_image_url,
+        row.ogFallbackImageUrl,
+        payload.og_fallback_image_url,
+      ),
+    };
   },
 
   getFormModules: async () => {

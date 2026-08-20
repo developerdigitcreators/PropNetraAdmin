@@ -163,7 +163,14 @@ export const locationService = {
     const response = await axiosClient.get(url);
     return response.data;
   },
-  createPropertyName: async (payload: { name: string; category_id: string; city_id: string; micro_market_id: string; location_ids?: string[] }) => {
+  createPropertyName: async (payload: {
+    name: string;
+    city_id: string;
+    micro_market_id: string;
+    property_type_id: string;
+    image_url: string;
+    location_ids?: string[];
+  }) => {
     const response = await axiosClient.post('/admin/property-names', payload);
     return response.data;
   },

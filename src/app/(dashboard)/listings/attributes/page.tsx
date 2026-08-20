@@ -27,6 +27,7 @@ type ListingAttribute = {
   sort_order?: number;
   is_active: boolean;
   icon_url?: string | null;
+  share_image_url?: string | null;
   category_id?: string | null;
   category?: AttributeRef | null;
   building_type_id?: string | null;
@@ -42,6 +43,7 @@ type AttributeFormData = {
   building_type_id: string;
   building_type_ids: string[];
   icon_url: string;
+  share_image_url: string;
 };
 
 type AttributeWritePayload = {
@@ -50,6 +52,7 @@ type AttributeWritePayload = {
   phase?: number;
   sort_order?: number;
   icon_url?: string;
+  share_image_url?: string | null;
   category_id?: string | null;
   building_type_id?: string | null;
 };
@@ -65,16 +68,47 @@ const EMPTY_FORM: AttributeFormData = {
   building_type_id: '',
   building_type_ids: [],
   icon_url: '',
+  share_image_url: '',
 };
 
-function asAttributeList(data: unknown): ListingAttribute[] {
-  if (Array.isArray(data)) return data as ListingAttribute[];
-  if (data && typeof data === 'object') {
-    const nested = (data as { data?: unknown; items?: unknown }).data
-      ?? (data as { items?: unknown }).items;
-    if (Array.isArray(nested)) return nested as ListingAttribute[];
+function pickStr(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
   }
-  return [];
+  return '';
+}
+
+function asAttributeList(data: unknown): ListingAttribute[] {
+  let rows: unknown[] = [];
+  if (Array.isArray(data)) rows = data;
+  else if (data && typeof data === 'object') {
+    const nested =
+      (data as { data?: unknown; items?: unknown }).data ??
+      (data as { items?: unknown }).items;
+    if (Array.isArray(nested)) rows = nested;
+  }
+  return rows.map((raw) => {
+    const row = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    const category = (row.category && typeof row.category === 'object'
+      ? row.category
+      : null) as AttributeRef | null;
+    const buildingType = (row.building_type || row.buildingType) as
+      | (AttributeRef & { category?: AttributeRef | null })
+      | null
+      | undefined;
+    return {
+      ...(row as unknown as ListingAttribute),
+      id: String(row.id ?? ''),
+      name: String(row.name ?? ''),
+      is_active: row.is_active !== false && row.isActive !== false,
+      icon_url: pickStr(row.icon_url, row.iconUrl) || null,
+      share_image_url: pickStr(row.share_image_url, row.shareImageUrl) || null,
+      category_id: pickStr(row.category_id, row.categoryId, category?.id) || null,
+      category,
+      building_type_id: pickStr(row.building_type_id, row.buildingTypeId, buildingType?.id) || null,
+      building_type: buildingType || null,
+    };
+  });
 }
 
 function isAttributeTab(value: string | number | null): value is AttributeTab {
@@ -102,14 +136,22 @@ export default function AttributesPage() {
   const [isMultiSelectOpen, setIsMultiSelectOpen] = useState(false);
 
   const [formData, setFormData] = useState<AttributeFormData>(EMPTY_FORM);
+  const [shareOg, setShareOg] = useState({
+    client_list_share_image_url: '',
+    og_fallback_image_url: '',
+  });
+  const [shareOgSaving, setShareOgSaving] = useState(false);
+  const [shareOgMessage, setShareOgMessage] = useState('');
+  const [shareOgError, setShareOgError] = useState('');
 
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [cats, bTypes, pTypes] = await Promise.all([
+      const [cats, bTypes, pTypes, og] = await Promise.all([
         listingConfigService.getCategories(),
         listingConfigService.getBuildingTypes(),
-        listingConfigService.getPropertyTypes()
+        listingConfigService.getPropertyTypes(),
+        listingConfigService.getShareOg().catch(() => null),
       ]);
       const nextCats = asAttributeList(cats);
       const nextBuildingTypes = asAttributeList(bTypes);
@@ -117,6 +159,7 @@ export default function AttributesPage() {
       setCategories(nextCats);
       setBuildingTypes(nextBuildingTypes);
       setPropertyTypes(nextPropertyTypes);
+      if (og) setShareOg(og);
 
       if (nextCats.length > 0) {
         const btCatValid = nextCats.some((c) => c.id === filterCategoryBT);
@@ -165,7 +208,8 @@ export default function AttributesPage() {
         category_ids: categoryId ? [categoryId] : [],
         building_type_id: buildingTypeId,
         building_type_ids: buildingTypeId ? [buildingTypeId] : [],
-        icon_url: item.icon_url || ''
+        icon_url: item.icon_url || '',
+        share_image_url: item.share_image_url || '',
       });
     } else {
       let maxPhase = 0;
@@ -198,6 +242,9 @@ export default function AttributesPage() {
       }
       if (activeTab === 'property_types' || activeTab === 'categories') {
         payload.icon_url = formData.icon_url;
+      }
+      if (activeTab === 'property_types') {
+        payload.share_image_url = formData.share_image_url.trim() || null;
       }
 
       if (editingItem) {
@@ -394,6 +441,11 @@ export default function AttributesPage() {
   const canCreate = permissions.has(activeTab === 'categories' ? 'listing_categories:create' : activeTab === 'building_types' ? 'building_types:create' : 'property_types:create');
   const canUpdate = permissions.has(activeTab === 'categories' ? 'listing_categories:update' : activeTab === 'building_types' ? 'building_types:update' : 'property_types:update');
   const canDelete = permissions.has(activeTab === 'categories' ? 'listing_categories:delete' : activeTab === 'building_types' ? 'building_types:delete' : 'property_types:delete');
+  const canEditShareOg =
+    permissions.has('property_types:update') ||
+    permissions.has('listing_categories:update') ||
+    permissions.has('building_types:update') ||
+    permissions.has('ALL:ALL');
 
   const renderTable = (data: ListingAttribute[], type: string) => {
     const sorted = sortByOrder(data);
@@ -410,6 +462,7 @@ export default function AttributesPage() {
                 <>
                   <th className="px-6 py-4 font-semibold text-gray-700">Building Type</th>
                   <th className="px-6 py-4 font-semibold text-gray-700">Icon</th>
+                  <th className="px-6 py-4 font-semibold text-gray-700">Share image</th>
                 </>
               )}
               <th className="px-6 py-4 font-semibold text-gray-700">Status</th>
@@ -473,6 +526,17 @@ export default function AttributesPage() {
                           <span className="text-gray-400 text-xs italic">No Icon</span>
                         )}
                       </td>
+                      <td className="px-6 py-4">
+                        {item.share_image_url ? (
+                          <img
+                            src={item.share_image_url}
+                            alt={`${item.name} share`}
+                            className="h-10 w-16 object-cover bg-gray-50 rounded border"
+                          />
+                        ) : (
+                          <span className="text-gray-400 text-xs italic">Default missing</span>
+                        )}
+                      </td>
                     </>
                   )}
                   <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
@@ -529,6 +593,93 @@ export default function AttributesPage() {
           </Button>
         )}
       </div>
+
+      {canEditShareOg && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-4">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">WhatsApp share images</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Public HTTPS JPEG/PNG, roughly 1200×630. Gallery photos are not used for OG.
+              Single listing order: property name image → property type image → fallback.
+            </p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Client list share image URL</label>
+              <Input
+                value={shareOg.client_list_share_image_url}
+                onChange={(e) => {
+                  setShareOg((s) => ({ ...s, client_list_share_image_url: e.target.value }));
+                  setShareOgMessage('');
+                  setShareOgError('');
+                }}
+                placeholder="https://…/client-list-1200x630.jpg"
+              />
+              <p className="text-xs text-gray-500">Used when an agent shares the full client list.</p>
+              {shareOg.client_list_share_image_url.trim() ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={shareOg.client_list_share_image_url.trim()}
+                  alt=""
+                  className="h-16 w-28 rounded border bg-gray-50 object-cover"
+                />
+              ) : null}
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Fallback share image URL</label>
+              <Input
+                value={shareOg.og_fallback_image_url}
+                onChange={(e) => {
+                  setShareOg((s) => ({ ...s, og_fallback_image_url: e.target.value }));
+                  setShareOgMessage('');
+                  setShareOgError('');
+                }}
+                placeholder="https://…/fallback-1200x630.jpg"
+              />
+              <p className="text-xs text-gray-500">
+                Used when a listing has no property-name or property-type image.
+              </p>
+              {shareOg.og_fallback_image_url.trim() ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={shareOg.og_fallback_image_url.trim()}
+                  alt=""
+                  className="h-16 w-28 rounded border bg-gray-50 object-cover"
+                />
+              ) : null}
+            </div>
+          </div>
+          {shareOgError ? (
+            <p className="text-sm text-red-600">{shareOgError}</p>
+          ) : shareOgMessage ? (
+            <p className="text-sm text-green-600">{shareOgMessage}</p>
+          ) : null}
+          <Button
+            onClick={async () => {
+              setShareOgSaving(true);
+              setShareOgMessage('');
+              setShareOgError('');
+              try {
+                const saved = await listingConfigService.updateShareOg({
+                  client_list_share_image_url: shareOg.client_list_share_image_url.trim() || null,
+                  og_fallback_image_url: shareOg.og_fallback_image_url.trim() || null,
+                });
+                setShareOg(saved);
+                setShareOgMessage('Share images saved.');
+              } catch {
+                setShareOgError('Failed to save share images.');
+              } finally {
+                setShareOgSaving(false);
+              }
+            }}
+            disabled={shareOgSaving}
+            className="bg-primary text-white hover:bg-primary/90"
+          >
+            {shareOgSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            Save share images
+          </Button>
+        </div>
+      )}
 
       <Tabs
         value={activeTab}
@@ -776,6 +927,29 @@ export default function AttributesPage() {
                 <label className="text-sm font-medium">Icon URL</label>
                 <Input value={formData.icon_url} onChange={e => setFormData({...formData, icon_url: e.target.value})} placeholder="https://link-to-icon.png" />
                 <p className="text-xs text-gray-500">Provide an image URL for this icon.</p>
+              </div>
+            )}
+
+            {activeTab === 'property_types' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">WhatsApp / share image URL (1200×630)</label>
+                <Input
+                  value={formData.share_image_url}
+                  onChange={(e) => setFormData({ ...formData, share_image_url: e.target.value })}
+                  placeholder="https://…/apartment-share.jpg"
+                />
+                <p className="text-xs text-gray-500">
+                  Default card for every listing of this type. Property-name images override this.
+                  Public HTTPS JPEG/PNG.
+                </p>
+                {formData.share_image_url.trim() ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={formData.share_image_url.trim()}
+                    alt=""
+                    className="h-16 w-28 rounded border bg-gray-50 object-cover"
+                  />
+                ) : null}
               </div>
             )}
 

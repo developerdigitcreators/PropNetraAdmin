@@ -2,16 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 import type { NotificationCampaign } from '@/services/notifications.service';
-import { Loader2, MoreVertical, Pencil, RotateCw, Trash2 } from 'lucide-react';
+import { MoreVertical, Pencil, RotateCw, Trash2 } from 'lucide-react';
 
 type CampaignActionsMenuProps = {
   campaign: NotificationCampaign;
@@ -112,7 +105,7 @@ type DeleteCampaignDialogProps = {
   deleting: boolean;
   error: string;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: (remark: string) => void;
 };
 
 export function DeleteCampaignDialog({
@@ -123,29 +116,15 @@ export function DeleteCampaignDialog({
   onConfirm,
 }: DeleteCampaignDialogProps) {
   return (
-    <Dialog open={!!campaign} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Delete this broadcast?</DialogTitle>
-          <DialogDescription>
-            “{campaign?.title}” disappears from Groups in every city it was sent to, and
-            the record leaves this history. Phone notifications already delivered cannot be
-            pulled back.
-          </DialogDescription>
-        </DialogHeader>
-
-        {error && <p className="text-sm text-red-600">{error}</p>}
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={deleting}>
-            Cancel
-          </Button>
-          <Button variant="destructive" onClick={onConfirm} disabled={deleting}>
-            {deleting && <Loader2 className="mr-2 w-4 h-4 animate-spin" />}
-            Delete
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <DeleteRemarkDialog
+      open={!!campaign}
+      onOpenChange={(next) => !next && onClose()}
+      title="Delete this broadcast?"
+      itemName={campaign?.title}
+      description="This broadcast is hidden from Groups. Phone notifications already delivered cannot be pulled back."
+      submitting={deleting}
+      error={error}
+      onConfirm={onConfirm}
+    />
   );
 }

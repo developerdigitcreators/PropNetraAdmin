@@ -9,34 +9,31 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Plus, Edit2, Trash2, AlertTriangle, Search } from 'lucide-react';
+import { Loader2, Plus, Edit2, Trash2, Search } from 'lucide-react';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { withCount } from '@/lib/filter-label';
+import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 
 function isApproved(status?: string) {
   return status === 'approved' || status === 'admin_added';
 }
 
-function DeleteModal({ isOpen, onClose, onConfirm, name, isSubmitting }: any) {
+function DeleteModal({ isOpen, onClose, onConfirm, name, isSubmitting }: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: (remark: string) => void;
+  name?: string;
+  isSubmitting?: boolean;
+}) {
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent>
-        <DialogHeader className="hidden"><DialogTitle>Delete</DialogTitle><DialogDescription>Confirm</DialogDescription></DialogHeader>
-        <div className="flex flex-col items-center text-center pt-4">
-          <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4">
-            <AlertTriangle className="w-6 h-6 text-red-600" />
-          </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete "{name}"?</h3>
-          <p className="text-sm text-gray-500 mb-6">This action cannot be undone. Any dependent data may be affected.</p>
-          <div className="flex w-full gap-3">
-            <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
-            <Button variant="destructive" className="flex-1" onClick={onConfirm} disabled={isSubmitting}>
-              {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Delete
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <DeleteRemarkDialog
+      open={isOpen}
+      onOpenChange={(open) => { if (!open) onClose(); }}
+      title={name ? `Delete "${name}"?` : 'Delete?'}
+      itemName={name}
+      submitting={isSubmitting}
+      onConfirm={onConfirm}
+    />
   );
 }
 
@@ -161,10 +158,10 @@ export default function PropertyNamesPage() {
     }
   };
 
-  const del = async () => {
+  const del = async (remark: string) => {
     setIsSubmitting(true);
     try {
-      await locationService.deletePropertyName(editing.id);
+      await locationService.deletePropertyName(editing.id, remark);
       setIsDeleteOpen(false);
       fetchAll();
     } catch (e) {

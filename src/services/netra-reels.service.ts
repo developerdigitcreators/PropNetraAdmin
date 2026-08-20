@@ -1,4 +1,5 @@
 import { axiosClient } from '@/lib/axios-client';
+import { deleteWithRemark } from '@/lib/delete-with-remark';
 
 export type ReelPlatform = 'youtube' | 'instagram' | 'unknown';
 
@@ -285,7 +286,7 @@ export const netraReelsService = {
     await axiosClient.put('/admin/netra-reels/reorder', { orderedIds });
   },
 
-  remove: async (id: string): Promise<void> => {
-    await axiosClient.delete(`/admin/netra-reels/${id}`);
+  remove: async (id: string, remark: string): Promise<void> => {
+    await deleteWithRemark(`/admin/netra-reels/${id}`, remark);
   },
 };

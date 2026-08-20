@@ -17,6 +17,8 @@ import {
   CircleHelp,
   MessageSquare,
   Headset,
+  BarChart3,
+  Trash2,
 } from "lucide-react";
 import { PermissionGuard } from "@/components/common/permission-guard";
 import { useAuthStore } from "@/store/use-auth-store";
@@ -43,6 +45,12 @@ const MENU_ITEMS: MenuItem[] = [
     path: "/",
     icon: LayoutDashboard,
     permission: "dashboard:read",
+  },
+  {
+    name: "User Analytics",
+    path: "/user-analytics",
+    icon: BarChart3,
+    permission: "user_analytics:read",
   },
   {
     name: "Agent Listing Attributes",
@@ -127,6 +135,12 @@ const MENU_ITEMS: MenuItem[] = [
     path: "/rbac/users",
     icon: Users,
     permission: "users:read",
+  },
+  {
+    name: "Deleted Items",
+    path: "/deleted-items",
+    icon: Trash2,
+    permission: "recycle_bin:read",
   },
   {
     name: "App Users",

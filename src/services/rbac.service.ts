@@ -1,4 +1,5 @@
 import { axiosClient } from "@/lib/axios-client";
+import { deleteWithRemark } from "@/lib/delete-with-remark";
 
 export const rbacService = {
   getRoles: async (audience?: "admin_panel" | "app") => {
@@ -25,8 +26,8 @@ export const rbacService = {
     return response.data;
   },
 
-  deleteRole: async (id: string) => {
-    const response = await axiosClient.delete(`/admin/rbac/roles/${id}`);
+  deleteRole: async (id: string, remark: string) => {
+    const response = await deleteWithRemark(`/admin/rbac/roles/${id}`, remark);
     return response.data;
   },
 

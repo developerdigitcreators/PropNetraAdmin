@@ -2,6 +2,7 @@
 
 import { ReactNode } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
+import { permissionSetHas } from '@/lib/super-admin';
 
 interface PermissionGuardProps {
   permission: string | string[]; // Format: "module_name:action"
@@ -10,13 +11,12 @@ interface PermissionGuardProps {
 }
 
 export function PermissionGuard({ permission, children, fallback = null }: PermissionGuardProps) {
-  const hasPermission = useAuthStore((state) => {
-    if (state.permissions.has('ALL:ALL')) return true;
+  const allowed = useAuthStore((state) => {
     const keys = Array.isArray(permission) ? permission : [permission];
-    return keys.some((key) => state.permissions.has(key));
+    return keys.some((key) => permissionSetHas(state.permissions, key));
   });
 
-  if (!hasPermission) {
+  if (!allowed) {
     return <>{fallback}</>;
   }
 

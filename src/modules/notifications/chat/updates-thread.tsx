@@ -135,12 +135,12 @@ export function UpdatesThread({
     }
   }, [page, loading, campaigns.length]);
 
-  const confirmDelete = async () => {
+  const confirmDelete = async (remark: string) => {
     if (!pendingDelete) return;
     setDeleting(true);
     setDeleteError('');
     try {
-      await notificationsService.deleteCampaign(pendingDelete.id);
+      await notificationsService.deleteCampaign(pendingDelete.id, remark);
       setCampaigns((prev) => prev.filter((c) => c.id !== pendingDelete.id));
       setPendingDelete(null);
       onDeleted('Broadcast deleted and removed from Groups.');

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, Plus, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 
 export function OptionsManager() {
   const [modules, setModules] = useState<any[]>([]);
@@ -18,6 +19,8 @@ export function OptionsManager() {
   // New option state
   const [newLabel, setNewLabel] = useState('');
   const [newValue, setNewValue] = useState('');
+  const [optionToDelete, setOptionToDelete] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     listingConfigService.getFormModules()
@@ -65,12 +68,17 @@ export function OptionsManager() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (remark: string) => {
+    if (!optionToDelete?.id) return;
+    setDeleting(true);
     try {
-      await moduleOptionsService.deleteOption(id);
-      setOptions(prev => prev.filter(opt => opt.id !== id));
+      await moduleOptionsService.deleteOption(optionToDelete.id, remark);
+      setOptions((prev) => prev.filter((opt) => opt.id !== optionToDelete.id));
+      setOptionToDelete(null);
     } catch (error) {
       console.error('Failed to delete option', error);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -141,7 +149,7 @@ export function OptionsManager() {
                       <td className="px-6 py-4 font-medium text-gray-900">{opt.option_label}</td>
                       <td className="px-6 py-4 text-gray-500 font-mono text-xs">{opt.option_value}</td>
                       <td className="px-6 py-4 text-right">
-                        <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-600 hover:bg-red-50" onClick={() => handleDelete(opt.id)}>
+                        <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-600 hover:bg-red-50" onClick={() => setOptionToDelete(opt)}>
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </td>
@@ -153,6 +161,14 @@ export function OptionsManager() {
           </div>
         </div>
       )}
+      <DeleteRemarkDialog
+        open={Boolean(optionToDelete)}
+        onOpenChange={(open) => !open && setOptionToDelete(null)}
+        title="Delete option?"
+        itemName={optionToDelete?.option_label}
+        submitting={deleting}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

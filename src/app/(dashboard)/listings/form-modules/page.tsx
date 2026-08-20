@@ -8,10 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Loader2, Plus, Edit2, Trash2, AlertTriangle, Layers } from 'lucide-react';
+import { Loader2, Plus, Edit2, Trash2, Layers } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useRouter } from 'next/navigation';
 import { Breadcrumb } from '@/components/common/breadcrumb';
+import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 
 export default function FormModulesPage() {
   const { permissions } = useAuthStore();
@@ -89,11 +90,11 @@ export default function FormModulesPage() {
     }
   };
 
-  const handleDelete = async () => {
+  const handleDelete = async (remark: string) => {
     if (!editingItem) return;
     setIsSubmitting(true);
     try {
-      await listingConfigService.deleteFormModule(editingItem.id);
+      await listingConfigService.deleteFormModule(editingItem.id, remark);
       setIsDeleteModalOpen(false);
       fetchModules();
     } catch (err) {
@@ -212,28 +213,14 @@ export default function FormModulesPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Delete Module Modal */}
-        <Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
-          <DialogContent>
-            <DialogHeader className="hidden">
-              <DialogTitle>Delete</DialogTitle>
-              <DialogDescription>Confirm</DialogDescription>
-            </DialogHeader>
-            <div className="flex flex-col items-center text-center pt-4">
-              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4">
-                <AlertTriangle className="w-6 h-6 text-red-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete {editingItem?.label}?</h3>
-              <p className="text-sm text-gray-500 mb-6">Are you sure you want to delete this section? This cannot be undone.</p>
-              <div className="flex w-full gap-3">
-                <Button variant="outline" className="flex-1" onClick={() => setIsDeleteModalOpen(false)}>Cancel</Button>
-                <Button variant="destructive" className="flex-1" onClick={handleDelete} disabled={isSubmitting}>
-                  {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Delete
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <DeleteRemarkDialog
+          open={isDeleteModalOpen}
+          onOpenChange={setIsDeleteModalOpen}
+          title={editingItem?.label ? `Delete ${editingItem.label}?` : 'Delete section?'}
+          itemName={editingItem?.label}
+          submitting={isSubmitting}
+          onConfirm={handleDelete}
+        />
       </div>
     </PermissionGuard>
   );

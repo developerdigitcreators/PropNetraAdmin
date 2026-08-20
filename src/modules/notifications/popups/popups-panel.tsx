@@ -11,6 +11,7 @@ import {
   SelectTrigger,
 } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/common/searchable-select';
+import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 import {
   notificationsService,
   notificationApiError,
@@ -135,6 +136,9 @@ export function PopupsPanel({
   const [touched, setTouched] = useState(false);
 
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<InAppPopup | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   const loadPopups = useCallback(async () => {
     setListLoading(true);
@@ -329,18 +333,21 @@ export function PopupsPanel({
     }
   };
 
-  const handleDelete = async (popup: InAppPopup) => {
-    if (!canDelete) return;
-    if (!window.confirm(`Delete “${popup.title}”? Users who already saw it keep their receipt.`)) {
-      return;
-    }
+  const handleDelete = async (remark: string) => {
+    if (!canDelete || !pendingDelete) return;
+    setDeleting(true);
+    setDeleteError('');
     try {
-      await notificationsService.deletePopup(popup.id);
+      await notificationsService.deletePopup(pendingDelete.id, remark);
       onToast('Popup deleted.');
-      if (editingId === popup.id) resetForm();
+      if (editingId === pendingDelete.id) resetForm();
+      setPendingDelete(null);
       loadPopups();
     } catch (err) {
+      setDeleteError(notificationApiError(err, 'Failed to delete popup.'));
       onToast(notificationApiError(err, 'Failed to delete popup.'));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -784,7 +791,7 @@ export function PopupsPanel({
                         className="ml-auto text-red-600 hover:text-red-700"
                         onClick={() => {
                           const popup = popups.find((p) => p.id === editingId);
-                          if (popup) handleDelete(popup);
+                          if (popup) setPendingDelete(popup);
                         }}
                       >
                         <Trash2 className="mr-1.5 w-4 h-4" />
@@ -877,6 +884,21 @@ export function PopupsPanel({
         error={submitError}
         onClose={() => setPreviewOpen(false)}
         onConfirm={confirmSubmit}
+      />
+
+      <DeleteRemarkDialog
+        open={Boolean(pendingDelete)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingDelete(null);
+            setDeleteError('');
+          }
+        }}
+        title="Delete popup?"
+        itemName={pendingDelete?.title}
+        submitting={deleting}
+        error={deleteError}
+        onConfirm={handleDelete}
       />
     </>
   );

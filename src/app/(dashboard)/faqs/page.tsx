@@ -7,22 +7,15 @@ import { Breadcrumb } from '@/components/common/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { SortableTableBody } from '@/components/common/sortable-list';
 import { FaqFormDialog } from '@/modules/faqs/faq-form-dialog';
+import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 import {
   faqApiError,
   faqsService,
   type FaqItem,
 } from '@/services/faqs.service';
 import {
-  AlertTriangle,
   CircleHelp,
   Edit2,
   Loader2,
@@ -126,11 +119,11 @@ export default function FaqsPage() {
     }
   };
 
-  const handleDelete = async () => {
+  const handleDelete = async (remark: string) => {
     if (!toDelete) return;
     setDeleting(true);
     try {
-      await faqsService.remove(toDelete.id);
+      await faqsService.remove(toDelete.id, remark);
       setToDelete(null);
       await fetchFaqs();
     } catch (err) {
@@ -285,32 +278,14 @@ export default function FaqsPage() {
         onSubmit={handleSave}
       />
 
-      <Dialog open={Boolean(toDelete)} onOpenChange={(open) => !open && setToDelete(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-red-500" />
-              Delete FAQ
-            </DialogTitle>
-            <DialogDescription>
-              “{toDelete?.question}” will disappear from the app. This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setToDelete(null)} disabled={deleting}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="bg-red-600 text-white hover:bg-red-700"
-            >
-              {deleting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-              Delete
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DeleteRemarkDialog
+        open={Boolean(toDelete)}
+        onOpenChange={(open) => !open && setToDelete(null)}
+        title="Delete FAQ"
+        itemName={toDelete?.question}
+        submitting={deleting}
+        onConfirm={handleDelete}
+      />
     </PermissionGuard>
   );
 }

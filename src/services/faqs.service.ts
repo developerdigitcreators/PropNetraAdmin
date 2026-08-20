@@ -1,4 +1,5 @@
 import { axiosClient } from '@/lib/axios-client';
+import { deleteWithRemark } from '@/lib/delete-with-remark';
 
 export type FaqItem = {
   id: string;
@@ -110,7 +111,7 @@ export const faqsService = {
     await axiosClient.put('/admin/faqs/reorder', { orderedIds });
   },
 
-  remove: async (id: string): Promise<void> => {
-    await axiosClient.delete(`/admin/faqs/${id}`);
+  remove: async (id: string, remark: string): Promise<void> => {
+    await deleteWithRemark(`/admin/faqs/${id}`, remark);
   },
 };

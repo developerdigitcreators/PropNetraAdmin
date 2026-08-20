@@ -9,10 +9,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Loader2, Plus, Edit2, Trash2, AlertTriangle, Check } from 'lucide-react';
+import { Loader2, Plus, Edit2, Trash2, Check } from 'lucide-react';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { SortableTableBody } from '@/components/common/sortable-list';
 import { withCount } from '@/lib/filter-label';
+import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 
 type AttributeRef = {
   id: string;
@@ -372,13 +373,13 @@ export default function AttributesPage() {
         String(a.name || '').localeCompare(String(b.name || '')),
     );
 
-  const handleDelete = async () => {
+  const handleDelete = async (remark: string) => {
     if (!editingItem) return;
     setIsSubmitting(true);
     try {
-      if (activeTab === 'categories') await listingConfigService.deleteCategory(editingItem.id);
-      else if (activeTab === 'building_types') await listingConfigService.deleteBuildingType(editingItem.id);
-      else if (activeTab === 'property_types') await listingConfigService.deletePropertyType(editingItem.id);
+      if (activeTab === 'categories') await listingConfigService.deleteCategory(editingItem.id, remark);
+      else if (activeTab === 'building_types') await listingConfigService.deleteBuildingType(editingItem.id, remark);
+      else if (activeTab === 'property_types') await listingConfigService.deletePropertyType(editingItem.id, remark);
       
       setIsDeleteModalOpen(false);
       fetchData();
@@ -792,28 +793,14 @@ export default function AttributesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Modal */}
-      <Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
-        <DialogContent>
-          <DialogHeader className="hidden">
-            <DialogTitle>Delete</DialogTitle>
-            <DialogDescription>Confirm</DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col items-center text-center pt-4">
-            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4">
-              <AlertTriangle className="w-6 h-6 text-red-600" />
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete {editingItem?.name}?</h3>
-            <p className="text-sm text-gray-500 mb-6">Are you sure you want to delete this item? This cannot be undone.</p>
-            <div className="flex w-full gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => setIsDeleteModalOpen(false)}>Cancel</Button>
-              <Button variant="destructive" className="flex-1" onClick={handleDelete} disabled={isSubmitting}>
-                {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Delete
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DeleteRemarkDialog
+        open={isDeleteModalOpen}
+        onOpenChange={setIsDeleteModalOpen}
+        title={editingItem?.name ? `Delete ${editingItem.name}?` : 'Delete item?'}
+        itemName={editingItem?.name}
+        submitting={isSubmitting}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

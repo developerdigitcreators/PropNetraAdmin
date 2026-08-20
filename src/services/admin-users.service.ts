@@ -1,4 +1,5 @@
 import { axiosClient } from '@/lib/axios-client';
+import { deleteWithRemark } from '@/lib/delete-with-remark';
 
 export type AppUserAudience = 'admin_panel' | 'app';
 export type AppUserBucket = 'otp_issued' | 'otp_verified' | 'master';
@@ -81,8 +82,8 @@ export const adminUsersService = {
     return response.data as { signupSessionId: string; remarks: SignupRemark[] };
   },
 
-  deleteUser: async (id: string) => {
-    const response = await axiosClient.delete(`/admin/users/${id}`);
+  deleteUser: async (id: string, remark: string) => {
+    const response = await deleteWithRemark(`/admin/users/${id}`, remark);
     return response.data;
   },
 };

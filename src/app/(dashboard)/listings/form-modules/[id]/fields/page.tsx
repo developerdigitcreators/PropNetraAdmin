@@ -9,11 +9,12 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Plus, Edit2, Trash2, AlertTriangle, Settings2 } from 'lucide-react';
+import { Loader2, Plus, Edit2, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useParams } from 'next/navigation';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { SortableGrid } from '@/components/common/sortable-list';
+import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 import React from 'react';
 
 const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canManageOptions: boolean }) => {
@@ -23,6 +24,7 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
   const [editingOption, setEditingOption] = useState<any>(null);
   const [formData, setFormData] = useState({ label: '', value: '', sort_order: 1 });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [optionToDelete, setOptionToDelete] = useState<any>(null);
 
   const loadOptions = async () => {
     setIsLoading(true);
@@ -97,10 +99,11 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Delete this option?')) return;
+  const handleDelete = async (remark: string) => {
+    if (!optionToDelete?.id) return;
     try {
-      await moduleOptionsService.deleteOption(id);
+      await moduleOptionsService.deleteOption(optionToDelete.id, remark);
+      setOptionToDelete(null);
       loadOptions();
     } catch (err) {
       console.error('Delete failed', err);
@@ -152,7 +155,7 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
                       </Button>
                     )}
                     {canManageOptions && (
-                      <Button variant="ghost" size="sm" onClick={() => handleDelete(opt.id)} className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50">
+                      <Button variant="ghost" size="sm" onClick={() => setOptionToDelete(opt)} className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50">
                         <Trash2 className="w-3 h-3" />
                       </Button>
                     )}
@@ -196,6 +199,13 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
           </div>
         </div>
       )}
+      <DeleteRemarkDialog
+        open={Boolean(optionToDelete)}
+        onOpenChange={(open) => !open && setOptionToDelete(null)}
+        title="Delete option?"
+        itemName={optionToDelete?.option_label || optionToDelete?.label}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 };
@@ -291,11 +301,11 @@ export default function FormFieldsPage() {
     }
   };
 
-  const handleDelete = async () => {
+  const handleDelete = async (remark: string) => {
     if (!editingItem) return;
     setIsSubmitting(true);
     try {
-      await listingConfigService.deleteFormField(editingItem.id);
+      await listingConfigService.deleteFormField(editingItem.id, remark);
       setIsDeleteModalOpen(false);
       fetchFields();
     } catch (err) {
@@ -406,28 +416,14 @@ export default function FormFieldsPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Delete Field Modal */}
-        <Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
-          <DialogContent>
-            <DialogHeader className="hidden">
-              <DialogTitle>Delete</DialogTitle>
-              <DialogDescription>Confirm</DialogDescription>
-            </DialogHeader>
-            <div className="flex flex-col items-center text-center pt-4">
-              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4">
-                <AlertTriangle className="w-6 h-6 text-red-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete {editingItem?.label}?</h3>
-              <p className="text-sm text-gray-500 mb-6">Are you sure you want to delete this field? This cannot be undone.</p>
-              <div className="flex w-full gap-3">
-                <Button variant="outline" className="flex-1" onClick={() => setIsDeleteModalOpen(false)}>Cancel</Button>
-                <Button variant="destructive" className="flex-1" onClick={handleDelete} disabled={isSubmitting}>
-                  {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Delete
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <DeleteRemarkDialog
+          open={isDeleteModalOpen}
+          onOpenChange={setIsDeleteModalOpen}
+          title={editingItem?.label ? `Delete ${editingItem.label}?` : 'Delete field?'}
+          itemName={editingItem?.label}
+          submitting={isSubmitting}
+          onConfirm={handleDelete}
+        />
 
         {/* Removed Manage Options Modal, using inline expandable rows instead */}
       </div>

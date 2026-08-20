@@ -1,4 +1,5 @@
 import { axiosClient } from '@/lib/axios-client';
+import { deleteWithRemark } from '@/lib/delete-with-remark';
 
 export const listingConfigService = {
   getCategories: async () => {
@@ -44,8 +45,8 @@ export const listingConfigService = {
     const response = await axiosClient.put(`/admin/listing-config/categories/${id}`, payload);
     return response.data;
   },
-  deleteCategory: async (id: string) => {
-    const response = await axiosClient.delete(`/admin/listing-config/categories/${id}`);
+  deleteCategory: async (id: string, remark: string) => {
+    const response = await deleteWithRemark(`/admin/listing-config/categories/${id}`, remark);
     return response.data;
   },
 
@@ -58,8 +59,8 @@ export const listingConfigService = {
     const response = await axiosClient.put(`/admin/listing-config/building-types/${id}`, payload);
     return response.data;
   },
-  deleteBuildingType: async (id: string) => {
-    const response = await axiosClient.delete(`/admin/listing-config/building-types/${id}`);
+  deleteBuildingType: async (id: string, remark: string) => {
+    const response = await deleteWithRemark(`/admin/listing-config/building-types/${id}`, remark);
     return response.data;
   },
 
@@ -72,8 +73,8 @@ export const listingConfigService = {
     const response = await axiosClient.put(`/admin/listing-config/property-types/${id}`, payload);
     return response.data;
   },
-  deletePropertyType: async (id: string) => {
-    const response = await axiosClient.delete(`/admin/listing-config/property-types/${id}`);
+  deletePropertyType: async (id: string, remark: string) => {
+    const response = await deleteWithRemark(`/admin/listing-config/property-types/${id}`, remark);
     return response.data;
   },
 
@@ -86,8 +87,8 @@ export const listingConfigService = {
     const response = await axiosClient.put(`/admin/listing-config/form-modules/${id}`, payload);
     return response.data;
   },
-  deleteFormModule: async (id: string) => {
-    const response = await axiosClient.delete(`/admin/listing-config/form-modules/${id}`);
+  deleteFormModule: async (id: string, remark: string) => {
+    const response = await deleteWithRemark(`/admin/listing-config/form-modules/${id}`, remark);
     return response.data;
   },
 
@@ -104,8 +105,8 @@ export const listingConfigService = {
     const response = await axiosClient.put(`/admin/listing-config/form-fields/${id}`, payload);
     return response.data;
   },
-  deleteFormField: async (id: string) => {
-    const response = await axiosClient.delete(`/admin/listing-config/form-fields/${id}`);
+  deleteFormField: async (id: string, remark: string) => {
+    const response = await deleteWithRemark(`/admin/listing-config/form-fields/${id}`, remark);
     return response.data;
   }
 };

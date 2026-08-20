@@ -1,4 +1,5 @@
 import { axiosClient } from '@/lib/axios-client';
+import { deleteWithRemark } from '@/lib/delete-with-remark';
 
 export type TicketStatus = 'pending' | 'resolved' | 'closed';
 export type TicketTier = 'elite' | 'pro' | 'network' | null;
@@ -186,8 +187,8 @@ export const supportTicketsService = {
     return normalizeTicket(response.data);
   },
 
-  remove: async (id: string): Promise<void> => {
-    await axiosClient.delete(`/admin/support-tickets/${id}`);
+  remove: async (id: string, remark: string): Promise<void> => {
+    await deleteWithRemark(`/admin/support-tickets/${id}`, remark);
   },
 
   addRemark: async (id: string, text: string): Promise<SupportTicketItem | null> => {

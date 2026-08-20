@@ -5,6 +5,7 @@ import {
   decodeJwtExpMs,
   resolveTokenExpiresAtMs,
 } from '@/lib/token-expiry';
+import { permissionSetHas } from '@/lib/super-admin';
 
 type TokenExpiryInput = {
   expiresIn?: number | string | null;
@@ -75,10 +76,8 @@ export const useAuthStore = create<AuthState>()(
         }
         set({ activeRole: role });
       },
-      hasPermission: (moduleName, action) => {
-        const perms = get().permissions;
-        return perms.has(`${moduleName}:${action}`) || perms.has('ALL:ALL');
-      },
+      hasPermission: (moduleName, action) =>
+        permissionSetHas(get().permissions, `${moduleName}:${action}`),
       logout: () => {
         Cookies.remove('access_token');
         Cookies.remove('active_role');

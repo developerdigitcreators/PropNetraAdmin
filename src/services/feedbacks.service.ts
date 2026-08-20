@@ -1,4 +1,5 @@
 import { axiosClient } from '@/lib/axios-client';
+import { deleteWithRemark } from '@/lib/delete-with-remark';
 
 export type FeedbackUser = {
   id: string | null;
@@ -126,8 +127,8 @@ export const feedbacksService = {
     return normalizeFeedback(response.data);
   },
 
-  remove: async (id: string): Promise<void> => {
-    await axiosClient.delete(`/admin/feedbacks/${id}`);
+  remove: async (id: string, remark: string): Promise<void> => {
+    await deleteWithRemark(`/admin/feedbacks/${id}`, remark);
   },
 
   addRemark: async (id: string, text: string): Promise<FeedbackItem | null> => {

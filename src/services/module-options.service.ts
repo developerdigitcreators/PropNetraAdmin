@@ -1,4 +1,5 @@
 import { axiosClient } from '@/lib/axios-client';
+import { deleteWithRemark } from '@/lib/delete-with-remark';
 
 export const moduleOptionsService = {
   getOptionsForField: async (fieldId: string) => {
@@ -16,8 +17,8 @@ export const moduleOptionsService = {
     return response.data;
   },
 
-  deleteOption: async (id: string) => {
-    const response = await axiosClient.delete(`/admin/module-options/${id}`);
+  deleteOption: async (id: string, remark: string) => {
+    const response = await deleteWithRemark(`/admin/module-options/${id}`, remark);
     return response.data;
   }
 };

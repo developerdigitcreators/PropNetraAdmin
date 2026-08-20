@@ -1,4 +1,5 @@
 import { axiosClient } from '@/lib/axios-client';
+import { deleteWithRemark } from '@/lib/delete-with-remark';
 
 export const NOTIFICATION_TYPES = [
   { value: 'general', label: 'General' },
@@ -1387,8 +1388,8 @@ export const notificationsService = {
     return normalizeCampaign(response.data);
   },
 
-  deleteCampaign: async (id: string) => {
-    const response = await axiosClient.delete(`/admin/notifications/campaigns/${id}`);
+  deleteCampaign: async (id: string, remark: string) => {
+    const response = await deleteWithRemark(`/admin/notifications/campaigns/${id}`, remark);
     return response.data as { id: string; deleted: boolean; feedItemsDeleted: number };
   },
 
@@ -1554,8 +1555,8 @@ export const notificationsService = {
     return normalizeInAppPopup(response.data);
   },
 
-  deletePopup: async (id: string) => {
-    const response = await axiosClient.delete(`/admin/notifications/popups/${id}`);
+  deletePopup: async (id: string, remark: string) => {
+    const response = await deleteWithRemark(`/admin/notifications/popups/${id}`, remark);
     return response.data as { success?: boolean };
   },
 };

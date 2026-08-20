@@ -1,4 +1,5 @@
 import { axiosClient } from '@/lib/axios-client';
+import { deleteWithRemark } from '@/lib/delete-with-remark';
 import * as XLSX from 'xlsx';
 
 const LOCATION_IMPORT_HEADERS = ['State', 'City', 'Micro Market', 'Location', 'Property Name'] as const;
@@ -54,8 +55,8 @@ export const locationService = {
     const response = await axiosClient.put(`/admin/states/${id}`, payload);
     return response.data;
   },
-  deleteState: async (id: string) => {
-    const response = await axiosClient.delete(`/admin/states/${id}`);
+  deleteState: async (id: string, remark: string) => {
+    const response = await deleteWithRemark(`/admin/states/${id}`, remark);
     return response.data;
   },
 
@@ -74,8 +75,8 @@ export const locationService = {
     const response = await axiosClient.put(`/admin/cities/${id}`, payload);
     return response.data;
   },
-  deleteCity: async (id: string) => {
-    const response = await axiosClient.delete(`/admin/cities/${id}`);
+  deleteCity: async (id: string, remark: string) => {
+    const response = await deleteWithRemark(`/admin/cities/${id}`, remark);
     return response.data;
   },
 
@@ -95,8 +96,8 @@ export const locationService = {
     const response = await axiosClient.put(`/admin/micro-markets/${id}`, payload);
     return response.data;
   },
-  deleteMicroMarket: async (id: string) => {
-    const response = await axiosClient.delete(`/admin/micro-markets/${id}`);
+  deleteMicroMarket: async (id: string, remark: string) => {
+    const response = await deleteWithRemark(`/admin/micro-markets/${id}`, remark);
     return response.data;
   },
   getPendingMicroMarkets: async () => {
@@ -132,8 +133,8 @@ export const locationService = {
     const response = await axiosClient.put(`/admin/locations/${id}`, payload);
     return response.data;
   },
-  deleteLocation: async (id: string) => {
-    const response = await axiosClient.delete(`/admin/locations/${id}`);
+  deleteLocation: async (id: string, remark: string) => {
+    const response = await deleteWithRemark(`/admin/locations/${id}`, remark);
     return response.data;
   },
   getPendingLocations: async () => {
@@ -170,8 +171,8 @@ export const locationService = {
     const response = await axiosClient.put(`/admin/property-names/${id}`, payload);
     return response.data;
   },
-  deletePropertyName: async (id: string) => {
-    const response = await axiosClient.delete(`/admin/property-names/${id}`);
+  deletePropertyName: async (id: string, remark: string) => {
+    const response = await deleteWithRemark(`/admin/property-names/${id}`, remark);
     return response.data;
   },
   getPendingPropertyNames: async () => {

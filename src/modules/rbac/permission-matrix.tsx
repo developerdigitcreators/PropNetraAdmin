@@ -17,6 +17,8 @@ interface PermissionScope {
   nested?: boolean;
   default_selected_child?: string;
   default_selected?: boolean;
+  super_admin_only?: boolean;
+  super_admin_only_actions?: string[];
   children?: PermissionScope[];
 }
 
@@ -39,8 +41,17 @@ function asScope(raw: unknown): PermissionScope | null {
     default_selected_child:
       typeof o.default_selected_child === 'string' ? o.default_selected_child : undefined,
     default_selected: o.default_selected === true,
+    super_admin_only: o.super_admin_only === true || o.superAdminOnly === true,
+    super_admin_only_actions: asActionList(
+      o.super_admin_only_actions ?? o.superAdminOnlyActions,
+    ),
     children,
   };
+}
+
+function asActionList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((action): action is string => typeof action === 'string' && !!action);
 }
 
 function asScopes(raw: unknown): PermissionScope[] {
@@ -89,13 +100,19 @@ function defaultChildOf(scope: PermissionScope): PermissionScope | undefined {
   return scope.children?.find((c) => c.module_name === name) || scope.children?.[0];
 }
 
+function reservedActions(scope: PermissionScope) {
+  return new Set(scope.super_admin_only_actions || []);
+}
+
 function cruFor(scope: PermissionScope): string[] {
-  const actions = (scope.actions || []).filter((a) => a !== 'delete');
+  const reserved = reservedActions(scope);
+  const actions = (scope.actions || []).filter((a) => a !== 'delete' && !reserved.has(a));
   return actions.map((action) => `${scope.module_name}:${action}`);
 }
 
 function visibleActions(scope: PermissionScope, nestedChild: boolean) {
-  const actions = scope.actions || [];
+  const reserved = reservedActions(scope);
+  const actions = (scope.actions || []).filter((a) => !reserved.has(a));
   return nestedChild ? actions.filter((a) => a !== 'delete') : actions;
 }
 
@@ -127,8 +144,22 @@ export function PermissionMatrix({ selectedPermissions, onChange }: PermissionMa
   }, [scopes]);
 
   const topLevelScopes = useMemo(
-    () => scopes.filter((scope) => !nestedChildNames.has(scope.module_name)),
+    () =>
+      scopes.filter(
+        (scope) => !nestedChildNames.has(scope.module_name) && !scope.super_admin_only,
+      ),
     [scopes, nestedChildNames],
+  );
+  const reservedScopes = useMemo(
+    () => scopes.filter((scope) => scope.super_admin_only),
+    [scopes],
+  );
+  const reservedActionScopes = useMemo(
+    () =>
+      topLevelScopes.filter(
+        (scope) => !scope.super_admin_only && (scope.super_admin_only_actions || []).length > 0,
+      ),
+    [topLevelScopes],
   );
 
   const allActions = useMemo(() => {
@@ -282,6 +313,25 @@ export function PermissionMatrix({ selectedPermissions, onChange }: PermissionMa
           })}
         </tbody>
       </table>
+      {(reservedScopes.length > 0 || reservedActionScopes.length > 0) && (
+        <div className="space-y-1 border-t border-gray-100 bg-gray-50 px-6 py-3 text-xs text-gray-500">
+          {reservedScopes.length > 0 && (
+            <p>
+              {reservedScopes.map((scope) => formatModuleName(scope)).join(', ')}{' '}
+              {reservedScopes.length === 1 ? 'is' : 'are'} Super Admin only and cannot be granted to
+              other roles.
+            </p>
+          )}
+          {reservedActionScopes.map((scope) => (
+            <p key={scope.module_name}>
+              {formatModuleName(scope)}{' '}
+              {(scope.super_admin_only_actions || []).map(formatActionName).join(', ')}{' '}
+              {(scope.super_admin_only_actions || []).length === 1 ? 'is' : 'are'} Super Admin only
+              and cannot be granted to other roles.
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

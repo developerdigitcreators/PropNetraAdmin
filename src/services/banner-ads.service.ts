@@ -1,4 +1,5 @@
 import { axiosClient } from '@/lib/axios-client';
+import { deleteWithRemark } from '@/lib/delete-with-remark';
 
 export type BannerLinkType = 'none' | 'post' | 'page';
 export type BannerMediaType = 'image' | 'video';
@@ -312,8 +313,8 @@ export const bannerAdsService = {
     await axiosClient.put('/admin/ads/reorder', { orderedIds });
   },
 
-  deleteBanner: async (id: string): Promise<void> => {
-    await axiosClient.delete(`/admin/ads/${id}`);
+  deleteBanner: async (id: string, remark: string): Promise<void> => {
+    await deleteWithRemark(`/admin/ads/${id}`, remark);
   },
 
   getPages: async (): Promise<AdPageOption[]> => {

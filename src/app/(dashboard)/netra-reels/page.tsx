@@ -7,16 +7,10 @@ import { Breadcrumb } from '@/components/common/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { SortableTableBody } from '@/components/common/sortable-list';
 import { ReelFormDialog } from '@/modules/netra-reels/reel-form-dialog';
 import { ReelPlayer } from '@/modules/netra-reels/reel-player';
+import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 import {
   netraReelsApiError,
   netraReelsService,
@@ -24,7 +18,6 @@ import {
   type NetraReel,
 } from '@/services/netra-reels.service';
 import {
-  AlertTriangle,
   Clapperboard,
   Edit2,
   Loader2,
@@ -120,11 +113,11 @@ export default function NetraReelsPage() {
     }
   };
 
-  const handleDelete = async () => {
+  const handleDelete = async (remark: string) => {
     if (!toDelete) return;
     setDeleting(true);
     try {
-      await netraReelsService.remove(toDelete.id);
+      await netraReelsService.remove(toDelete.id, remark);
       setToDelete(null);
       await fetchReels();
     } catch (err) {
@@ -308,29 +301,14 @@ export default function NetraReelsPage() {
         />
       )}
 
-      <Dialog open={!!toDelete} onOpenChange={(open) => { if (!open) setToDelete(null); }}>
-        <DialogContent>
-          <DialogHeader className="hidden">
-            <DialogTitle>Delete</DialogTitle>
-            <DialogDescription>Confirm</DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col items-center text-center pt-2">
-            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4">
-              <AlertTriangle className="w-6 h-6 text-red-600" />
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete this reel?</h3>
-            <p className="text-sm text-gray-500 mb-6">
-              {toDelete?.title || toDelete?.sourceUrl} will be removed. This cannot be undone.
-            </p>
-            <div className="flex w-full gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => setToDelete(null)}>Cancel</Button>
-              <Button variant="destructive" className="flex-1" onClick={handleDelete} disabled={deleting}>
-                {deleting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Delete
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DeleteRemarkDialog
+        open={!!toDelete}
+        onOpenChange={(open) => { if (!open) setToDelete(null); }}
+        title="Delete this reel?"
+        itemName={toDelete?.title || toDelete?.sourceUrl}
+        submitting={deleting}
+        onConfirm={handleDelete}
+      />
     </PermissionGuard>
   );
 }

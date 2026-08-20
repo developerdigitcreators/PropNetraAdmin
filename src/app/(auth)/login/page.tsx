@@ -86,7 +86,10 @@ export default function LoginPage() {
         return;
       }
 
-      setAuthData(user, accessToken, perms, roles.length <= 1);
+      setAuthData(user, accessToken, perms, roles.length <= 1, {
+        expiresIn: payload?.expiresIn,
+        tokenExpiresAt: payload?.tokenExpiresAt,
+      });
 
       if (roles.length > 1) {
         setRolesToSelect(roles);

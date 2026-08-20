@@ -78,6 +78,12 @@ export type BroadcastCta = {
   screen?: string;
 };
 
+export type BroadcastPushAction = {
+  iconUrl?: string;
+  label: string;
+  deepLink: string;
+};
+
 export type BroadcastPayload = {
   channelId: string;
   cityIds: string[];
@@ -93,6 +99,13 @@ export type BroadcastPayload = {
   linkType?: BroadcastLinkType;
   listingId?: string;
   pageKey?: string;
+  layoutType?: string;
+  bgColor?: string;
+  countdownEndsAt?: string;
+  actions?: BroadcastPushAction[];
+  progressMax?: number;
+  progress?: number;
+  progressIndeterminate?: boolean;
 };
 
 export type BroadcastKeyLabel = {
@@ -105,6 +118,7 @@ export type BroadcastOptions = {
   linkTypes: BroadcastKeyLabel[];
   pages: BroadcastKeyLabel[];
   mediaKinds: BroadcastKeyLabel[];
+  layoutTypes: BroadcastKeyLabel[];
 };
 
 export type BroadcastListing = {
@@ -122,6 +136,7 @@ export type SystemChannel = {
 export type BroadcastCity = {
   id: string;
   name: string;
+  stateId?: string;
 };
 
 export type NotificationCampaign = {
@@ -147,6 +162,13 @@ export type NotificationCampaign = {
   listingId?: string | null;
   pageKey?: string | null;
   media: BroadcastMedia[];
+  layoutType?: string | null;
+  bgColor?: string | null;
+  countdownEndsAt?: string | null;
+  actions: BroadcastPushAction[];
+  progressMax?: number | null;
+  progress?: number | null;
+  progressIndeterminate?: boolean;
   createdAt?: string | null;
   sentAt?: string | null;
 };
@@ -173,6 +195,13 @@ export type UpdateCampaignPayload = {
   linkType?: BroadcastLinkType;
   listingId?: string;
   pageKey?: string;
+  layoutType?: string;
+  bgColor?: string | null;
+  countdownEndsAt?: string | null;
+  actions?: BroadcastPushAction[];
+  progressMax?: number | null;
+  progress?: number | null;
+  progressIndeterminate?: boolean;
 };
 
 /** A Groups channel as the app sees it. PropNetra Updates has allowAdminBroadcast. */
@@ -208,6 +237,59 @@ export type ConnectFeedResult = {
   totalPages: number;
 };
 
+export type InboxUser = {
+  id: string;
+  name: string;
+  contact: string;
+  email: string;
+  status?: string | null;
+  profilePhotoUrl?: string | null;
+};
+
+export type InboxCategory = {
+  key: string;
+  label: string;
+  available: boolean;
+  count: number;
+  unreadCount: number;
+  lastMessage?: string;
+  lastMessageAt?: string | null;
+};
+
+export type InboxMessage = {
+  id: string;
+  title: string;
+  body: string;
+  type: string;
+  category?: string;
+  data: Record<string, string>;
+  isRead: boolean;
+  readAt?: string | null;
+  pushStatus?: string | null;
+  pushError?: string | null;
+  createdAt?: string | null;
+  thread?: boolean;
+  threadId?: string;
+  items?: InboxMessage[];
+};
+
+export type InboxOverview = {
+  user: InboxUser;
+  categories: InboxCategory[];
+  leads: InboxMessage[];
+};
+
+export type InboxMessageListResult = {
+  items: InboxMessage[];
+  category?: string;
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+};
+
+export const INBOX_LEAD_EVENTS = ['listing.interest', 'listing.contacted'] as const;
+
 export type InAppPopupStatus = 'draft' | 'active' | 'expired' | 'inactive';
 
 export type PopupAudience =
@@ -218,13 +300,7 @@ export type PopupAudience =
   | 'network_unsubscribed'
   | 'network_subscribed';
 
-export type PopupPlaceScope = 'global' | 'city' | 'location';
-
-export type PopupLocation = {
-  id: string;
-  name: string;
-  cityId: string;
-};
+export type PopupPlaceScope = 'global' | 'state' | 'city';
 
 export type PopupAudienceOption = BroadcastKeyLabel & {
   children?: PopupAudienceOption[];
@@ -237,10 +313,10 @@ export type InAppPopup = {
   bodyFormat: BroadcastBodyFormat;
   imageUrl?: string | null;
   ctaLabel: string;
+  stateIds: string[];
+  stateNames: string[];
   cityIds: string[];
   cityNames: string[];
-  locationIds: string[];
-  locationNames: string[];
   audience: PopupAudience;
   audienceLabel: string;
   placeScope: PopupPlaceScope;
@@ -265,11 +341,6 @@ export type InAppPopupOptions = {
   audiences: PopupAudienceOption[];
 };
 
-export type PopupLocationsResult = {
-  city: BroadcastCity;
-  items: PopupLocation[];
-};
-
 export type InAppPopupListResult = {
   items: InAppPopup[];
   total: number;
@@ -285,8 +356,8 @@ export type CreateInAppPopupPayload = {
   bodyFormat?: BroadcastBodyFormat;
   imageUrl?: string;
   ctaLabel?: string;
+  stateIds?: string[];
   cityIds?: string[];
-  locationIds?: string[];
   audience?: PopupAudience;
   linkType?: BroadcastLinkType;
   listingId?: string;
@@ -300,8 +371,8 @@ export type UpdateInAppPopupPayload = {
   bodyFormat?: BroadcastBodyFormat;
   imageUrl?: string | null;
   ctaLabel?: string;
+  stateIds?: string[];
   cityIds?: string[];
-  locationIds?: string[];
   audience?: PopupAudience;
   linkType?: BroadcastLinkType;
   listingId?: string | null;
@@ -345,6 +416,12 @@ export const DEFAULT_BROADCAST_MEDIA_KINDS: BroadcastKeyLabel[] = [
   { key: 'image', label: 'Image' },
   { key: 'pdf', label: 'PDF' },
   { key: 'video', label: 'Video' },
+];
+
+export const DEFAULT_PUSH_LAYOUT_TYPES: BroadcastKeyLabel[] = [
+  { key: 'COUNTDOWN', label: 'Countdown' },
+  { key: 'MULTI_ACTION', label: 'Multi-action' },
+  { key: 'PROGRESS', label: 'Progress' },
 ];
 
 function str(value: unknown): string {
@@ -417,7 +494,12 @@ function asNamedList(data: unknown): BroadcastCity[] {
       const id = str(r.id);
       const name = str(r.name || r.title);
       if (!id || !name) return null;
-      return { id, name };
+      const stateObj =
+        r.state && typeof r.state === 'object'
+          ? (r.state as Record<string, unknown>)
+          : null;
+      const stateId = str(r.stateId || r.state_id || stateObj?.id) || undefined;
+      return { id, name, ...(stateId ? { stateId } : {}) };
     })
     .filter((c): c is BroadcastCity => !!c);
 }
@@ -475,6 +557,97 @@ export function isAdminBroadcastCampaign(campaign: NotificationCampaign): boolea
 
 export function adminBroadcastChannels(channels: SystemChannel[]): SystemChannel[] {
   return channels.filter(isPropNetraUpdatesChannel);
+}
+
+export function isLeadInboxMessage(item?: InboxMessage | null): boolean {
+  if (!item) return false;
+  const event = str(item.data?.event);
+  if (INBOX_LEAD_EVENTS.includes(event as (typeof INBOX_LEAD_EVENTS)[number])) {
+    return true;
+  }
+  if (item.thread) return true;
+  return (item.items || []).some((row) => isLeadInboxMessage(row));
+}
+
+export function inboxEventOf(item?: InboxMessage | null): string {
+  return str(item?.data?.event);
+}
+
+export function leadThreadKey(item?: InboxMessage | null): string {
+  if (!item) return '';
+  if (item.threadId) return item.threadId;
+  const actor = str(item.data?.actorUserId);
+  const event = inboxEventOf(item);
+  if (actor && event) return `${event}:${actor}`;
+  return item.id;
+}
+
+function asInboxData(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    out[key] = value == null ? '' : String(value);
+  }
+  return out;
+}
+
+export function normalizeInboxMessage(raw: unknown): InboxMessage | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const n = raw as Record<string, unknown>;
+  const id = str(n.id);
+  if (!id) return null;
+  const nested = Array.isArray(n.items)
+    ? n.items
+        .map(normalizeInboxMessage)
+        .filter((row): row is InboxMessage => !!row)
+    : undefined;
+  return {
+    id,
+    title: str(n.title),
+    body: str(n.body || n.message),
+    type: str(n.type || 'general'),
+    category: str(n.category) || undefined,
+    data: asInboxData(n.data),
+    isRead: n.isRead === true || n.is_read === true,
+    readAt: str(n.readAt || n.read_at) || null,
+    pushStatus: str(n.pushStatus || n.push_status) || null,
+    pushError: str(n.pushError || n.push_error) || null,
+    createdAt: str(n.createdAt || n.created_at) || null,
+    thread: n.thread === true,
+    threadId: str(n.threadId || n.thread_id) || undefined,
+    items: nested,
+  };
+}
+
+function normalizeInboxUser(raw: unknown): InboxUser | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const u = raw as Record<string, unknown>;
+  const id = str(u.id);
+  if (!id) return null;
+  return {
+    id,
+    name: str(u.name) || 'User',
+    contact: str(u.contact || u.phone),
+    email: str(u.email),
+    status: str(u.status) || null,
+    profilePhotoUrl: str(u.profilePhotoUrl || u.profile_photo_url) || null,
+  };
+}
+
+function normalizeInboxCategory(raw: unknown): InboxCategory | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const c = raw as Record<string, unknown>;
+  const key = str(c.key || c.id);
+  if (!key) return null;
+  return {
+    key,
+    label: str(c.label || c.name) || key,
+    available: c.available !== false,
+    count: Number(c.count) || 0,
+    unreadCount: Number(c.unreadCount ?? c.unread_count) || 0,
+    lastMessage: str(c.lastMessage || c.last_message) || undefined,
+    lastMessageAt: str(c.lastMessageAt || c.last_message_at) || null,
+  };
 }
 
 function asArrayUnknown(data: unknown): unknown[] {
@@ -545,16 +718,25 @@ export function normalizeBroadcastOptions(raw: unknown): BroadcastOptions {
     key: String(normalizeLinkTypeKey(item.key)),
     label: item.label,
   }));
-  const pages = asKeyLabelList(nested.pages);
+  const pages = asKeyLabelList(nested.pages || nested.pageKeys || nested.page_keys);
   const mediaKinds = asKeyLabelList(
     nested.mediaKinds || nested.media_kinds || nested.mediaTypes || nested.media_types,
   );
+  const layoutTypes = asKeyLabelList(nested.layoutTypes || nested.layout_types)
+    .map((item) => ({
+      key: item.key.toUpperCase(),
+      label: item.label,
+    }))
+    .filter((item) =>
+      ['COUNTDOWN', 'MULTI_ACTION', 'PROGRESS'].includes(item.key),
+    );
   const channels = adminBroadcastChannels(asChannels(nested.channels || nested.channel));
   return {
     channels,
     linkTypes: linkTypes.length ? linkTypes : DEFAULT_BROADCAST_LINK_TYPES,
     pages,
     mediaKinds: mediaKinds.length ? mediaKinds : DEFAULT_BROADCAST_MEDIA_KINDS,
+    layoutTypes: layoutTypes.length ? layoutTypes : DEFAULT_PUSH_LAYOUT_TYPES,
   };
 }
 
@@ -567,6 +749,23 @@ export function asMediaList(raw: unknown): BroadcastMedia[] {
       return { kind: str(r.kind || r.type) || 'image', url };
     })
     .filter((m): m is BroadcastMedia => !!m);
+}
+
+function asPushActions(raw: unknown): BroadcastPushAction[] {
+  return asArrayUnknown(raw)
+    .map((row) => {
+      const r = (row && typeof row === 'object' ? row : {}) as Record<string, unknown>;
+      const label = str(r.label).trim();
+      const deepLink = str(r.deepLink || r.deep_link || r.pageKey || r.page_key).trim();
+      if (!label && !deepLink) return null;
+      const iconUrl = str(r.iconUrl || r.icon_url).trim();
+      return {
+        label,
+        deepLink,
+        ...(iconUrl ? { iconUrl } : {}),
+      };
+    })
+    .filter((item): item is BroadcastPushAction => !!item);
 }
 
 function asStringArray(raw: unknown): string[] {
@@ -625,6 +824,18 @@ export function normalizeCampaign(raw: unknown): NotificationCampaign {
     listingId: str(n.listingId || n.listing_id) || null,
     pageKey: str(n.pageKey || n.page_key) || null,
     media: asMediaList(n.media),
+    layoutType: str(n.layoutType || n.layout_type).toUpperCase() || null,
+    bgColor: str(n.bgColor || n.bg_color) || null,
+    countdownEndsAt: str(n.countdownEndsAt || n.countdown_ends_at) || null,
+    actions: asPushActions(n.actions),
+    progressMax:
+      n.progressMax != null || n.progress_max != null
+        ? asNum(n.progressMax ?? n.progress_max)
+        : null,
+    progress:
+      n.progress != null ? asNum(n.progress) : null,
+    progressIndeterminate:
+      n.progressIndeterminate === true || n.progress_indeterminate === true,
     createdAt: str(n.createdAt || n.created_at) || null,
     sentAt: str(n.sentAt || n.sent_at) || null,
   };
@@ -770,11 +981,11 @@ export function normalizeInAppPopup(raw: unknown): InAppPopup {
     statusRaw === 'inactive'
       ? statusRaw
       : 'inactive';
-  const locationIds = asStringArray(n.locationIds || n.location_ids);
-  const locationNamesRaw = n.locationNames ?? n.location_names;
-  const locationNames = Array.isArray(locationNamesRaw)
-    ? locationNamesRaw
-        .map((loc) => (typeof loc === 'string' ? loc : str((loc as Record<string, unknown>)?.name)))
+  const stateIds = asStringArray(n.stateIds || n.state_ids);
+  const stateNamesRaw = n.stateNames ?? n.state_names;
+  const stateNames = Array.isArray(stateNamesRaw)
+    ? stateNamesRaw
+        .map((s) => (typeof s === 'string' ? s : str((s as Record<string, unknown>)?.name)))
         .filter(Boolean)
     : [];
   const audienceRaw = str(n.audience || 'all').toLowerCase();
@@ -792,13 +1003,13 @@ export function normalizeInAppPopup(raw: unknown): InAppPopup {
     : 'all';
   const placeScopeRaw = str(n.placeScope || n.place_scope).toLowerCase();
   const placeScope: PopupPlaceScope =
-    placeScopeRaw === 'location' || placeScopeRaw === 'city' || placeScopeRaw === 'global'
+    placeScopeRaw === 'state' || placeScopeRaw === 'city' || placeScopeRaw === 'global'
       ? placeScopeRaw
       : cityIds.length
-        ? locationIds.length
-          ? 'location'
-          : 'city'
-        : 'global';
+        ? 'city'
+        : stateIds.length
+          ? 'state'
+          : 'global';
 
   return {
     id: str(n.id),
@@ -809,10 +1020,10 @@ export function normalizeInAppPopup(raw: unknown): InAppPopup {
       : 'plain') as BroadcastBodyFormat,
     imageUrl: str(n.imageUrl || n.image_url) || null,
     ctaLabel: str(n.ctaLabel || n.cta_label) || 'View',
+    stateIds,
+    stateNames,
     cityIds,
     cityNames,
-    locationIds,
-    locationNames,
     audience,
     audienceLabel: str(n.audienceLabel || n.audience_label) || 'All users',
     placeScope,
@@ -1191,6 +1402,77 @@ export const notificationsService = {
     return normalizeCampaign(inner);
   },
 
+  searchInboxUsers: async (search = ''): Promise<InboxUser[]> => {
+    const response = await axiosClient.get('/admin/notifications/inbox/users', {
+      params: { search: search.trim() || undefined, limit: 30 },
+    });
+    return asArrayUnknown(response.data)
+      .map(normalizeInboxUser)
+      .filter((user): user is InboxUser => !!user);
+  },
+
+  getInboxOverview: async (userId: string): Promise<InboxOverview> => {
+    const response = await axiosClient.get(
+      `/admin/notifications/inbox/${userId}/overview`,
+    );
+    const data = (response.data && typeof response.data === 'object'
+      ? response.data
+      : {}) as Record<string, unknown>;
+    const user = normalizeInboxUser(data.user);
+    if (!user) {
+      throw new Error('User inbox could not be loaded.');
+    }
+    return {
+      user,
+      categories: asArrayUnknown(data.categories)
+        .map(normalizeInboxCategory)
+        .filter((row): row is InboxCategory => !!row),
+      leads: asArrayUnknown(data.leads)
+        .map(normalizeInboxMessage)
+        .filter((row): row is InboxMessage => !!row),
+    };
+  },
+
+  getInboxMessages: async (params: {
+    userId: string;
+    category?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<InboxMessageListResult> => {
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 50;
+    const response = await axiosClient.get(
+      `/admin/notifications/inbox/${params.userId}`,
+      {
+        params: {
+          page,
+          limit,
+          ...(params.category ? { category: params.category } : {}),
+        },
+      },
+    );
+    const data = (response.data && typeof response.data === 'object'
+      ? response.data
+      : {}) as Record<string, unknown>;
+    const meta = (data.meta && typeof data.meta === 'object'
+      ? data.meta
+      : {}) as Record<string, unknown>;
+    const items = asArrayUnknown(data.items)
+      .map(normalizeInboxMessage)
+      .filter((row): row is InboxMessage => !!row);
+    const total = Number(meta.total ?? data.total ?? items.length) || items.length;
+    return {
+      items,
+      category: str(data.category) || params.category,
+      total,
+      page: Number(meta.page ?? data.page ?? page) || page,
+      limit: Number(meta.limit ?? data.limit ?? limit) || limit,
+      totalPages:
+        Number(meta.totalPages ?? data.totalPages) ||
+        Math.max(1, Math.ceil(total / limit)),
+    };
+  },
+
   getOps: async (): Promise<NotificationsOps> => {
     const response = await axiosClient.get('/admin/notifications/ops', {
       params: PROPNETRA_UPDATES_QUERY,
@@ -1210,34 +1492,26 @@ export const notificationsService = {
     return normalizePopupOptions(response.data);
   },
 
-  getPopupLocations: async (cityId: string): Promise<PopupLocationsResult> => {
-    const response = await axiosClient.get('/admin/notifications/popups/locations', {
-      params: { cityId },
+  getPopupCities: async (
+    stateId: string,
+  ): Promise<{ state: BroadcastCity; items: BroadcastCity[] }> => {
+    const response = await axiosClient.get('/admin/notifications/popups/cities', {
+      params: { stateId },
     });
     const data = (response.data && typeof response.data === 'object'
       ? response.data
       : {}) as Record<string, unknown>;
-    const cityRaw = data.city && typeof data.city === 'object' ? data.city : {};
-    const cityObj = cityRaw as Record<string, unknown>;
-    const items = asArrayUnknown(data.items)
-      .map((row) => {
-        const r = (row && typeof row === 'object' ? row : {}) as Record<string, unknown>;
-        const id = str(r.id);
-        const name = str(r.name);
-        if (!id || !name) return null;
-        return {
-          id,
-          name,
-          cityId: str(r.cityId || r.city_id || cityId),
-        };
-      })
-      .filter((item): item is PopupLocation => !!item);
+    const stateRaw = data.state && typeof data.state === 'object' ? data.state : {};
+    const stateObj = stateRaw as Record<string, unknown>;
     return {
-      city: {
-        id: str(cityObj.id || cityId),
-        name: str(cityObj.name) || 'City',
+      state: {
+        id: str(stateObj.id || stateId),
+        name: str(stateObj.name) || 'State',
       },
-      items,
+      items: asNamedList(data.items).map((city) => ({
+        ...city,
+        stateId: city.stateId || stateId,
+      })),
     };
   },
 

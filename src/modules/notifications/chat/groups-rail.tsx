@@ -109,7 +109,7 @@ export function GroupsRail({
       </div>
 
       <p className="shrink-0 border-t border-gray-100 px-4 py-3 text-[11px] leading-relaxed text-gray-400">
-        The General inbox is per-user, so it is not shown here. Admins only see Groups.
+        Groups are city-wide. Open the General tab and pick a user to see their personal inbox.
       </p>
     </div>
   );

@@ -16,7 +16,7 @@ import { isHttpsUrl } from './draft';
 const COPY: Record<string, { title: string; hint: string; placeholder: string }> = {
   image: {
     title: 'Attach image',
-    hint: 'Shown inside the card and on the phone tray. An image makes the broadcast text+image.',
+    hint: 'Shown inside the card and on the phone tray. Add more images from + if you need several.',
     placeholder: 'https://cdn.example.com/banner.jpg',
   },
   video: {

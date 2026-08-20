@@ -27,11 +27,17 @@ export type BubbleMessage = {
 
 export type BubbleStatus = 'pending' | 'processing' | 'sent' | 'failed';
 
-function formatTime(value?: string | null) {
+export function formatDateTime(value?: string | Date | null) {
   if (!value) return '';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function StatusTick({ status }: { status: BubbleStatus }) {
@@ -147,7 +153,7 @@ export function MessageBubble({
 
         <div className="mt-1 flex items-center justify-end gap-1.5 text-[11px] text-gray-400">
           {message.edited && <span className="italic">edited</span>}
-          <span>{formatTime(message.timestamp)}</span>
+          <span>{formatDateTime(message.timestamp)}</span>
           {status && <StatusTick status={status} />}
         </div>
 

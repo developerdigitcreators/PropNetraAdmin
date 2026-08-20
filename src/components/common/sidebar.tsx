@@ -14,6 +14,9 @@ import {
   Bell,
   ChevronDown,
   Clapperboard,
+  CircleHelp,
+  MessageSquare,
+  Headset,
 } from "lucide-react";
 import { PermissionGuard } from "@/components/common/permission-guard";
 import { useAuthStore } from "@/store/use-auth-store";
@@ -94,6 +97,24 @@ const MENU_ITEMS: MenuItem[] = [
     path: "/notifications",
     icon: Bell,
     permission: "notifications:read",
+  },
+  {
+    name: "FAQs",
+    path: "/faqs",
+    icon: CircleHelp,
+    permission: "faqs:read",
+  },
+  {
+    name: "Feedback",
+    path: "/feedbacks",
+    icon: MessageSquare,
+    permission: "feedbacks:read",
+  },
+  {
+    name: "Support Tickets",
+    path: "/support-tickets",
+    icon: Headset,
+    permission: "support_tickets:read",
   },
   {
     name: "RBAC Roles",

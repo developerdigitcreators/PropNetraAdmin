@@ -17,17 +17,15 @@ import {
   flattenPopupAudiences,
   type BroadcastCity,
   type BroadcastKeyLabel,
+  type BroadcastListing,
   type InAppPopup,
   type PopupAudience,
-  type PopupLocation,
 } from '@/services/notifications.service';
+import { locationService } from '@/services/location.service';
 import { FormattedTextField } from '@/modules/notifications/chat/formatted-text-field';
 import { AttachUrlDialog } from '@/modules/notifications/chat/attach-url-dialog';
-import {
-  LinkPickerDialog,
-  type LinkSelection,
-} from '@/modules/notifications/chat/link-picker';
 import { PopupPreviewDialog } from './popup-preview-dialog';
+import { formatDateTime } from '@/modules/notifications/chat/message-bubble';
 import {
   emptyPopupDraft,
   popupDraftErrors,
@@ -43,7 +41,6 @@ import {
 import {
   Globe,
   Image as ImageIcon,
-  Link2,
   Loader2,
   MapPin,
   Megaphone,
@@ -52,6 +49,37 @@ import {
   Send,
   Trash2,
 } from 'lucide-react';
+
+type NamedPlace = { id: string; name: string; stateId?: string };
+
+function parseNamedPlaces(data: unknown): NamedPlace[] {
+  const rows = Array.isArray(data)
+    ? data
+    : data && typeof data === 'object'
+      ? ((data as Record<string, unknown>).items as unknown[]) ||
+        ((data as Record<string, unknown>).data as unknown[]) ||
+        ((data as Record<string, unknown>).states as unknown[]) ||
+        ((data as Record<string, unknown>).cities as unknown[]) ||
+        []
+      : [];
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row) => {
+      const r = (row && typeof row === 'object' ? row : {}) as Record<string, unknown>;
+      const id = typeof r.id === 'string' ? r.id : '';
+      const name = typeof r.name === 'string' ? r.name : '';
+      if (!id || !name) return null;
+      const stateObj =
+        r.state && typeof r.state === 'object' ? (r.state as Record<string, unknown>) : null;
+      const stateId =
+        (typeof r.stateId === 'string' && r.stateId) ||
+        (typeof r.state_id === 'string' && r.state_id) ||
+        (typeof stateObj?.id === 'string' && stateObj.id) ||
+        undefined;
+      return { id, name, ...(stateId ? { stateId } : {}) };
+    })
+    .filter((item): item is NamedPlace => !!item);
+}
 
 type PopupsPanelProps = {
   cities: BroadcastCity[];
@@ -88,10 +116,13 @@ export function PopupsPanel({
   const [popups, setPopups] = useState<InAppPopup[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [pages, setPages] = useState<BroadcastKeyLabel[]>([]);
-  const [linkTypes, setLinkTypes] = useState<BroadcastKeyLabel[]>([]);
   const [audiences, setAudiences] = useState<BroadcastKeyLabel[]>([]);
-  const [locations, setLocations] = useState<PopupLocation[]>([]);
-  const [locationsLoading, setLocationsLoading] = useState(false);
+  const [states, setStates] = useState<NamedPlace[]>([]);
+  const [allCities, setAllCities] = useState<NamedPlace[]>([]);
+  const [placesLoading, setPlacesLoading] = useState(true);
+  const [listings, setListings] = useState<BroadcastListing[]>([]);
+  const [listingsLoading, setListingsLoading] = useState(false);
+  const [listingSearch, setListingSearch] = useState('');
 
   const [draft, setDraft] = useState<PopupDraft>(emptyPopupDraft());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -104,7 +135,6 @@ export function PopupsPanel({
   const [touched, setTouched] = useState(false);
 
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
-  const [linkOpen, setLinkOpen] = useState(false);
 
   const loadPopups = useCallback(async () => {
     setListLoading(true);
@@ -129,7 +159,6 @@ export function PopupsPanel({
       .then((options) => {
         if (cancelled) return;
         setPages(options.pageKeys);
-        setLinkTypes(options.linkTypes);
         setAudiences(flattenPopupAudiences(options.audiences));
       })
       .catch(() => {
@@ -141,27 +170,57 @@ export function PopupsPanel({
   }, []);
 
   useEffect(() => {
-    if (draft.targetMode !== 'city' || !draft.cityId) {
-      setLocations([]);
-      return;
-    }
     let cancelled = false;
-    setLocationsLoading(true);
-    notificationsService
-      .getPopupLocations(draft.cityId)
-      .then((result) => {
-        if (!cancelled) setLocations(result.items);
+    setPlacesLoading(true);
+    Promise.all([locationService.getStates(), locationService.getCities()])
+      .then(([nextStates, nextCities]) => {
+        if (cancelled) return;
+        setStates(parseNamedPlaces(nextStates));
+        setAllCities(parseNamedPlaces(nextCities));
       })
       .catch(() => {
-        if (!cancelled) setLocations([]);
+        if (!cancelled) {
+          setStates([]);
+          setAllCities([]);
+        }
       })
       .finally(() => {
-        if (!cancelled) setLocationsLoading(false);
+        if (!cancelled) setPlacesLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [draft.cityId, draft.targetMode]);
+  }, []);
+
+  useEffect(() => {
+    if (draft.linkType !== 'post') return;
+    let cancelled = false;
+    setListingsLoading(true);
+    const timer = window.setTimeout(() => {
+      notificationsService
+        .getPublishedListings({ cityId: draft.cityId || undefined, search: listingSearch })
+        .then((items) => {
+          if (!cancelled) setListings(items);
+        })
+        .catch(() => {
+          if (!cancelled) setListings([]);
+        })
+        .finally(() => {
+          if (!cancelled) setListingsLoading(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [draft.linkType, draft.cityId, listingSearch]);
+
+  useEffect(() => {
+    if (!draft.cityId || draft.stateId || allCities.length === 0) return;
+    const inferred = allCities.find((c) => c.id === draft.cityId)?.stateId;
+    if (!inferred) return;
+    setDraft((d) => (d.stateId ? d : { ...d, stateId: inferred }));
+  }, [allCities, draft.cityId, draft.stateId]);
 
   const patch = (changes: Partial<PopupDraft>) => setDraft((d) => ({ ...d, ...changes }));
 
@@ -172,31 +231,49 @@ export function PopupsPanel({
     setFormMode('create');
     setTouched(false);
     setSubmitError('');
+    setListingSearch('');
   };
 
   const startEdit = (popup: InAppPopup) => {
-    setDraft(popupToDraft(popup));
+    setDraft(popupToDraft(popup, allCities));
     setEditingId(popup.id);
     setSelectedId(popup.id);
     setFormMode('edit');
     setTouched(false);
     setSubmitError('');
+    setListingSearch('');
   };
 
   const startResend = (popup: InAppPopup) => {
     if (!canWrite) return;
-    setDraft(popupToDraft(popup));
+    setDraft(popupToDraft(popup, allCities));
     setEditingId(null);
     setSelectedId(popup.id);
     setFormMode('resend');
     setTouched(false);
     setSubmitError('');
+    setListingSearch('');
     setPreviewOpen(true);
   };
 
+  const citiesInState = useMemo(() => {
+    const source = allCities.length > 0 ? allCities : cities;
+    return source.filter((c) => c.stateId === draft.stateId);
+  }, [allCities, cities, draft.stateId]);
+
+  const stateOptions = useMemo(
+    () => states.map((s) => ({ value: s.id, label: s.name })),
+    [states],
+  );
+
   const cityOptions = useMemo(
-    () => cities.map((c) => ({ value: c.id, label: c.name })),
-    [cities],
+    () => citiesInState.map((c) => ({ value: c.id, label: c.name })),
+    [citiesInState],
+  );
+
+  const listingOptions = useMemo(
+    () => listings.map((l) => ({ value: l.id, label: l.title })),
+    [listings],
   );
 
   const audienceLabel =
@@ -204,39 +281,16 @@ export function PopupsPanel({
 
   const targetSummary = popupDraftTargetSummary(
     draft,
-    cities,
-    locations,
+    states,
+    allCities.length > 0 ? allCities : cities,
     audienceLabel,
   );
 
-  const linkLabel =
-    draft.linkType === 'post'
-      ? draft.listingLabel || 'Linked listing'
-      : draft.linkType === 'page'
-        ? pages.find((p) => p.key === draft.pageKey)?.label || draft.pageKey
-        : '';
+  const pageLabel = pages.find((p) => p.key === draft.pageKey)?.label || 'Select a page';
 
   const errors = popupDraftErrors(draft);
   const canSubmit = popupDraftIsSendable(draft) && !submitting;
   const readOnly = !canWrite && !(editingId && canUpdate);
-
-  const toggleLocation = (locationId: string) => {
-    patch({
-      locationIds: draft.locationIds.includes(locationId)
-        ? draft.locationIds.filter((id) => id !== locationId)
-        : [...draft.locationIds, locationId],
-    });
-  };
-
-  const saveLink = (value: LinkSelection) => {
-    patch({
-      linkType: value.linkType,
-      listingId: value.listingId,
-      listingLabel: value.listingLabel,
-      pageKey: value.pageKey,
-    });
-    setLinkOpen(false);
-  };
 
   const openPreview = () => {
     setTouched(true);
@@ -301,13 +355,6 @@ export function PopupsPanel({
     }
   };
 
-  const linkSelection: LinkSelection = {
-    linkType: draft.linkType === 'page' ? 'page' : 'post',
-    listingId: draft.listingId,
-    listingLabel: draft.listingLabel,
-    pageKey: draft.pageKey || pages[0]?.key || '',
-  };
-
   return (
     <>
       <div className="flex h-[calc(100vh-19rem)] min-h-[520px] overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
@@ -363,6 +410,11 @@ export function PopupsPanel({
                     <p className="mt-0.5 line-clamp-2 text-xs text-gray-500">
                       {popupTargetSummary(popup)} · {popup.seenCount} seen
                     </p>
+                    {formatDateTime(popup.publishedAt || popup.createdAt) ? (
+                      <p className="mt-0.5 text-[11px] text-gray-400">
+                        {formatDateTime(popup.publishedAt || popup.createdAt)}
+                      </p>
+                    ) : null}
                   </button>
                   {canWrite && (
                     <Button
@@ -422,7 +474,6 @@ export function PopupsPanel({
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-gray-700">Message</label>
                   <FormattedTextField
-                    multiline
                     value={draft.body}
                     onChange={(v) => patch({ body: v })}
                     onFormatApplied={() => patch({ bodyFormat: 'markdown' })}
@@ -475,7 +526,7 @@ export function PopupsPanel({
                         disabled={readOnly}
                         className={draft.targetMode === 'global' ? 'bg-primary text-white' : undefined}
                         onClick={() =>
-                          patch({ targetMode: 'global', cityId: '', locationIds: [] })
+                          patch({ targetMode: 'global', stateId: '', cityId: '' })
                         }
                       >
                         <Globe className="mr-1.5 w-3.5 h-3.5" />
@@ -490,7 +541,7 @@ export function PopupsPanel({
                         onClick={() => patch({ targetMode: 'city' })}
                       >
                         <MapPin className="mr-1.5 w-3.5 h-3.5" />
-                        City & locations
+                        State & city
                       </Button>
                     </div>
                   </div>
@@ -498,72 +549,38 @@ export function PopupsPanel({
                   {draft.targetMode === 'city' && (
                     <div className="space-y-3 border-t border-gray-200 pt-3">
                       <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-gray-700">City</label>
+                        <label className="text-xs font-medium text-gray-700">State</label>
                         <SearchableSelect
-                          options={cityOptions}
-                          value={draft.cityId}
+                          options={stateOptions}
+                          value={draft.stateId}
                           onValueChange={(v) =>
-                            patch({ cityId: v || '', locationIds: [] })
+                            patch({ stateId: v || '', cityId: '' })
                           }
-                          loading={citiesLoading}
-                          placeholder="Select city"
-                          searchPlaceholder="Search city…"
-                          emptyText="No cities found."
+                          loading={placesLoading}
+                          placeholder="Select state"
+                          searchPlaceholder="Search state…"
+                          emptyText="No states found."
                           disabled={readOnly}
                         />
                       </div>
 
-                      {draft.cityId && (
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between">
-                            <label className="text-xs font-medium text-gray-700">
-                              Locations
-                            </label>
-                            {!readOnly && draft.locationIds.length > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => patch({ locationIds: [] })}
-                                className="text-[11px] text-gray-500 hover:text-gray-700"
-                              >
-                                Clear — whole city
-                              </button>
-                            )}
-                          </div>
-                          {locationsLoading ? (
-                            <p className="text-xs text-gray-400">Loading locations…</p>
-                          ) : locations.length === 0 ? (
-                            <p className="text-xs text-gray-400">
-                              No locations in this city — popup shows to everyone there.
-                            </p>
-                          ) : (
-                            <div className="flex flex-wrap gap-1.5">
-                              {locations.map((loc) => {
-                                const active = draft.locationIds.includes(loc.id);
-                                return (
-                                  <button
-                                    key={loc.id}
-                                    type="button"
-                                    disabled={readOnly}
-                                    onClick={() => toggleLocation(loc.id)}
-                                    className={cn(
-                                      'rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
-                                      active
-                                        ? 'bg-primary text-white'
-                                        : 'bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50',
-                                    )}
-                                  >
-                                    {loc.name}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-                          <p className="text-[11px] text-gray-400">
-                            Pick none to target the whole city. Pick one or more
-                            micro-markets to narrow further.
-                          </p>
-                        </div>
-                      )}
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-gray-700">City</label>
+                        <SearchableSelect
+                          options={cityOptions}
+                          value={draft.cityId}
+                          onValueChange={(v) => patch({ cityId: v || '' })}
+                          loading={placesLoading || citiesLoading}
+                          placeholder={draft.stateId ? 'Select city' : 'Select a state first'}
+                          searchPlaceholder="Search city…"
+                          emptyText={
+                            draft.stateId
+                              ? 'No cities in this state.'
+                              : 'Pick a state to see cities.'
+                          }
+                          disabled={readOnly || !draft.stateId}
+                        />
+                      </div>
                     </div>
                   )}
 
@@ -594,50 +611,135 @@ export function PopupsPanel({
                   </div>
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <label className="text-xs font-medium text-gray-700">Button link</label>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {linkTypes.map((lt) => {
-                      const key = lt.key as PopupDraft['linkType'];
-                      const active = draft.linkType === key;
-                      return (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant={draft.linkType === 'none' ? 'default' : 'outline'}
+                      size="sm"
+                      disabled={readOnly}
+                      className={draft.linkType === 'none' ? 'bg-primary text-white' : undefined}
+                      onClick={() =>
+                        patch({
+                          linkType: 'none',
+                          listingId: '',
+                          listingLabel: '',
+                          pageKey: '',
+                        })
+                      }
+                    >
+                      No link
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={draft.linkType !== 'none' ? 'default' : 'outline'}
+                      size="sm"
+                      disabled={readOnly}
+                      className={draft.linkType !== 'none' ? 'bg-primary text-white' : undefined}
+                      onClick={() => {
+                        if (draft.linkType === 'none') {
+                          patch({ linkType: 'post' });
+                        }
+                      }}
+                    >
+                      Link button
+                    </Button>
+                  </div>
+
+                  {draft.linkType !== 'none' && (
+                    <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+                      <div className="flex gap-2">
                         <Button
-                          key={lt.key}
                           type="button"
-                          variant={active ? 'default' : 'outline'}
+                          variant={draft.linkType === 'post' ? 'default' : 'outline'}
                           size="sm"
                           disabled={readOnly}
-                          className={active ? 'bg-primary text-white' : undefined}
+                          className={draft.linkType === 'post' ? 'bg-primary text-white' : undefined}
+                          onClick={() => patch({ linkType: 'post', pageKey: '' })}
+                        >
+                          Listing / project
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={draft.linkType === 'page' ? 'default' : 'outline'}
+                          size="sm"
+                          disabled={readOnly}
+                          className={draft.linkType === 'page' ? 'bg-primary text-white' : undefined}
                           onClick={() =>
                             patch({
-                              linkType: key,
-                              ...(key === 'none'
-                                ? { listingId: '', listingLabel: '', pageKey: '' }
-                                : {}),
+                              linkType: 'page',
+                              listingId: '',
+                              listingLabel: '',
+                              pageKey: draft.pageKey || pages[0]?.key || '',
                             })
                           }
                         >
-                          {lt.label}
+                          Internal page
                         </Button>
-                      );
-                    })}
-                    {!readOnly && draft.linkType !== 'none' && (
-                      <Button type="button" variant="outline" size="sm" onClick={() => setLinkOpen(true)}>
-                        <Link2 className="mr-1.5 w-3.5 h-3.5" />
-                        {linkLabel || 'Choose target'}
-                      </Button>
-                    )}
-                  </div>
-                  {draft.linkType !== 'none' && (
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-gray-700">Button label</label>
-                      <Input
-                        value={draft.ctaLabel}
-                        onChange={(e) => patch({ ctaLabel: e.target.value })}
-                        placeholder="View"
-                        maxLength={40}
-                        readOnly={readOnly}
-                      />
+                      </div>
+
+                      {draft.linkType === 'post' ? (
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-gray-700">
+                            Listing / project
+                          </label>
+                          <SearchableSelect
+                            options={listingOptions}
+                            value={draft.listingId}
+                            selectedLabel={draft.listingLabel}
+                            onValueChange={(v) =>
+                              patch({
+                                listingId: v || '',
+                                listingLabel: listings.find((l) => l.id === v)?.title || '',
+                              })
+                            }
+                            onSearch={setListingSearch}
+                            loading={listingsLoading}
+                            placeholder="Select listing / project"
+                            searchPlaceholder="Search listings…"
+                            emptyText="No published listings found."
+                            disabled={readOnly}
+                          />
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-gray-700">Internal page</label>
+                          <Select
+                            value={draft.pageKey || undefined}
+                            onValueChange={(v) => patch({ pageKey: v ?? '' })}
+                            disabled={readOnly}
+                          >
+                            <SelectTrigger className="w-full bg-white">
+                              <span>{pageLabel}</span>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {pages.length === 0 ? (
+                                <div className="px-3 py-4 text-sm text-gray-500">
+                                  No pages available.
+                                </div>
+                              ) : (
+                                pages.map((p) => (
+                                  <SelectItem key={p.key} value={p.key}>
+                                    {p.label}
+                                  </SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-gray-700">Button label</label>
+                        <Input
+                          value={draft.ctaLabel}
+                          onChange={(e) => patch({ ctaLabel: e.target.value })}
+                          placeholder="View"
+                          maxLength={40}
+                          readOnly={readOnly}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -708,6 +810,10 @@ export function PopupsPanel({
                             {popupTargetSummary(popup)}
                           </p>
                           <p className="mt-1">
+                            <span className="font-medium text-gray-900">Sent:</span>{' '}
+                            {formatDateTime(popup.publishedAt || popup.createdAt) || '—'}
+                          </p>
+                          <p className="mt-1">
                             <span className="font-medium text-gray-900">Seen by:</span>{' '}
                             {popup.seenCount} users
                           </p>
@@ -760,15 +866,6 @@ export function PopupsPanel({
           patch({ imageUrl: url });
           setImageDialogOpen(false);
         }}
-      />
-
-      <LinkPickerDialog
-        open={linkOpen}
-        pages={pages}
-        cityId={draft.cityId}
-        value={linkSelection}
-        onClose={() => setLinkOpen(false)}
-        onSave={saveLink}
       />
 
       <PopupPreviewDialog

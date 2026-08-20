@@ -50,6 +50,8 @@ export function SearchableSelect({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
+  const onSearchRef = useRef(onSearch);
+  onSearchRef.current = onSearch;
 
   const selected = useMemo(
     () => options.find((o) => o.value === value),
@@ -88,10 +90,13 @@ export function SearchableSelect({
   }, [open]);
 
   useEffect(() => {
-    if (!onSearch || !open) return;
-    const t = setTimeout(() => onSearch(filterText), filterText ? 300 : 0);
+    if (!onSearchRef.current || !open) return;
+    const t = setTimeout(
+      () => onSearchRef.current?.(filterText),
+      filterText ? 300 : 0,
+    );
     return () => clearTimeout(t);
-  }, [filterText, onSearch, open]);
+  }, [filterText, open]);
 
   const pick = (next: string) => {
     onValueChange(next);
@@ -211,7 +216,7 @@ export function SearchableSelect({
           )}
 
           <div className="max-h-56 overflow-y-auto p-1">
-            {loading ? (
+            {loading && filtered.length === 0 ? (
               <div className="flex items-center justify-center gap-2 px-3 py-6 text-sm text-gray-500">
                 <Loader2 className="size-4 animate-spin" /> Loading…
               </div>
@@ -225,7 +230,10 @@ export function SearchableSelect({
                     <button
                       key={option.value}
                       type="button"
-                      onClick={() => pick(option.value)}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        pick(option.value);
+                      }}
                       className={cn(
                         'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
                         active ? 'bg-primary-light text-primary' : 'hover:bg-gray-50 text-gray-900'

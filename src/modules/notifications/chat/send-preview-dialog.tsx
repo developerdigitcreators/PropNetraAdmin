@@ -10,8 +10,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { MessageBubble, type BubbleMessage } from "./message-bubble";
-import { MarkdownText } from "./markdown-text";
-import { type BroadcastDraft, draftImageUrl } from "./draft";
+import { type BroadcastDraft, draftImageUrl, resolvedPushLayout } from "./draft";
+import { PushTrayPreview } from "./push-tray-preview";
 import type {
   BroadcastCity,
   BroadcastKeyLabel,
@@ -88,40 +88,19 @@ export function SendPreviewDialog({
                 does not send it again.
               </div>
             ) : (
-              <div className="rounded-2xl bg-gray-800 p-3">
-                <div className="rounded-xl bg-white p-3 shadow-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="flex size-5 items-center justify-center rounded bg-primary text-[9px] font-bold text-white">
-                      P
-                    </span>
-                    <span className="text-[11px] font-medium text-gray-500">
-                      PropNetra
-                    </span>
-                    <span className="text-[11px] text-gray-400">· now</span>
-                  </div>
-                  <p className="mt-1.5 text-sm font-semibold text-gray-900">
-                    <MarkdownText
-                      value={draft.title.trim() || "Notification title"}
-                      format={draft.bodyFormat}
-                    />
-                  </p>
-                  <p className="line-clamp-3 text-xs text-gray-600">
-                    <MarkdownText
-                      value={draft.body.trim() || "Your message"}
-                      format={draft.bodyFormat}
-                    />
-                  </p>
-                  {trayImage && (
-                    // Arbitrary external host, so next/image cannot be configured for it.
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={trayImage}
-                      alt=""
-                      className="mt-2 max-h-24 w-full rounded-lg object-cover"
-                    />
-                  )}
-                </div>
-              </div>
+              <PushTrayPreview
+                layoutType={resolvedPushLayout(draft)}
+                title={draft.title}
+                body={draft.body}
+                bodyFormat={draft.bodyFormat}
+                imageUrl={trayImage}
+                bgColor={draft.bgColor.trim() || undefined}
+                countdownEndsAt={draft.countdownEndsAt || undefined}
+                actions={draft.actions}
+                progressMax={draft.progressMax}
+                progress={draft.progress}
+                progressIndeterminate={draft.progressIndeterminate}
+              />
             )}
             <p className="text-[11px] text-gray-400">
               Only users with city alerts turned on receive the push.

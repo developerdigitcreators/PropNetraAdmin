@@ -31,11 +31,43 @@ export type LinkSelection = {
   pageKey: string;
 };
 
+export function LinkTypeToggle({
+  active,
+  onSelect,
+}: {
+  active: 'post' | 'page' | 'none';
+  onSelect: (type: 'post' | 'page') => void;
+}) {
+  return (
+    <div className="flex gap-2">
+      <Button
+        type="button"
+        size="sm"
+        variant={active === 'post' ? 'default' : 'outline'}
+        className={active === 'post' ? 'bg-primary text-white' : ''}
+        onClick={() => onSelect('post')}
+      >
+        Listing
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant={active === 'page' ? 'default' : 'outline'}
+        className={active === 'page' ? 'bg-primary text-white' : ''}
+        onClick={() => onSelect('page')}
+      >
+        Internal page
+      </Button>
+    </div>
+  );
+}
+
 type LinkPickerDialogProps = {
   open: boolean;
   pages: BroadcastKeyLabel[];
   cityId?: string;
   value: LinkSelection;
+  preferredType?: 'post' | 'page';
   onClose: () => void;
   onSave: (value: LinkSelection) => void;
 };
@@ -45,6 +77,7 @@ export function LinkPickerDialog({
   pages,
   cityId,
   value,
+  preferredType,
   onClose,
   onSave,
 }: LinkPickerDialogProps) {
@@ -58,12 +91,14 @@ export function LinkPickerDialog({
 
   useEffect(() => {
     if (!open) return;
-    setLinkType(value.linkType === 'page' ? 'page' : 'post');
+    setLinkType(
+      preferredType || (value.linkType === 'page' ? 'page' : 'post'),
+    );
     setListingId(value.listingId);
     setListingLabel(value.listingLabel);
     setPageKey(value.pageKey || pages[0]?.key || '');
     setSearch('');
-  }, [open, value, pages]);
+  }, [open, value, pages, preferredType]);
 
   useEffect(() => {
     if (!open || linkType !== 'post') return;
@@ -108,27 +143,13 @@ export function LinkPickerDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant={linkType === 'post' ? 'default' : 'outline'}
-              className={linkType === 'post' ? 'bg-primary text-white' : ''}
-              onClick={() => setLinkType('post')}
-            >
-              Listing / project
-            </Button>
-            <Button
-              type="button"
-              variant={linkType === 'page' ? 'default' : 'outline'}
-              className={linkType === 'page' ? 'bg-primary text-white' : ''}
-              onClick={() => {
-                setLinkType('page');
-                if (!pageKey && pages[0]) setPageKey(pages[0].key);
-              }}
-            >
-              Internal page
-            </Button>
-          </div>
+          <LinkTypeToggle
+            active={linkType}
+            onSelect={(type) => {
+              setLinkType(type);
+              if (type === 'page' && !pageKey && pages[0]) setPageKey(pages[0].key);
+            }}
+          />
 
           {linkType === 'post' ? (
             <div className="space-y-1.5">

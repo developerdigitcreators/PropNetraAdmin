@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuthStore } from "@/store/use-auth-store";
 import {
   notificationsService,
   notificationApiError,
   DEFAULT_BROADCAST_MEDIA_KINDS,
+  DEFAULT_PUSH_LAYOUT_TYPES,
   type BroadcastCity,
   type BroadcastKeyLabel,
   type ConnectChannel,
@@ -28,9 +29,10 @@ import {
   emptyDraft,
   type BroadcastDraft,
 } from "@/modules/notifications/chat/draft";
-import { ArrowLeft, Lock, MapPin, Megaphone, Smartphone, Users } from "lucide-react";
+import { ArrowLeft, Inbox, Lock, MapPin, Megaphone, Smartphone, Users } from "lucide-react";
 import { PopupsPanel } from "@/modules/notifications/popups/popups-panel";
 import { useNotificationsRealtime } from "@/modules/notifications/use-notifications-realtime";
+import { GeneralInboxPanel } from "@/modules/notifications/chat/general-inbox-panel";
 
 export default function NotificationsPage() {
   const hasPermission = useAuthStore((s) => s.hasPermission);
@@ -49,6 +51,9 @@ export default function NotificationsPage() {
   const [activeChannelId, setActiveChannelId] = useState("");
 
   const [pages, setPages] = useState<BroadcastKeyLabel[]>([]);
+  const [layoutTypes, setLayoutTypes] = useState<BroadcastKeyLabel[]>(
+    DEFAULT_PUSH_LAYOUT_TYPES,
+  );
   const [mediaKinds, setMediaKinds] = useState<BroadcastKeyLabel[]>(
     DEFAULT_BROADCAST_MEDIA_KINDS,
   );
@@ -65,6 +70,8 @@ export default function NotificationsPage() {
   const [toast, setToast] = useState("");
   const [loadError, setLoadError] = useState("");
   const [activeTab, setActiveTab] = useState("groups");
+  const [watchUserId, setWatchUserId] = useState("");
+  const onWatchUser = useCallback((userId: string) => setWatchUserId(userId), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,6 +115,7 @@ export default function NotificationsPage() {
       .then((options) => {
         if (cancelled) return;
         setPages(options.pages);
+        setLayoutTypes(options.layoutTypes);
         const kinds = options.mediaKinds.filter(
           (k) => !["text", "none", "plain"].includes(k.key.toLowerCase()),
         );
@@ -122,15 +130,13 @@ export default function NotificationsPage() {
     };
   }, []);
 
-  // A fresh draft targets whichever city the header is showing.
-  useEffect(() => {
-    if (!cityId) return;
-    setDraft((current) =>
-      current.cityIds.length === 0
-        ? { ...current, cityIds: [cityId] }
-        : current,
-    );
-  }, [cityId]);
+  const [prevCityId, setPrevCityId] = useState(cityId);
+  if (cityId !== prevCityId) {
+    setPrevCityId(cityId);
+    if (cityId && draft.cityIds.length === 0) {
+      setDraft({ ...draft, cityIds: [cityId] });
+    }
+  }
 
   const activeChannel = useMemo(
     () => channels.find((c) => c.id === activeChannelId) || null,
@@ -208,10 +214,12 @@ export default function NotificationsPage() {
 
   const isUpdatesChannel = !!activeChannel?.allowAdminBroadcast;
 
-  const { groupsTick, popupsTick, feedEvent } = useNotificationsRealtime({
-    cityId,
-    channelId: activeChannelId,
-  });
+  const { groupsTick, popupsTick, inboxTick, feedEvent, inboxEvent } =
+    useNotificationsRealtime({
+      cityId,
+      channelId: activeChannelId,
+      watchUserId: activeTab === "general" ? watchUserId : "",
+    });
 
   return (
     <PermissionGuard
@@ -251,6 +259,13 @@ export default function NotificationsPage() {
             >
               <Smartphone className="w-4 h-4" />
               In-App Popup
+            </TabsTrigger>
+            <TabsTrigger
+              value="general"
+              className="gap-1.5 rounded-md px-5 data-[state=active]:bg-primary-light data-[state=active]:text-primary"
+            >
+              <Inbox className="w-4 h-4" />
+              General
             </TabsTrigger>
           </TabsList>
 
@@ -364,6 +379,7 @@ export default function NotificationsPage() {
                         citiesLoading={citiesLoading}
                         pages={pages}
                         mediaKinds={mediaKinds}
+                        layoutTypes={layoutTypes}
                         mode={editingId ? "edit" : "create"}
                         submitting={submitting}
                         onSubmit={() => {
@@ -405,6 +421,14 @@ export default function NotificationsPage() {
               canDelete={canDelete}
               popupsTick={popupsTick}
               onToast={showToast}
+            />
+          </TabsContent>
+
+          <TabsContent value="general" className="mt-4">
+            <GeneralInboxPanel
+              inboxTick={inboxTick}
+              inboxEvent={inboxEvent}
+              onWatchUser={onWatchUser}
             />
           </TabsContent>
         </Tabs>

@@ -3,6 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { SearchableSelect } from "@/components/common/searchable-select";
 import {
   MAX_BROADCAST_CITIES,
@@ -10,9 +18,13 @@ import {
   type BroadcastKeyLabel,
 } from "@/services/notifications.service";
 import { AttachUrlDialog } from "./attach-url-dialog";
-import { LinkPickerDialog } from "./link-picker";
+import { LinkPickerDialog, LinkTypeToggle } from "./link-picker";
 import { FormattedTextField } from "./formatted-text-field";
-import { type BroadcastDraft, draftErrors, isHttpsUrl } from "./draft";
+import { type BroadcastDraft, draftErrors, draftImageUrl, draftPushLayout, isHttpsUrl } from "./draft";
+import {
+  PushLayoutComposer,
+  type PushLayoutDraft,
+} from "./push-layout-composer";
 import {
   ChevronDown,
   ChevronUp,
@@ -40,6 +52,7 @@ type MessageComposerProps = {
   citiesLoading: boolean;
   pages: BroadcastKeyLabel[];
   mediaKinds: BroadcastKeyLabel[];
+  layoutTypes: BroadcastKeyLabel[];
   mode: "create" | "edit";
   submitting: boolean;
   onSubmit: () => void;
@@ -53,6 +66,7 @@ export function MessageComposer({
   citiesLoading,
   pages,
   mediaKinds,
+  layoutTypes,
   mode,
   submitting,
   onSubmit,
@@ -61,13 +75,33 @@ export function MessageComposer({
   const [attachOpen, setAttachOpen] = useState(false);
   const [attachKind, setAttachKind] = useState<BroadcastKeyLabel | null>(null);
   const [linkOpen, setLinkOpen] = useState(false);
+  const [linkPickerType, setLinkPickerType] = useState<"post" | "page">("post");
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  const [expandedOverride, setExpandedOverride] = useState<boolean | null>(null);
   const [cityPicker, setCityPicker] = useState("");
   const [touched, setTouched] = useState(false);
   const attachRef = useRef<HTMLDivElement>(null);
 
   const isEdit = mode === "edit";
+  const hasContent = Boolean(draft.title.trim() || draft.body.trim());
+  const isEmpty = !hasContent;
+  const [modeSnapshot, setModeSnapshot] = useState(mode);
+  const [emptySnapshot, setEmptySnapshot] = useState(isEmpty);
+
+  if (mode !== modeSnapshot) {
+    setModeSnapshot(mode);
+    setExpandedOverride(null);
+    setAdvancedOpen(false);
+  }
+  if (isEmpty !== emptySnapshot) {
+    setEmptySnapshot(isEmpty);
+    if (isEmpty && !isEdit) {
+      setExpandedOverride(null);
+      setAdvancedOpen(false);
+    }
+  }
+
+  const expanded = expandedOverride ?? (isEdit || hasContent);
   const errors = draftErrors(draft);
   const canSubmit = errors.length === 0 && !submitting;
 
@@ -86,17 +120,6 @@ export function MessageComposer({
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [attachOpen]);
-
-  useEffect(() => {
-    if (isEdit) setExpanded(true);
-  }, [isEdit]);
-
-  useEffect(() => {
-    if (!isEdit && !draft.title.trim() && !draft.body.trim()) {
-      setExpanded(false);
-      setAdvancedOpen(false);
-    }
-  }, [isEdit, draft.title, draft.body]);
 
   const patch = (changes: Partial<BroadcastDraft>) =>
     onChange({ ...draft, ...changes });
@@ -132,15 +155,19 @@ export function MessageComposer({
 
   const saveAttachment = (url: string) => {
     if (!attachKind) return;
-    const rest = draft.media.filter((m) => m.kind !== attachKind.key);
-    patch({ media: [...rest, { kind: attachKind.key, url }] });
+    if (attachKind.key === "image") {
+      patch({ media: [...draft.media, { kind: "image", url }] });
+    } else {
+      const rest = draft.media.filter((m) => m.kind !== attachKind.key);
+      patch({ media: [...rest, { kind: attachKind.key, url }] });
+    }
     setAttachKind(null);
   };
 
   const submit = () => {
     setTouched(true);
     if (!expanded) {
-      setExpanded(true);
+      setExpandedOverride(true);
       return;
     }
     if (canSubmit) onSubmit();
@@ -171,10 +198,31 @@ export function MessageComposer({
         </div>
       )}
 
+      <PushLayoutComposer
+        layoutTypes={layoutTypes}
+        pages={pages}
+        cityId={draft.cityIds[0]}
+        imageUrl={draftImageUrl(draft)}
+        titleHtml={draft.title}
+        bodyHtml={draft.body}
+        value={draftPushLayout(draft)}
+        onChange={(next: PushLayoutDraft) =>
+          patch({
+            pushType: next.layoutType ?? "AUTO",
+            bgColor: next.bgColor || "",
+            countdownEndsAt: next.countdownEndsAt || "",
+            actions: next.actions || [],
+            progressMax: next.progressMax ?? 100,
+            progress: next.progress ?? 0,
+            progressIndeterminate: next.progressIndeterminate === true,
+          })
+        }
+      />
+
       {!expanded ? (
         <button
           type="button"
-          onClick={() => setExpanded(true)}
+          onClick={() => setExpandedOverride(true)}
           className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50"
         >
           <MessageSquare className="size-4 shrink-0 text-gray-400" />
@@ -195,7 +243,7 @@ export function MessageComposer({
           <div className="flex items-center justify-end border-b border-gray-50 px-4 py-1.5">
             <button
               type="button"
-              onClick={() => setExpanded(false)}
+              onClick={() => setExpandedOverride(false)}
               className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
             >
               <ChevronDown className="size-3.5" />
@@ -243,12 +291,12 @@ export function MessageComposer({
 
       {(draft.media.length > 0 || draft.linkType !== "none") && (
         <div className="flex flex-wrap gap-2 px-4 pt-2">
-          {draft.media.map((item) => {
+          {draft.media.map((item, index) => {
             const Icon = KIND_ICONS[item.kind] || Paperclip;
             const invalid = !isHttpsUrl(item.url);
             return (
               <span
-                key={item.kind}
+                key={`${item.kind}-${item.url}-${index}`}
                 className={cn(
                   "inline-flex max-w-64 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs",
                   invalid
@@ -265,7 +313,7 @@ export function MessageComposer({
                   type="button"
                   onClick={() =>
                     patch({
-                      media: draft.media.filter((m) => m.kind !== item.kind),
+                      media: draft.media.filter((_, i) => i !== index),
                     })
                   }
                   className="rounded-full p-0.5 hover:bg-black/5"
@@ -334,24 +382,32 @@ export function MessageComposer({
             <div className="absolute bottom-12 left-0 z-50 w-52 overflow-hidden rounded-xl border border-gray-100 bg-white p-1 shadow-lg">
               {mediaKinds.map((kind) => {
                 const Icon = KIND_ICONS[kind.key] || Paperclip;
+                const atLimit = draft.media.length >= 5;
+                const alreadyHasNonImage =
+                  kind.key !== "image" &&
+                  draft.media.some((m) => m.kind === kind.key);
                 return (
                   <button
                     key={kind.key}
                     type="button"
+                    disabled={atLimit || alreadyHasNonImage}
                     onClick={() => {
                       setAttachKind(kind);
                       setAttachOpen(false);
                     }}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40"
                   >
                     <Icon className="w-4 h-4 text-gray-400" />
-                    {kind.label}
+                    {kind.key === "image" ? "Image" : kind.label}
                   </button>
                 );
               })}
               <button
                 type="button"
                 onClick={() => {
+                  setLinkPickerType(
+                    draft.linkType === "page" ? "page" : "post",
+                  );
                   setLinkOpen(true);
                   setAttachOpen(false);
                 }}
@@ -366,7 +422,6 @@ export function MessageComposer({
 
         <FormattedTextField
           label="Message"
-          multiline
           value={draft.body}
           onChange={(v) => patch({ body: v })}
           onFormatApplied={() => patch({ bodyFormat: "markdown" })}
@@ -390,69 +445,114 @@ export function MessageComposer({
       <div className="flex items-center justify-between gap-3 px-4 pb-3">
         <button
           type="button"
-          onClick={() => setAdvancedOpen((o) => !o)}
+          onClick={() => setAdvancedOpen(true)}
           className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
         >
-          <ChevronDown
-            className={cn(
-              "w-3.5 h-3.5 transition-transform",
-              advancedOpen && "rotate-180",
-            )}
-          />
           In-app card options
+          {(draft.cardTitle.trim() ||
+            draft.cardBody.trim() ||
+            draft.linkType !== "none") && (
+            <span className="rounded-full bg-primary-light px-1.5 py-0.5 text-[10px] font-medium text-primary">
+              Custom
+            </span>
+          )}
         </button>
         {touched && errors.length > 0 && (
           <p className="text-xs text-red-600">{errors[0]}</p>
         )}
       </div>
 
-      {advancedOpen && (
-        <div className="space-y-3 border-t border-gray-100 bg-gray-50/60 px-4 py-3">
-          <p className="text-xs text-gray-500">
-            The card shown inside Groups. Leave these empty to reuse the title
-            and message above.
-          </p>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-gray-700">
-              Card title
-            </label>
-            <FormattedTextField
-              value={draft.cardTitle}
-              onChange={(v) => patch({ cardTitle: v })}
-              placeholder="Optional"
-              ariaLabel="Card title"
-              fieldClassName="bg-white"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-gray-700">
-              Card message
-            </label>
-            <FormattedTextField
-              multiline
-              value={draft.cardBody}
-              onChange={(v) => patch({ cardBody: v })}
-              onFormatApplied={() => patch({ bodyFormat: "markdown" })}
-              placeholder="Optional"
-              ariaLabel="Card message"
-              fieldClassName="bg-white"
-            />
+      <Dialog
+        open={advancedOpen}
+        onOpenChange={(next) => setAdvancedOpen(!!next)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>In-app card options</DialogTitle>
+            <DialogDescription>
+              The card shown inside Groups. Leave these empty to reuse the title
+              and message above.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-1">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-gray-700">
+                Card title
+              </label>
+              <FormattedTextField
+                value={draft.cardTitle}
+                onChange={(v) => patch({ cardTitle: v })}
+                placeholder="Optional"
+                ariaLabel="Card title"
+                fieldClassName="bg-white"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-gray-700">
+                Card message
+              </label>
+              <FormattedTextField
+                value={draft.cardBody}
+                onChange={(v) => patch({ cardBody: v })}
+                onFormatApplied={() => patch({ bodyFormat: "markdown" })}
+                placeholder="Optional"
+                ariaLabel="Card message"
+                fieldClassName="bg-white"
+              />
+            </div>
+            <p className="text-xs text-gray-500">
+              The app renders formatting in the card message only. Titles and
+              the phone notification are drawn as plain text there, so bold or
+              italic in a title will reach users as literal characters.
+            </p>
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-gray-700">
+                Opens on tap
+              </p>
+              <LinkTypeToggle
+                active={
+                  draft.linkType === "page"
+                    ? "page"
+                    : draft.linkType === "post"
+                      ? "post"
+                      : "none"
+                }
+                onSelect={(type) => {
+                  setLinkPickerType(type);
+                  setLinkOpen(true);
+                }}
+              />
+              {draft.linkType !== "none" && linkLabel ? (
+                <p className="text-xs text-gray-500">{linkLabel}</p>
+              ) : (
+                <p className="text-xs text-gray-400">
+                  Choose listing or internal page. A picker opens next.
+                </p>
+              )}
+            </div>
           </div>
 
-          <p className="text-xs text-gray-500">
-            The app renders formatting in the card message only. Titles and the
-            phone notification are drawn as plain text there, so bold or italic
-            in a title will reach users as literal characters.
-          </p>
-        </div>
-      )}
+          <DialogFooter>
+            <Button
+              type="button"
+              onClick={() => setAdvancedOpen(false)}
+              className="bg-primary text-white hover:bg-primary/90"
+            >
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AttachUrlDialog
         open={!!attachKind}
         kind={attachKind?.key || ""}
         kindLabel={attachKind?.label || ""}
         initialUrl={
-          draft.media.find((m) => m.kind === attachKind?.key)?.url || ""
+          attachKind?.key === "image"
+            ? ""
+            : draft.media.find((m) => m.kind === attachKind?.key)?.url || ""
         }
         onClose={() => setAttachKind(null)}
         onSave={saveAttachment}
@@ -462,6 +562,7 @@ export function MessageComposer({
         open={linkOpen}
         pages={pages}
         cityId={draft.cityIds[0]}
+        preferredType={linkPickerType}
         value={{
           linkType: draft.linkType,
           listingId: draft.listingId,

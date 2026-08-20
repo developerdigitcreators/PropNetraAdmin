@@ -58,9 +58,11 @@ export function FormattedTextField({
   ariaLabel,
   onEnterSubmit,
 }: FormattedTextFieldProps) {
-  // Tiptap keeps `onUpdate` fresh for us, but `editorProps` handlers are bound once.
+  // Tiptap binds `editorProps` once, so Enter must read the latest submit via a ref.
   const submitRef = useRef(onEnterSubmit);
-  submitRef.current = onEnterSubmit;
+  useEffect(() => {
+    submitRef.current = onEnterSubmit;
+  }, [onEnterSubmit]);
 
   const editor = useEditor({
     // Next renders this on the server first; deferring avoids a hydration mismatch.
@@ -74,6 +76,7 @@ export function FormattedTextField({
         codeBlock: false,
         horizontalRule: false,
         underline: false,
+        hardBreak: multiline ? {} : false,
         bulletList: multiline ? {} : false,
         orderedList: multiline ? {} : false,
         listItem: multiline ? {} : false,
@@ -89,27 +92,23 @@ export function FormattedTextField({
         role: "textbox",
         "aria-label": ariaLabel ?? "",
         class: cn(
-          "min-h-5 leading-5 outline-none [&_p]:m-0 [&_p]:min-h-5 [&_p]:leading-5",
+          "leading-5 outline-none [&_p]:m-0 [&_p]:leading-5",
           "[&_strong]:font-semibold [&_a]:text-primary [&_a]:underline",
           "[&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-5 [&_ol]:pl-5",
           multiline
-            ? "max-h-32 overflow-y-auto"
-            : "overflow-x-auto whitespace-nowrap [&::-webkit-scrollbar]:hidden",
+            ? "min-h-5 max-h-32 overflow-y-auto [&_p]:min-h-5"
+            : "h-full min-h-0 overflow-x-auto overflow-y-hidden whitespace-nowrap [&_p]:min-h-0 [&_br]:hidden [&::-webkit-scrollbar]:hidden",
           editorClassName,
         ),
       },
+      transformPastedText: (text) =>
+        multiline ? text : text.replace(/\s*\n+\s*/g, " "),
       handleKeyDown: (_view, event) => {
         if (event.key !== "Enter") return false;
-        if (!multiline) {
-          event.preventDefault();
-          return true;
-        }
-        if (!event.shiftKey && submitRef.current) {
-          event.preventDefault();
-          submitRef.current();
-          return true;
-        }
-        return false;
+        if (multiline && event.shiftKey) return false;
+        event.preventDefault();
+        submitRef.current?.();
+        return true;
       },
     },
     onUpdate: ({ editor: instance }) =>
@@ -137,9 +136,11 @@ export function FormattedTextField({
       <EditorContent
         editor={editor}
         className={cn(
-          "w-full cursor-text rounded-2xl border border-input bg-gray-50 px-4 text-sm transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
-          multiline ? "py-1.5" : "flex h-9 items-center py-0",
-          "[&_.tiptap]:w-full",
+          "w-full cursor-text rounded-lg border border-input bg-gray-50 px-3 text-sm transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
+          multiline
+            ? "py-1.5"
+            : "flex h-9 min-h-9 max-h-9 items-center overflow-hidden py-0",
+          "[&_.tiptap]:h-full [&_.tiptap]:w-full [&_.tiptap]:min-h-0",
           fieldClassName,
         )}
       />
@@ -248,16 +249,12 @@ function Toolbar({
           })
         }
       />
-      {multiline && (
-        <>
-          <span className="mx-0.5 h-4 w-px bg-gray-200" />
-          <EmojiPicker
-            onSelect={(emoji) =>
-              editor.chain().focus().insertContent(emoji).run()
-            }
-          />
-        </>
-      )}
+      <span className="mx-0.5 h-4 w-px bg-gray-200" />
+      <EmojiPicker
+        onSelect={(emoji) =>
+          editor.chain().focus().insertContent(emoji).run()
+        }
+      />
     </div>
   );
 }

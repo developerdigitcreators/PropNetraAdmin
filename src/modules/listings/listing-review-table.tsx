@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { locationService } from "@/services/location.service";
+import { listingConfigService } from "@/services/listing-config.service";
 import {
   canToggleForSaleTitle,
   getCatalogOriginalName,
@@ -32,6 +33,13 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SearchableSelect } from "@/components/common/searchable-select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -98,13 +106,93 @@ type CatalogOption = {
   id: string;
   name: string;
   status?: string | null;
+  propertyTypeId?: string;
+  imageUrl?: string;
 };
+
+function pickStr(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function asList(data: unknown): unknown[] {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object") {
+    const nested =
+      (data as { data?: unknown; items?: unknown }).data ??
+      (data as { items?: unknown }).items;
+    if (Array.isArray(nested)) return nested;
+  }
+  return [];
+}
+
+function typeNameKey(name?: string | null) {
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+/** One Apartment / SCO / Plot, regardless of Residential / Commercial / Pre-Leased rows. */
+function uniquePropertyTypes(rows: any[]) {
+  const byName = new Map<string, any>();
+  const sorted = [...rows].sort((a, b) => {
+    const aOrder = Number(a?.sort_order ?? a?.sortOrder ?? 9999);
+    const bOrder = Number(b?.sort_order ?? b?.sortOrder ?? 9999);
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return String(a?.name || "").localeCompare(String(b?.name || ""));
+  });
+  for (const row of sorted) {
+    const key = typeNameKey(row?.name);
+    if (!key) continue;
+    const existing = byName.get(key);
+    if (!existing) {
+      byName.set(key, row);
+      continue;
+    }
+    const existingHasImage = Boolean(
+      pickStr(existing.share_image_url, existing.shareImageUrl),
+    );
+    const rowHasImage = Boolean(pickStr(row.share_image_url, row.shareImageUrl));
+    if (!existingHasImage && rowHasImage) byName.set(key, row);
+  }
+  return [...byName.values()];
+}
+
+function canonicalPropertyTypeId(
+  propertyTypes: any[],
+  rawId?: string | null,
+  rawName?: string | null,
+) {
+  const unique = uniquePropertyTypes(propertyTypes);
+  if (rawId) {
+    const match = propertyTypes.find((t) => t.id === rawId);
+    if (match) {
+      const canon = unique.find(
+        (t) => typeNameKey(t.name) === typeNameKey(match.name),
+      );
+      if (canon) return canon.id as string;
+    }
+    if (unique.some((t) => t.id === rawId)) return rawId;
+  }
+  if (rawName) {
+    const canon = unique.find(
+      (t) => typeNameKey(t.name) === typeNameKey(rawName),
+    );
+    if (canon) return canon.id as string;
+  }
+  return "";
+}
 
 type SaveDraft = {
   forSale: boolean;
   propertyName: CatalogPick;
   location: CatalogPick;
   microMarket: CatalogPick;
+  propertyTypeId: string;
+  imageUrl: string;
 };
 
 function isApprovedCatalogStatus(status?: string | null) {
@@ -120,11 +208,20 @@ function asCatalogOptions(raw: unknown): CatalogOption[] {
     .filter((x) =>
       isApprovedCatalogStatus(typeof x.status === "string" ? x.status : null),
     )
-    .map((x) => ({
-      id: x.id as string,
-      name: x.name as string,
-      status: typeof x.status === "string" ? x.status : null,
-    }));
+    .map((x) => {
+      const pt =
+        x.property_type && typeof x.property_type === "object"
+          ? (x.property_type as Record<string, unknown>)
+          : null;
+      return {
+        id: x.id as string,
+        name: x.name as string,
+        status: typeof x.status === "string" ? x.status : null,
+        propertyTypeId:
+          pickStr(x.property_type_id, x.propertyTypeId, pt?.id) || undefined,
+        imageUrl: pickStr(x.image_url, x.imageUrl) || undefined,
+      };
+    });
 }
 
 function toSelectOptions(list: CatalogOption[]) {
@@ -365,6 +462,11 @@ function buildSaveDraft(item: ListingReviewItem, forSale: boolean): SaveDraft {
       getHighlightedMicroMarketName(item),
       getHighlightedMicroMarketId(item),
     ),
+    propertyTypeId: pickStr(
+      item.property_name?.property_type_id,
+      item.property_type?.id,
+    ),
+    imageUrl: pickStr(item.property_name?.image_url),
   };
 }
 
@@ -402,6 +504,7 @@ export function ListingReviewTable({
   const [microMarkets, setMicroMarkets] = useState<CatalogOption[]>([]);
   const [propertyNames, setPropertyNames] = useState<CatalogOption[]>([]);
   const [locations, setLocations] = useState<CatalogOption[]>([]);
+  const [propertyTypes, setPropertyTypes] = useState<any[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [activeById, setActiveById] = useState<Record<string, boolean>>({});
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -476,21 +579,24 @@ export function ListingReviewTable({
     const load = async () => {
       setCatalogLoading(true);
       try {
-        const [mm, locs, pns] = await Promise.all([
+        const [mm, locs, pns, pts] = await Promise.all([
           locationService.getMicroMarkets(),
           locationService.getLocations(),
           locationService.getPropertyNames(),
+          listingConfigService.getPropertyTypes().catch(() => []),
         ]);
         if (cancelled) return;
         setMicroMarkets(asCatalogOptions(mm));
         setLocations(asCatalogOptions(locs));
         setPropertyNames(asCatalogOptions(pns));
+        setPropertyTypes(asList(pts));
       } catch (err) {
         console.error(err);
         if (cancelled) return;
         setMicroMarkets([]);
         setLocations([]);
         setPropertyNames([]);
+        setPropertyTypes([]);
       } finally {
         if (!cancelled) setCatalogLoading(false);
       }
@@ -500,6 +606,29 @@ export function ListingReviewTable({
       cancelled = true;
     };
   }, [catalogDialogOpen]);
+
+  useEffect(() => {
+    if (!saveOpen) return;
+    const item = items.find((i) => i.id === saveOpen.id);
+    setSaveDraft((prev) => {
+      if (!prev || prev.forSale) return prev;
+      const opt = propertyNames.find(
+        (o) => o.id && o.id === prev.propertyName.id,
+      );
+      const nextType =
+        canonicalPropertyTypeId(
+          propertyTypes,
+          prev.propertyTypeId || opt?.propertyTypeId || item?.property_type?.id,
+          item?.property_type?.name,
+        ) || prev.propertyTypeId;
+      const nextImage =
+        prev.imageUrl || opt?.imageUrl || pickStr(item?.property_name?.image_url);
+      if (nextType === prev.propertyTypeId && nextImage === prev.imageUrl) {
+        return prev;
+      }
+      return { ...prev, propertyTypeId: nextType, imageUrl: nextImage };
+    });
+  }, [propertyTypes, propertyNames, saveOpen?.id, items, saveOpen]);
 
   const handleToggleForSale = async (
     item: ListingReviewItem,
@@ -630,6 +759,10 @@ export function ListingReviewTable({
       alert("Property name and location are required.");
       return;
     }
+    if (!saveDraft.forSale && (!saveDraft.propertyTypeId || !saveDraft.imageUrl.trim())) {
+      alert("Property type and image URL are required when saving a property name.");
+      return;
+    }
     if (!mmReady) {
       alert("Select or enter a micro market.");
       return;
@@ -653,6 +786,8 @@ export function ListingReviewTable({
             saveMicroMarket: true,
             propertyNameId: saveDraft.propertyName.id || undefined,
             propertyName: saveDraft.propertyName.name.trim() || undefined,
+            propertyTypeId: saveDraft.propertyTypeId || undefined,
+            propertyNameImageUrl: saveDraft.imageUrl.trim() || undefined,
             locationId: saveDraft.location.id || undefined,
             locationName: saveDraft.location.name.trim() || undefined,
             microMarketId: saveDraft.microMarket.id || undefined,
@@ -762,7 +897,9 @@ export function ListingReviewTable({
     !!(saveDraft.location.id || saveDraft.location.name.trim()) &&
     !!(saveDraft.microMarket.id || saveDraft.microMarket.name.trim()) &&
     (saveDraft.forSale ||
-      !!(saveDraft.propertyName.id || saveDraft.propertyName.name.trim()));
+      (!!(saveDraft.propertyName.id || saveDraft.propertyName.name.trim()) &&
+        !!saveDraft.propertyTypeId &&
+        !!saveDraft.imageUrl.trim()));
 
   if (items.length === 0) {
     return (
@@ -778,6 +915,19 @@ export function ListingReviewTable({
   const originalPn = saveItem ? getHighlightedPropertyName(saveItem) : "";
   const originalLoc = saveItem ? getHighlightedLocationName(saveItem) : "";
   const originalMm = saveItem ? getHighlightedMicroMarketName(saveItem) : "";
+  const saveTypeOptions = uniquePropertyTypes(propertyTypes);
+  const saveTypeId = saveDraft
+    ? canonicalPropertyTypeId(
+        propertyTypes,
+        saveDraft.propertyTypeId,
+        saveItem?.property_type?.name,
+      )
+    : "";
+  const saveTypeName =
+    saveTypeOptions.find((t) => t.id === saveTypeId)?.name ||
+    propertyTypes.find((t) => t.id === saveDraft?.propertyTypeId)?.name ||
+    saveItem?.property_type?.name ||
+    "";
   const fieldEditItem = fieldEdit
     ? items.find((i) => i.id === fieldEdit.id)
     : null;
@@ -1195,7 +1345,7 @@ export function ListingReviewTable({
           }
         }}
       >
-        <DialogContent className="max-w-xl sm:max-w-xl overflow-visible">
+        <DialogContent className="max-w-xl sm:max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Save to DB</DialogTitle>
             <DialogDescription>
@@ -1207,6 +1357,7 @@ export function ListingReviewTable({
           {saveDraft && (
             <div className="space-y-4 py-2">
               {!saveDraft.forSale ? (
+                <>
                 <CompareField
                   label="Property name"
                   original={originalPn}
@@ -1217,13 +1368,79 @@ export function ListingReviewTable({
                       loading={catalogLoading}
                       placeholder="Select or type property name"
                       onChange={(next) =>
-                        setSaveDraft((prev) =>
-                          prev ? { ...prev, propertyName: next } : prev,
-                        )
+                        setSaveDraft((prev) => {
+                          if (!prev) return prev;
+                          const opt = propertyNames.find(
+                            (o) => o.id && o.id === next.id,
+                          );
+                          return {
+                            ...prev,
+                            propertyName: next,
+                            propertyTypeId:
+                              opt?.propertyTypeId || prev.propertyTypeId,
+                            imageUrl: opt?.imageUrl || prev.imageUrl,
+                          };
+                        })
                       }
                     />
                   }
                 />
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Property type <span className="text-red-500">*</span>
+                  </label>
+                  <Select
+                    value={saveTypeId || undefined}
+                    onValueChange={(v) =>
+                      setSaveDraft((prev) =>
+                        prev ? { ...prev, propertyTypeId: v ?? "" } : prev,
+                      )
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      {saveTypeName ? (
+                        <span className="truncate">{saveTypeName}</span>
+                      ) : (
+                        <SelectValue placeholder="Select Apartment, SCO, Plot…" />
+                      )}
+                    </SelectTrigger>
+                    <SelectContent>
+                      {saveTypeOptions.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-gray-500">
+                          Add property types under Agent Listing Attributes first.
+                        </div>
+                      ) : (
+                        saveTypeOptions.map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.name}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Image URL <span className="text-red-500">*</span>
+                  </label>
+                  <Input
+                    value={saveDraft.imageUrl}
+                    onChange={(e) =>
+                      setSaveDraft((prev) =>
+                        prev ? { ...prev, imageUrl: e.target.value } : prev,
+                      )
+                    }
+                    placeholder="https://… (share / OG image)"
+                  />
+                  {saveDraft.imageUrl.trim() ? (
+                    <img
+                      src={saveDraft.imageUrl.trim()}
+                      alt=""
+                      className="h-16 w-28 object-cover rounded border bg-gray-50"
+                    />
+                  ) : null}
+                </div>
+                </>
               ) : null}
 
               <CompareField

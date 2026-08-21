@@ -43,6 +43,54 @@ function normalizePropertyName(raw: any) {
   };
 }
 
+function typeNameKey(name?: string | null) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/** One Apartment / SCO / Plot, regardless of Residential / Commercial / Pre-Leased rows. */
+function uniquePropertyTypes(rows: any[]) {
+  const byName = new Map<string, any>();
+  const sorted = [...rows].sort((a, b) => {
+    const aOrder = Number(a?.sort_order ?? a?.sortOrder ?? 9999);
+    const bOrder = Number(b?.sort_order ?? b?.sortOrder ?? 9999);
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return String(a?.name || '').localeCompare(String(b?.name || ''));
+  });
+  for (const row of sorted) {
+    const key = typeNameKey(row?.name);
+    if (!key) continue;
+    const existing = byName.get(key);
+    if (!existing) {
+      byName.set(key, row);
+      continue;
+    }
+    const existingHasImage = Boolean(pickStr(existing.share_image_url, existing.shareImageUrl));
+    const rowHasImage = Boolean(pickStr(row.share_image_url, row.shareImageUrl));
+    if (!existingHasImage && rowHasImage) byName.set(key, row);
+  }
+  return [...byName.values()];
+}
+
+function canonicalPropertyTypeId(propertyTypes: any[], rawId?: string | null, rawName?: string | null) {
+  const unique = uniquePropertyTypes(propertyTypes);
+  if (rawId) {
+    const match = propertyTypes.find((t) => t.id === rawId);
+    if (match) {
+      const canon = unique.find((t) => typeNameKey(t.name) === typeNameKey(match.name));
+      if (canon) return canon.id as string;
+    }
+    if (unique.some((t) => t.id === rawId)) return rawId;
+  }
+  if (rawName) {
+    const canon = unique.find((t) => typeNameKey(t.name) === typeNameKey(rawName));
+    if (canon) return canon.id as string;
+  }
+  return '';
+}
+
 function isApproved(status?: string) {
   return status === 'approved' || status === 'admin_added';
 }
@@ -91,6 +139,7 @@ export default function PropertyNamesPage() {
     location_ids: [] as string[],
   });
   const [propertyTypes, setPropertyTypes] = useState<any[]>([]);
+  const uniqueTypes = uniquePropertyTypes(propertyTypes);
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
@@ -147,7 +196,11 @@ export default function PropertyNamesPage() {
         state_id: resolveStateId(cityId),
         city_id: cityId,
         micro_market_id: item.micro_market_id || item.micro_market?.id || '',
-        property_type_id: pickStr(item.property_type_id, item.property_type?.id, item.propertyType?.id),
+        property_type_id: canonicalPropertyTypeId(
+          propertyTypes,
+          pickStr(item.property_type_id, item.property_type?.id, item.propertyType?.id),
+          item.property_type?.name || item.propertyType?.name,
+        ),
         image_url: pickStr(item.image_url, item.imageUrl),
         location_ids: (item.locations || []).map((l: any) => l.id),
       });
@@ -431,17 +484,14 @@ export default function PropertyNamesPage() {
                     <SelectValue placeholder="Select Apartment, SCO, Plot…" />
                   </SelectTrigger>
                   <SelectContent>
-                    {propertyTypes.length === 0 ? (
+                    {uniqueTypes.length === 0 ? (
                       <div className="px-3 py-2 text-sm text-gray-500">
                         Add property types under Agent Listing Attributes first.
                       </div>
                     ) : (
-                      propertyTypes.map((t) => (
+                      uniqueTypes.map((t) => (
                         <SelectItem key={t.id} value={t.id}>
                           {t.name}
-                          {t.building_type?.name || t.buildingType?.name
-                            ? ` (${t.building_type?.name || t.buildingType?.name})`
-                            : ''}
                         </SelectItem>
                       ))
                     )}

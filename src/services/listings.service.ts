@@ -56,7 +56,13 @@ export type ListingReviewItem = {
   category?: { id?: string; name?: string } | string | null;
   property_type?: { id?: string; name?: string } | null;
   propertyType?: { id?: string; name?: string } | string | null;
-  property_name?: { id?: string; name?: string; status?: string } | null;
+  property_name?: {
+    id?: string;
+    name?: string;
+    status?: string;
+    image_url?: string | null;
+    property_type_id?: string | null;
+  } | null;
   location?: { id?: string; name?: string; status?: string } | null;
   price?: number | string | null;
   price_on_request?: boolean;
@@ -96,6 +102,8 @@ export type SaveListingCatalogPayload = {
   saveLocation?: boolean;
   propertyName?: string;
   propertyNameId?: string;
+  propertyTypeId?: string;
+  propertyNameImageUrl?: string;
   locationName?: string;
   locationId?: string;
   saveMicroMarket?: boolean;

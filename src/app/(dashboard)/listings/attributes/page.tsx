@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Loader2, Plus, Edit2, Trash2, Check } from 'lucide-react';
+import { Loader2, Plus, Edit2, Trash2, Check, ImageIcon } from 'lucide-react';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { SortableTableBody } from '@/components/common/sortable-list';
 import { withCount } from '@/lib/filter-label';
@@ -143,6 +143,7 @@ export default function AttributesPage() {
   const [shareOgSaving, setShareOgSaving] = useState(false);
   const [shareOgMessage, setShareOgMessage] = useState('');
   const [shareOgError, setShareOgError] = useState('');
+  const [isShareOgOpen, setIsShareOgOpen] = useState(false);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -587,99 +588,27 @@ export default function AttributesPage() {
           <h1 className="text-2xl font-bold tracking-tight text-gray-900">Agent Listing Attributes</h1>
           <p className="text-gray-500 mt-1">Manage core hierarchy data (Property Categories, Building Types, Property Types).</p>
         </div>
-        {canCreate && activeTab !== 'categories' && (
-          <Button onClick={() => handleOpenModal()} className="bg-primary text-white hover:bg-primary/90">
-            <Plus className="w-4 h-4 mr-2" /> Add New
-          </Button>
-        )}
-      </div>
-
-      {canEditShareOg && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-4">
-          <div>
-            <h2 className="text-base font-semibold text-gray-900">WhatsApp share images</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Public HTTPS JPEG/PNG, roughly 1200×630. Gallery photos are not used for OG.
-              Single listing order: property name image → property type image → fallback.
-            </p>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Client list share image URL</label>
-              <Input
-                value={shareOg.client_list_share_image_url}
-                onChange={(e) => {
-                  setShareOg((s) => ({ ...s, client_list_share_image_url: e.target.value }));
-                  setShareOgMessage('');
-                  setShareOgError('');
-                }}
-                placeholder="https://…/client-list-1200x630.jpg"
-              />
-              <p className="text-xs text-gray-500">Used when an agent shares the full client list.</p>
-              {shareOg.client_list_share_image_url.trim() ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={shareOg.client_list_share_image_url.trim()}
-                  alt=""
-                  className="h-16 w-28 rounded border bg-gray-50 object-cover"
-                />
-              ) : null}
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Fallback share image URL</label>
-              <Input
-                value={shareOg.og_fallback_image_url}
-                onChange={(e) => {
-                  setShareOg((s) => ({ ...s, og_fallback_image_url: e.target.value }));
-                  setShareOgMessage('');
-                  setShareOgError('');
-                }}
-                placeholder="https://…/fallback-1200x630.jpg"
-              />
-              <p className="text-xs text-gray-500">
-                Used when a listing has no property-name or property-type image.
-              </p>
-              {shareOg.og_fallback_image_url.trim() ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={shareOg.og_fallback_image_url.trim()}
-                  alt=""
-                  className="h-16 w-28 rounded border bg-gray-50 object-cover"
-                />
-              ) : null}
-            </div>
-          </div>
-          {shareOgError ? (
-            <p className="text-sm text-red-600">{shareOgError}</p>
-          ) : shareOgMessage ? (
-            <p className="text-sm text-green-600">{shareOgMessage}</p>
-          ) : null}
-          <Button
-            onClick={async () => {
-              setShareOgSaving(true);
-              setShareOgMessage('');
-              setShareOgError('');
-              try {
-                const saved = await listingConfigService.updateShareOg({
-                  client_list_share_image_url: shareOg.client_list_share_image_url.trim() || null,
-                  og_fallback_image_url: shareOg.og_fallback_image_url.trim() || null,
-                });
-                setShareOg(saved);
-                setShareOgMessage('Share images saved.');
-              } catch {
-                setShareOgError('Failed to save share images.');
-              } finally {
-                setShareOgSaving(false);
-              }
-            }}
-            disabled={shareOgSaving}
-            className="bg-primary text-white hover:bg-primary/90"
-          >
-            {shareOgSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-            Save share images
-          </Button>
+        <div className="flex items-center gap-2">
+          {canEditShareOg && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShareOgMessage('');
+                setShareOgError('');
+                setIsShareOgOpen(true);
+              }}
+            >
+              <ImageIcon className="w-4 h-4 mr-2" />
+              Client share image
+            </Button>
+          )}
+          {canCreate && activeTab !== 'categories' && (
+            <Button onClick={() => handleOpenModal()} className="bg-primary text-white hover:bg-primary/90">
+              <Plus className="w-4 h-4 mr-2" /> Add New
+            </Button>
+          )}
         </div>
-      )}
+      </div>
 
       <Tabs
         value={activeTab}
@@ -962,6 +891,76 @@ export default function AttributesPage() {
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={isSubmitting || !formData.name}>
               {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isShareOgOpen}
+        onOpenChange={(open) => {
+          if (!shareOgSaving) setIsShareOgOpen(open);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Client share image</DialogTitle>
+            <DialogDescription>
+              Used when an agent shares the full client list. Public HTTPS JPEG/PNG, roughly 1200×630.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <label className="text-sm font-medium">Image URL</label>
+            <Input
+              value={shareOg.client_list_share_image_url}
+              onChange={(e) => {
+                setShareOg((s) => ({ ...s, client_list_share_image_url: e.target.value }));
+                setShareOgMessage('');
+                setShareOgError('');
+              }}
+              placeholder="https://…/client-list-1200x630.jpg"
+            />
+            {shareOg.client_list_share_image_url.trim() ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={shareOg.client_list_share_image_url.trim()}
+                alt=""
+                className="h-16 w-28 rounded border bg-gray-50 object-cover"
+              />
+            ) : null}
+            {shareOgError ? (
+              <p className="text-sm text-red-600">{shareOgError}</p>
+            ) : shareOgMessage ? (
+              <p className="text-sm text-green-600">{shareOgMessage}</p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsShareOgOpen(false)} disabled={shareOgSaving}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                setShareOgSaving(true);
+                setShareOgMessage('');
+                setShareOgError('');
+                try {
+                  const saved = await listingConfigService.updateShareOg({
+                    client_list_share_image_url: shareOg.client_list_share_image_url.trim() || null,
+                    og_fallback_image_url: shareOg.og_fallback_image_url.trim() || null,
+                  });
+                  setShareOg(saved);
+                  setIsShareOgOpen(false);
+                } catch {
+                  setShareOgError('Failed to save client share image.');
+                } finally {
+                  setShareOgSaving(false);
+                }
+              }}
+              disabled={shareOgSaving}
+              className="bg-primary text-white hover:bg-primary/90"
+            >
+              {shareOgSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>

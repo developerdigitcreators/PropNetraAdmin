@@ -6,6 +6,7 @@ import { listingConfigService } from "@/services/listing-config.service";
 import {
   canToggleForSaleTitle,
   getCatalogOriginalName,
+  getResubmissionPreviousName,
   getCatalogSavedId,
   getCatalogSavedName,
   getHighlightedLocationName,
@@ -108,6 +109,8 @@ type CatalogOption = {
   status?: string | null;
   propertyTypeId?: string;
   imageUrl?: string;
+  microMarketId?: string;
+  microMarketName?: string;
 };
 
 function pickStr(...values: unknown[]): string {
@@ -213,6 +216,12 @@ function asCatalogOptions(raw: unknown): CatalogOption[] {
         x.property_type && typeof x.property_type === "object"
           ? (x.property_type as Record<string, unknown>)
           : null;
+      const mm =
+        x.micro_market && typeof x.micro_market === "object"
+          ? (x.micro_market as Record<string, unknown>)
+          : x.micromarket && typeof x.micromarket === "object"
+            ? (x.micromarket as Record<string, unknown>)
+            : null;
       return {
         id: x.id as string,
         name: x.name as string,
@@ -220,6 +229,10 @@ function asCatalogOptions(raw: unknown): CatalogOption[] {
         propertyTypeId:
           pickStr(x.property_type_id, x.propertyTypeId, pt?.id) || undefined,
         imageUrl: pickStr(x.image_url, x.imageUrl) || undefined,
+        microMarketId:
+          pickStr(x.micro_market_id, x.microMarketId, x.micromarket_id, mm?.id) ||
+          undefined,
+        microMarketName: pickStr(mm?.name, x.microMarketName) || undefined,
       };
     });
 }
@@ -261,6 +274,20 @@ function pickFromCatalog(
   const savedName = getCatalogSavedName(item, field);
   if (savedId || savedName) {
     return { id: savedId, name: savedName || originalName };
+  }
+  const status =
+    field === "propertyName"
+      ? item.property_name?.status
+      : field === "location"
+        ? item.location?.status
+        : typeof item.highlights?.newMicroMarket === "object"
+          ? item.highlights?.newMicroMarket?.status
+          : null;
+  const inCatalog =
+    String(status || "").toLowerCase() === "approved" ||
+    String(status || "").toLowerCase() === "admin_added";
+  if (!inCatalog) {
+    return { id: "", name: "" };
   }
   return { id: originalId, name: originalName };
 }
@@ -313,13 +340,15 @@ function resolveCatalogCell(
 ): { value: string; pending: boolean; earlier: string } {
   const original = getFieldOriginal(item, field).name;
   const savedName = override?.name || getCatalogSavedName(item, field);
+  const previous = getResubmissionPreviousName(item, field);
   const earlierRaw =
     override?.earlier ||
     getCatalogOriginalName(item, field) ||
+    previous ||
     (savedName ? original : "");
   const value = savedName || original || "—";
   const earlier =
-    savedName && earlierRaw && earlierRaw !== savedName ? earlierRaw : "";
+    earlierRaw && earlierRaw !== value ? earlierRaw : "";
   const pending =
     !savedName &&
     (field === "propertyName"
@@ -365,13 +394,13 @@ function CatalogValueCell({
         >
           {value}
         </span>
-        {rejected ? (
-          <p className="text-[10px] text-red-700 mt-1">
-            {remark || "Rejected"}
-          </p>
-        ) : earlier ? (
+        {remark ? (
+          <p className="text-[10px] text-red-700 mt-1">Reject remark: {remark}</p>
+        ) : null}
+        {earlier ? (
           <p className="text-[10px] text-gray-500 mt-1">Earlier: {earlier}</p>
-        ) : pending ? (
+        ) : null}
+        {pending ? (
           <p className="text-[10px] text-amber-700 mt-1">Pending — not in DB</p>
         ) : null}
       </div>
@@ -409,7 +438,7 @@ function CatalogPickSelect({
   onChange?: (next: CatalogPick) => void;
 }) {
   const selectOptions = toSelectOptions(options);
-  const known = options.some((o) => o.id === value.id);
+  const known = !!value.id && options.some((o) => o.id === value.id);
   const selectValue = known ? value.id : "";
   const canCreate = !disabled && allowCreate;
 
@@ -417,7 +446,7 @@ function CatalogPickSelect({
     <SearchableSelect
       options={selectOptions}
       value={selectValue}
-      selectedLabel={value.name}
+      selectedLabel={known ? value.name : undefined}
       disabled={disabled}
       loading={loading}
       allowCreate={canCreate}
@@ -708,6 +737,28 @@ export function ListingReviewTable({
           payload.microMarketName =
             rejectCatalogDraft?.microMarket.name.trim() || undefined;
         }
+
+        const suggestedLocation = locations.find(
+          (row) => row.id === rejectCatalogDraft?.location.id,
+        );
+        const suggestedMmId =
+          rejectCatalogDraft?.microMarket.id ||
+          suggestedLocation?.microMarketId ||
+          "";
+        const suggestedMm =
+          microMarkets.find((row) => row.id === suggestedMmId) || null;
+        payload.suggestion = {
+          propertyName: rejectCatalogDraft?.propertyName.name.trim() || undefined,
+          propertyNameId: rejectCatalogDraft?.propertyName.id || undefined,
+          location: rejectCatalogDraft?.location.name.trim() || undefined,
+          locationId: rejectCatalogDraft?.location.id || undefined,
+          microMarket:
+            rejectCatalogDraft?.microMarket.name.trim() ||
+            suggestedMm?.name ||
+            suggestedLocation?.microMarketName ||
+            undefined,
+          microMarketId: suggestedMmId || undefined,
+        };
 
         if (
           !payload.rejectPropertyName &&
@@ -1048,9 +1099,15 @@ export function ListingReviewTable({
                   "microMarket",
                   fieldOverrides[item.id]?.microMarket,
                 );
-                const pnRemark = item.rejectRemarks?.propertyName;
-                const locRemark = item.rejectRemarks?.location;
-                const mmRemark = item.rejectRemarks?.microMarket;
+                const pnRemark =
+                  item.rejectRemarks?.propertyName ||
+                  item.resubmission?.rejectRemarks?.propertyName;
+                const locRemark =
+                  item.rejectRemarks?.location ||
+                  item.resubmission?.rejectRemarks?.location;
+                const mmRemark =
+                  item.rejectRemarks?.microMarket ||
+                  item.resubmission?.rejectRemarks?.microMarket;
                 const canToggle = canToggleForSaleTitle(item);
                 const mmHighlight = item.highlights?.newMicroMarket;
                 const mmStatus =
@@ -1115,6 +1172,17 @@ export function ListingReviewTable({
                               {String(item.status).replace(/_/g, " ")}
                             </Badge>
                           )}
+                          {item.resubmitted ? (
+                            <Badge
+                              variant="secondary"
+                              className="bg-blue-100 text-blue-800"
+                            >
+                              Resubmitted
+                              {item.resubmission?.count && item.resubmission.count > 1
+                                ? ` ×${item.resubmission.count}`
+                                : ""}
+                            </Badge>
+                          ) : null}
                         </div>
                       </TableCell>
 
@@ -1517,13 +1585,14 @@ export function ListingReviewTable({
               Edit {fieldEdit ? FIELD_LABEL[fieldEdit.field] : ""}
             </DialogTitle>
             <DialogDescription>
-              Left is the current value. Right: pick a catalog value from the
-              dropdown.
+              Left is the current value. Right: pick an approved catalog name.
+              Custom names that are not in the list stay on the left until you
+              choose one from DB or reject the listing.
             </DialogDescription>
           </DialogHeader>
 
           {fieldEdit && fieldEditPick && (
-            <div className="py-2">
+            <div className="py-2 space-y-2">
               <CompareField
                 label={FIELD_LABEL[fieldEdit.field]}
                 original={fieldEditOriginal}
@@ -1540,6 +1609,15 @@ export function ListingReviewTable({
                   />
                 }
               />
+              {fieldEditOriginal &&
+              !fieldEditOptions.some(
+                (o) => o.name.toLowerCase() === fieldEditOriginal.toLowerCase(),
+              ) ? (
+                <p className="text-xs text-amber-700">
+                  “{fieldEditOriginal}” is not in the catalog. Pick an approved
+                  name from DB, or reject this listing with a remark.
+                </p>
+              ) : null}
             </div>
           )}
 
@@ -1608,6 +1686,50 @@ export function ListingReviewTable({
                   !rejectRemarksDraft.microMarketRemark?.trim()) ||
                 !anySelected;
 
+              const selectedMmId =
+                rejectCatalogDraft?.microMarket.id ||
+                locations.find((row) => row.id === rejectCatalogDraft?.location.id)
+                  ?.microMarketId ||
+                "";
+              const rejectPnOptions = selectedMmId
+                ? propertyNames.filter(
+                    (row) =>
+                      !row.microMarketId || row.microMarketId === selectedMmId,
+                  )
+                : propertyNames;
+
+              const applyRejectPick = (field: CatalogField, next: CatalogPick) => {
+                setRejectCatalogDraft((prev) => {
+                  if (!prev) return prev;
+                  if (field !== "location") {
+                    return { ...prev, [field]: next };
+                  }
+                  const loc = locations.find((row) => row.id === next.id);
+                  const mmId = loc?.microMarketId || "";
+                  const mm = mmId
+                    ? microMarkets.find((row) => row.id === mmId)
+                    : null;
+                  const pnStillValid =
+                    !mmId ||
+                    !prev.propertyName.id ||
+                    propertyNames.some(
+                      (pn) =>
+                        pn.id === prev.propertyName.id &&
+                        (!pn.microMarketId || pn.microMarketId === mmId),
+                    );
+                  return {
+                    ...prev,
+                    location: next,
+                    microMarket: mm
+                      ? { id: mm.id, name: mm.name }
+                      : { id: "", name: "" },
+                    propertyName: pnStillValid
+                      ? prev.propertyName
+                      : { id: "", name: "" },
+                  };
+                });
+              };
+
               const rejectPick = (field: CatalogField, options: CatalogOption[]) =>
                 rejectCatalogDraft ? (
                   <CatalogPickSelect
@@ -1616,11 +1738,7 @@ export function ListingReviewTable({
                     loading={catalogLoading}
                     allowCreate={false}
                     placeholder={`Select ${FIELD_LABEL[field].toLowerCase()}`}
-                    onChange={(next) =>
-                      setRejectCatalogDraft((prev) =>
-                        prev ? { ...prev, [field]: next } : prev,
-                      )
-                    }
+                    onChange={(next) => applyRejectPick(field, next)}
                   />
                 ) : null;
 
@@ -1667,7 +1785,7 @@ export function ListingReviewTable({
                       <CompareField
                         label="Property name"
                         original={getHighlightedPropertyName(item)}
-                        right={rejectPick("propertyName", propertyNames)}
+                        right={rejectPick("propertyName", rejectPnOptions)}
                       />
                       {rejectRemarksDraft.rejectPropertyName &&
                         remarkInput(
@@ -1699,6 +1817,12 @@ export function ListingReviewTable({
                         original={getHighlightedLocationName(item)}
                         right={rejectPick("location", locations)}
                       />
+                      {rejectCatalogDraft?.microMarket.name ? (
+                        <p className="text-[10px] text-gray-500">
+                          Micro market from this location:{" "}
+                          {rejectCatalogDraft.microMarket.name}
+                        </p>
+                      ) : null}
                       {rejectRemarksDraft.rejectLocation &&
                         remarkInput(
                           "locationRemark",

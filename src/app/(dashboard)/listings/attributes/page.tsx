@@ -42,6 +42,7 @@ type AttributeFormData = {
   category_ids: string[];
   building_type_id: string;
   building_type_ids: string[];
+  building_type_names: string[];
   icon_url: string;
   share_image_url: string;
 };
@@ -67,9 +68,33 @@ const EMPTY_FORM: AttributeFormData = {
   category_ids: [],
   building_type_id: '',
   building_type_ids: [],
+  building_type_names: [],
   icon_url: '',
   share_image_url: '',
 };
+
+const SHARE_BUILDING_TYPE_NAMES = ['Residential', 'Commercial', 'Pre-Leased'];
+
+function typeNameKey(name?: string | null) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function uniqueShareBuildingTypes(rows: ListingAttribute[]) {
+  const byKey = new Map<string, ListingAttribute>();
+  for (const row of rows) {
+    const key = typeNameKey(row?.name);
+    if (!key) continue;
+    const canon = SHARE_BUILDING_TYPE_NAMES.find((n) => typeNameKey(n) === key);
+    if (!canon) continue;
+    if (!byKey.has(key)) byKey.set(key, { ...row, name: canon });
+  }
+  return SHARE_BUILDING_TYPE_NAMES.map((n) => byKey.get(typeNameKey(n))).filter(
+    (row): row is ListingAttribute => Boolean(row),
+  );
+}
 
 function pickStr(...values: unknown[]): string {
   for (const value of values) {
@@ -113,6 +138,59 @@ function asAttributeList(data: unknown): ListingAttribute[] {
 
 function isAttributeTab(value: string | number | null): value is AttributeTab {
   return value === 'categories' || value === 'building_types' || value === 'property_types';
+}
+
+async function syncPropertyTypeShareImage(args: {
+  name: string;
+  payload: AttributeWritePayload;
+  selectedNames: string[];
+  buildingTypes: ListingAttribute[];
+  propertyTypes: ListingAttribute[];
+  editingId?: string;
+  fallbackBuildingTypeId?: string | null;
+}) {
+  const nameKey = typeNameKey(args.name);
+  const matchingBuildingTypes = args.buildingTypes.filter((b) =>
+    args.selectedNames.some((n) => typeNameKey(n) === typeNameKey(b.name)),
+  );
+  const sameNameTypes = args.propertyTypes.filter((p) => typeNameKey(p.name) === nameKey);
+
+  if (matchingBuildingTypes.length === 0) {
+    if (args.editingId) {
+      await listingConfigService.updatePropertyType(args.editingId, {
+        ...args.payload,
+        building_type_id: args.fallbackBuildingTypeId || null,
+      });
+      return;
+    }
+    await listingConfigService.createPropertyType({
+      ...args.payload,
+      building_type_id: args.fallbackBuildingTypeId || null,
+    });
+    return;
+  }
+
+  const seenBtIds = new Set<string>();
+  for (const bt of matchingBuildingTypes) {
+    if (!bt.id || seenBtIds.has(bt.id)) continue;
+    seenBtIds.add(bt.id);
+    const existingForThisBt = sameNameTypes.filter((p) => p.building_type_id === bt.id);
+    if (existingForThisBt.length > 0) {
+      await Promise.all(
+        existingForThisBt.map((row) =>
+          listingConfigService.updatePropertyType(row.id, {
+            ...args.payload,
+            building_type_id: bt.id,
+          }),
+        ),
+      );
+    } else {
+      await listingConfigService.createPropertyType({
+        ...args.payload,
+        building_type_id: bt.id,
+      });
+    }
+  }
 }
 
 export default function AttributesPage() {
@@ -209,6 +287,13 @@ export default function AttributesPage() {
         category_ids: categoryId ? [categoryId] : [],
         building_type_id: buildingTypeId,
         building_type_ids: buildingTypeId ? [buildingTypeId] : [],
+        building_type_names: (() => {
+          const raw = item.building_type?.name || '';
+          const canon = SHARE_BUILDING_TYPE_NAMES.find(
+            (n) => typeNameKey(n) === typeNameKey(raw),
+          );
+          return canon ? [canon] : [];
+        })(),
         icon_url: item.icon_url || '',
         share_image_url: item.share_image_url || '',
       });
@@ -275,28 +360,16 @@ export default function AttributesPage() {
           }
         }
         else if (activeTab === 'property_types') {
-          const originalBtId = editingItem.building_type_id || editingItem.building_type?.id || '';
-          const selectedBtIds = formData.building_type_ids || [];
-          
-          let idsToCreate: string[] = [];
-          if (selectedBtIds.length === 0) {
-            await listingConfigService.updatePropertyType(editingItem.id, {
-              ...payload,
-              building_type_id: null,
-            });
-          } else if (originalBtId && selectedBtIds.includes(originalBtId)) {
-            await listingConfigService.updatePropertyType(editingItem.id, { ...payload, building_type_id: originalBtId });
-            idsToCreate = selectedBtIds.filter((id: string) => id !== originalBtId);
-          } else {
-            await listingConfigService.updatePropertyType(editingItem.id, { ...payload, building_type_id: selectedBtIds[0] });
-            idsToCreate = selectedBtIds.slice(1);
-          }
-          
-          if (idsToCreate.length > 0) {
-            await Promise.all(idsToCreate.map((bId: string) => 
-              listingConfigService.createPropertyType({ ...payload, building_type_id: bId })
-            ));
-          }
+          await syncPropertyTypeShareImage({
+            name: formData.name,
+            payload,
+            selectedNames: formData.building_type_names || [],
+            buildingTypes,
+            propertyTypes,
+            editingId: editingItem.id,
+            fallbackBuildingTypeId:
+              editingItem.building_type_id || formData.building_type_id || null,
+          });
         }
       } else {
         if (activeTab === 'categories') await listingConfigService.createCategory(payload);
@@ -314,17 +387,14 @@ export default function AttributesPage() {
           }
         }
         else if (activeTab === 'property_types') {
-          const buildingTypeIds = (formData.building_type_ids || []).filter(Boolean);
-          if (buildingTypeIds.length > 0) {
-            await Promise.all(buildingTypeIds.map((bId: string) => 
-              listingConfigService.createPropertyType({ ...payload, building_type_id: bId })
-            ));
-          } else {
-            await listingConfigService.createPropertyType({
-              ...payload,
-              building_type_id: formData.building_type_id || null,
-            });
-          }
+          await syncPropertyTypeShareImage({
+            name: formData.name,
+            payload,
+            selectedNames: formData.building_type_names || [],
+            buildingTypes,
+            propertyTypes,
+            fallbackBuildingTypeId: formData.building_type_id || null,
+          });
         }
       }
       setIsModalOpen(false);
@@ -800,7 +870,13 @@ export default function AttributesPage() {
 
             {activeTab === 'property_types' && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Parent Building Type (Select multiple)</label>
+                <label className="text-sm font-medium">
+                  WhatsApp preview group <span className="text-red-500">*</span>
+                </label>
+                <p className="text-xs text-gray-500">
+                  Only Residential, Commercial and Pre-Leased. The share image applies across
+                  Resale, Rent/Lease and Buy Requirement — it will not create extra Apartment rows.
+                </p>
                 <div className="relative">
                   <button 
                     type="button"
@@ -808,9 +884,9 @@ export default function AttributesPage() {
                     className="flex h-10 w-full items-center justify-between rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 ring-offset-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
                   >
                     <span className="truncate flex-1 text-left pr-2">
-                      {formData.building_type_ids?.length > 0 
-                         ? buildingTypes.filter(b => formData.building_type_ids.includes(b.id)).map(b => b.name).join(', ')
-                         : 'Select Building Types'}
+                      {formData.building_type_names?.length > 0 
+                         ? formData.building_type_names.join(', ')
+                         : 'Select Residential, Commercial or Pre-Leased'}
                     </span>
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 opacity-50 shrink-0"><path d="m6 9 6 6 6-6"/></svg>
                   </button>
@@ -820,29 +896,37 @@ export default function AttributesPage() {
                       <div className="fixed inset-0 z-40" onClick={() => setIsMultiSelectOpen(false)}></div>
                       <div className="absolute top-11 left-0 z-50 w-full overflow-hidden rounded-md border border-gray-200 bg-white text-gray-950 shadow-md">
                         <div className="max-h-60 overflow-y-auto p-1">
-                          {buildingTypes.map(b => (
+                          {uniqueShareBuildingTypes(buildingTypes).length === 0 ? (
+                            <div className="px-3 py-2 text-sm text-gray-500">
+                              Add Residential, Commercial or Pre-Leased building types first.
+                            </div>
+                          ) : (
+                            uniqueShareBuildingTypes(buildingTypes).map((b) => (
                             <div
-                              key={b.id}
+                              key={b.name}
                               className="relative flex w-full cursor-pointer select-none items-center rounded-sm py-1.5 pl-3 pr-8 text-sm outline-none hover:bg-gray-100 hover:text-gray-900 focus:bg-gray-100 focus:text-gray-900"
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                const ids = formData.building_type_ids || [];
-                                if (ids.includes(b.id)) {
-                                  setFormData({...formData, building_type_ids: ids.filter((id: string) => id !== b.id)});
-                                } else {
-                                  setFormData({...formData, building_type_ids: [...ids, b.id]});
-                                }
+                                const names = formData.building_type_names || [];
+                                const already = names.some((n) => typeNameKey(n) === typeNameKey(b.name));
+                                setFormData({
+                                  ...formData,
+                                  building_type_names: already
+                                    ? names.filter((n) => typeNameKey(n) !== typeNameKey(b.name))
+                                    : [...names, b.name],
+                                });
                               }}
                             >
-                              <span className="truncate">{b.name} <span className="text-gray-400">({b.category?.name})</span></span>
-                              {formData.building_type_ids?.includes(b.id) && (
+                              <span className="truncate">{b.name}</span>
+                              {formData.building_type_names?.some((n) => typeNameKey(n) === typeNameKey(b.name)) && (
                                 <span className="absolute right-3 flex h-4 w-4 items-center justify-center text-gray-900">
                                   <Check className="h-4 w-4" />
                                 </span>
                               )}
                             </div>
-                          ))}
+                            ))
+                          )}
                         </div>
                       </div>
                     </>
@@ -889,7 +973,14 @@ export default function AttributesPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={isSubmitting || !formData.name}>
+            <Button
+              onClick={handleSave}
+              disabled={
+                isSubmitting ||
+                !formData.name ||
+                (activeTab === 'property_types' && !(formData.building_type_names || []).length)
+              }
+            >
               {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save
             </Button>
           </DialogFooter>

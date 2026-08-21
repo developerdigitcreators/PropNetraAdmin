@@ -15,6 +15,14 @@ export type RejectListingReviewPayload = {
   locationId?: string;
   microMarketName?: string;
   microMarketId?: string;
+  suggestion?: {
+    propertyName?: string;
+    propertyNameId?: string;
+    location?: string;
+    locationId?: string;
+    microMarket?: string;
+    microMarketId?: string;
+  };
 };
 
 export type ListingHighlightRef = {
@@ -39,6 +47,19 @@ export type ListingReviewItem = {
     location?: string;
     microMarket?: string;
     [key: string]: unknown;
+  } | null;
+  resubmitted?: boolean;
+  resubmission?: {
+    count?: number;
+    resubmittedAt?: string;
+    previousPropertyName?: string | null;
+    previousLocation?: string | null;
+    previousMicroMarket?: string | null;
+    rejectRemarks?: {
+      propertyName?: string;
+      location?: string;
+      microMarket?: string;
+    } | null;
   } | null;
   catalogSave?: ListingCatalogSave | null;
   actions?: {
@@ -391,22 +412,29 @@ export function getHighlightedMicroMarketName(item: ListingReviewItem): string {
   return '';
 }
 
+/** Custom / rejected names are not in the approved catalog — still need review. */
+function isCustomCatalogStatus(status?: string | null): boolean {
+  const value = String(status || '')
+    .trim()
+    .toLowerCase();
+  if (!value) return false;
+  return value !== 'approved' && value !== 'admin_added';
+}
+
 export function isPropertyNamePending(item: ListingReviewItem): boolean {
   const pn = item.highlights?.newPropertyName;
   if (typeof pn === 'string') return !!pn;
-  if (pn && typeof pn === 'object') {
-    return pn.status === 'pending_review' || pn.status === 'pending';
-  }
-  return item.property_name?.status === 'pending_review';
+  const status =
+    (pn && typeof pn === 'object' ? pn.status : null) || item.property_name?.status || '';
+  return isCustomCatalogStatus(status);
 }
 
 export function isLocationPending(item: ListingReviewItem): boolean {
   const loc = item.highlights?.newLocation;
   if (typeof loc === 'string') return !!loc;
-  if (loc && typeof loc === 'object') {
-    return loc.status === 'pending_review' || loc.status === 'pending';
-  }
-  return item.location?.status === 'pending_review';
+  const status =
+    (loc && typeof loc === 'object' ? loc.status : null) || item.location?.status || '';
+  return isCustomCatalogStatus(status);
 }
 
 export function hasCatalogSave(item: ListingReviewItem): boolean {
@@ -436,10 +464,24 @@ export function getCatalogOriginalName(
   return item.catalogSave?.[field]?.originalName || '';
 }
 
+export function getResubmissionPreviousName(
+  item: ListingReviewItem,
+  field: 'propertyName' | 'location' | 'microMarket',
+): string {
+  const snap = item.resubmission;
+  if (!snap) return '';
+  if (field === 'propertyName') return snap.previousPropertyName?.trim() || '';
+  if (field === 'location') return snap.previousLocation?.trim() || '';
+  return snap.previousMicroMarket?.trim() || '';
+}
+
 export function isMicroMarketPending(item: ListingReviewItem): boolean {
   const mm = item.highlights?.newMicroMarket;
-  if (mm && typeof mm === 'object') return mm.status === 'pending';
-  return false;
+  const status =
+    (mm && typeof mm === 'object' ? mm.status : null) ||
+    (item as { micromarket?: { status?: string } }).micromarket?.status ||
+    '';
+  return isCustomCatalogStatus(status);
 }
 
 export function isForSaleTitleEnabled(item: ListingReviewItem): boolean {

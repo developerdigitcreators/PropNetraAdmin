@@ -554,10 +554,10 @@ export const userAnalyticsService = {
   },
 
   searchUsers: async (params: {
-    stateId: string;
-    cityId: string;
-    from: string;
-    to: string;
+    stateId?: string;
+    cityId?: string;
+    from?: string;
+    to?: string;
     search?: string;
   }): Promise<AnalyticsUser[]> => {
     const response = await axiosClient.get('/admin/user-analytics/users', {
@@ -569,7 +569,7 @@ export const userAnalyticsService = {
         search: params.search,
       }),
     });
-    return asArray(response.data, 'users')
+    return asArray(response.data, 'users', 'suggestions')
       .map(normalizeUser)
       .filter((row): row is AnalyticsUser => !!row);
   },

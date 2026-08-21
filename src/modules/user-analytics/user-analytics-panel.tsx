@@ -320,7 +320,7 @@ export function UserAnalyticsPanel() {
   const rangeError = !!from && !!to && from > to ? 'End date must be on or after the start date.' : '';
   const canPickState = rangeReady;
   const canPickCity = rangeReady && !!stateId;
-  const canPickUser = rangeReady && !!stateId && !!cityId;
+  const canPickUser = rangeReady;
 
   const stateName = states.find((row) => row.id === stateId)?.name;
   const cityName = cities.find((row) => row.id === cityId)?.name;
@@ -392,7 +392,13 @@ export function UserAnalyticsPanel() {
       }
       setUsersLoading(true);
       userAnalyticsService
-        .searchUsers({ stateId, cityId, from, to, search })
+        .searchUsers({
+          stateId: stateId || undefined,
+          cityId: cityId || undefined,
+          from,
+          to,
+          search,
+        })
         .then(setUsers)
         .catch((err) => {
           setUsers([]);
@@ -484,7 +490,7 @@ export function UserAnalyticsPanel() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-gray-900">User Analytics</h1>
           <p className="mt-1 text-gray-500">
-            Choose a date range, then state, city, and a user to see listing views, contacts, and inquiries.
+            Search any user by name, phone, or email. Date range is required; state and city are optional.
           </p>
         </div>
 
@@ -577,7 +583,7 @@ export function UserAnalyticsPanel() {
               </Select>
             </label>
             <div className="relative z-30 sm:col-span-2">
-              <span className="mb-1 block text-sm font-medium text-gray-700">User</span>
+              <span className="mb-1 block text-sm font-medium text-gray-700">Direct user search</span>
               <SearchableSelect
                 options={userOptions}
                 value={userId}
@@ -585,9 +591,13 @@ export function UserAnalyticsPanel() {
                 onSearch={canPickUser ? loadUsers : undefined}
                 loading={usersLoading}
                 disabled={!canPickUser}
-                placeholder={canPickUser ? 'Search user' : 'Select city first'}
+                placeholder={
+                  canPickUser
+                    ? 'Search name, phone, or email'
+                    : 'Select dates first'
+                }
                 searchPlaceholder="Search name, phone, or email"
-                emptyText="No users found."
+                emptyText="No users found. Try a name, phone, or email."
                 selectedLabel={selectedUser ? userLabel(selectedUser) : undefined}
               />
             </div>

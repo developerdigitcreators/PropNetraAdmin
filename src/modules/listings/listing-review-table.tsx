@@ -108,9 +108,11 @@ type CatalogOption = {
   name: string;
   status?: string | null;
   propertyTypeId?: string;
+  propertyTypeName?: string;
   imageUrl?: string;
   microMarketId?: string;
   microMarketName?: string;
+  locationIds?: string[];
 };
 
 function pickStr(...values: unknown[]): string {
@@ -228,11 +230,21 @@ function asCatalogOptions(raw: unknown): CatalogOption[] {
         status: typeof x.status === "string" ? x.status : null,
         propertyTypeId:
           pickStr(x.property_type_id, x.propertyTypeId, pt?.id) || undefined,
+        propertyTypeName: pickStr(pt?.name, x.propertyTypeName) || undefined,
         imageUrl: pickStr(x.image_url, x.imageUrl) || undefined,
         microMarketId:
           pickStr(x.micro_market_id, x.microMarketId, x.micromarket_id, mm?.id) ||
           undefined,
         microMarketName: pickStr(mm?.name, x.microMarketName) || undefined,
+        locationIds: Array.isArray(x.locations)
+          ? (x.locations as unknown[])
+              .map((loc) =>
+                loc && typeof loc === "object"
+                  ? pickStr((loc as Record<string, unknown>).id)
+                  : pickStr(loc),
+              )
+              .filter(Boolean)
+          : undefined,
       };
     });
 }
@@ -290,6 +302,61 @@ function pickFromCatalog(
     return { id: "", name: "" };
   }
   return { id: originalId, name: originalName };
+}
+
+function listingPropertyTypeIds(
+  propertyTypes: any[],
+  item?: ListingReviewItem | null,
+): Set<string> {
+  const ids = new Set<string>();
+  if (!item) return ids;
+  const rawId = pickStr(item.property_type?.id, (item.propertyType as { id?: string } | undefined)?.id);
+  if (rawId) ids.add(rawId);
+  const nameKey = typeNameKey(getListingPropertyTypeName(item));
+  if (nameKey && nameKey !== "—") {
+    for (const type of propertyTypes) {
+      if (typeNameKey(type?.name) === nameKey && typeof type?.id === "string") {
+        ids.add(type.id);
+      }
+    }
+  }
+  return ids;
+}
+
+function catalogLinkedToPropertyType(
+  item: ListingReviewItem | null | undefined,
+  propertyTypes: any[],
+  propertyNames: CatalogOption[],
+  locations: CatalogOption[],
+  microMarkets: CatalogOption[],
+) {
+  const typeIds = listingPropertyTypeIds(propertyTypes, item);
+  const typeName = typeNameKey(item ? getListingPropertyTypeName(item) : "");
+  const hasType = typeIds.size > 0 || (!!typeName && typeName !== "—");
+  if (!hasType) {
+    return { propertyNames, locations, microMarkets };
+  }
+  const linkedNames = propertyNames.filter((row) => {
+    if (row.propertyTypeId && typeIds.has(row.propertyTypeId)) return true;
+    return !!typeName && typeName !== "—" && typeNameKey(row.propertyTypeName) === typeName;
+  });
+  const locationIds = new Set(
+    linkedNames.flatMap((row) => row.locationIds || []).filter(Boolean),
+  );
+  const linkedLocations = locations.filter((row) => locationIds.has(row.id));
+  const mmIds = new Set(
+    [
+      ...linkedNames.map((row) => row.microMarketId),
+      ...linkedLocations.map((row) => row.microMarketId),
+    ].filter(Boolean) as string[],
+  );
+  return {
+    propertyNames: linkedNames,
+    locations: linkedLocations,
+    microMarkets: mmIds.size
+      ? microMarkets.filter((row) => mmIds.has(row.id))
+      : [],
+  };
 }
 
 function CompareField({
@@ -426,6 +493,7 @@ function CatalogPickSelect({
   disabled,
   loading,
   placeholder,
+  emptyText = "No options found.",
   allowCreate = true,
   onChange,
 }: {
@@ -434,6 +502,7 @@ function CatalogPickSelect({
   disabled?: boolean;
   loading?: boolean;
   placeholder: string;
+  emptyText?: string;
   allowCreate?: boolean;
   onChange?: (next: CatalogPick) => void;
 }) {
@@ -452,7 +521,7 @@ function CatalogPickSelect({
       allowCreate={canCreate}
       editable={canCreate}
       placeholder={placeholder}
-      emptyText="No options found."
+      emptyText={emptyText}
       onValueChange={(id) => {
         if (!onChange) return;
         const found = options.find((o) => o.id === id);
@@ -880,16 +949,21 @@ export function ListingReviewTable({
 
   const handleFieldEditSave = async () => {
     if (!fieldEdit || !fieldEditPick) return;
-    if (
-      !fieldEditPick.id ||
-      !(
-        fieldEdit.field === "propertyName"
-          ? propertyNames
-          : fieldEdit.field === "location"
-            ? locations
-            : microMarkets
-      ).some((o) => o.id === fieldEditPick.id)
-    ) {
+    const editItem = items.find((row) => row.id === fieldEdit.id);
+    const editCatalog = catalogLinkedToPropertyType(
+      editItem,
+      propertyTypes,
+      propertyNames,
+      locations,
+      microMarkets,
+    );
+    const editOptions =
+      fieldEdit.field === "propertyName"
+        ? editCatalog.propertyNames
+        : fieldEdit.field === "location"
+          ? editCatalog.locations
+          : editCatalog.microMarkets;
+    if (!fieldEditPick.id || !editOptions.some((o) => o.id === fieldEditPick.id)) {
       alert(
         `Select a ${FIELD_LABEL[fieldEdit.field].toLowerCase()} from the dropdown.`,
       );
@@ -982,16 +1056,36 @@ export function ListingReviewTable({
   const fieldEditItem = fieldEdit
     ? items.find((i) => i.id === fieldEdit.id)
     : null;
+  const dialogItem =
+    saveItem ||
+    fieldEditItem ||
+    (confirm ? items.find((row) => row.id === confirm.id) : null) ||
+    null;
+  const linkedCatalog = catalogLinkedToPropertyType(
+    dialogItem,
+    propertyTypes,
+    propertyNames,
+    locations,
+    microMarkets,
+  );
+  const linkedTypeLabel = (() => {
+    const name = dialogItem ? getListingPropertyTypeName(dialogItem) : "";
+    return name && name !== "—" ? name : "";
+  })();
+  const catalogEmptyText = (field: string) =>
+    linkedTypeLabel
+      ? `No ${field} linked to ${linkedTypeLabel}.`
+      : "No options found.";
   const fieldEditOriginal =
     fieldEditItem && fieldEdit
       ? getFieldOriginal(fieldEditItem, fieldEdit.field).name
       : "";
   const fieldEditOptions = fieldEdit
     ? fieldEdit.field === "propertyName"
-      ? propertyNames
+      ? linkedCatalog.propertyNames
       : fieldEdit.field === "location"
-        ? locations
-        : microMarkets
+        ? linkedCatalog.locations
+        : linkedCatalog.microMarkets
     : [];
   const fieldEditReady =
     !!fieldEditPick?.id &&
@@ -1419,6 +1513,9 @@ export function ListingReviewTable({
             <DialogDescription>
               Catalog only — the user post stays unchanged. Left is original,
               right is what will be saved (editable).
+              {linkedTypeLabel
+                ? ` Dropdowns show only names linked to ${linkedTypeLabel}.`
+                : ""}
             </DialogDescription>
           </DialogHeader>
 
@@ -1431,14 +1528,15 @@ export function ListingReviewTable({
                   original={originalPn}
                   right={
                     <CatalogPickSelect
-                      options={propertyNames}
+                      options={linkedCatalog.propertyNames}
                       value={saveDraft.propertyName}
                       loading={catalogLoading}
+                      emptyText={catalogEmptyText("property names")}
                       placeholder="Select or type property name"
                       onChange={(next) =>
                         setSaveDraft((prev) => {
                           if (!prev) return prev;
-                          const opt = propertyNames.find(
+                          const opt = linkedCatalog.propertyNames.find(
                             (o) => o.id && o.id === next.id,
                           );
                           return {
@@ -1516,9 +1614,10 @@ export function ListingReviewTable({
                 original={originalLoc}
                 right={
                   <CatalogPickSelect
-                    options={locations}
+                    options={linkedCatalog.locations}
                     value={saveDraft.location}
                     loading={catalogLoading}
+                    emptyText={catalogEmptyText("locations")}
                     placeholder="Select or type location"
                     onChange={(next) =>
                       setSaveDraft((prev) =>
@@ -1534,9 +1633,10 @@ export function ListingReviewTable({
                 original={originalMm}
                 right={
                   <CatalogPickSelect
-                    options={microMarkets}
+                    options={linkedCatalog.microMarkets}
                     value={saveDraft.microMarket}
                     loading={catalogLoading}
+                    emptyText={catalogEmptyText("micro markets")}
                     placeholder="Select or type micro market"
                     onChange={(next) =>
                       setSaveDraft((prev) =>
@@ -1585,7 +1685,8 @@ export function ListingReviewTable({
               Edit {fieldEdit ? FIELD_LABEL[fieldEdit.field] : ""}
             </DialogTitle>
             <DialogDescription>
-              Left is the current value. Right: pick an approved catalog name.
+              Left is the current value. Right: pick an approved catalog name
+              {linkedTypeLabel ? ` linked to ${linkedTypeLabel}` : ""}.
               Custom names that are not in the list stay on the left until you
               choose one from DB or reject the listing.
             </DialogDescription>
@@ -1604,6 +1705,9 @@ export function ListingReviewTable({
                     value={fieldEditPick}
                     loading={catalogLoading}
                     allowCreate={false}
+                    emptyText={catalogEmptyText(
+                      FIELD_LABEL[fieldEdit.field].toLowerCase() + "s",
+                    )}
                     placeholder={FIELD_PLACEHOLDER[fieldEdit.field]}
                     onChange={setFieldEditPick}
                   />
@@ -1656,7 +1760,11 @@ export function ListingReviewTable({
             <DialogTitle>Are you sure?</DialogTitle>
             <DialogDescription>
               {confirm?.action === "reject"
-                ? "Select what to reject and add a remark for each. Listing stays off search (draft)."
+                ? `Select what to reject and add a remark for each. Listing stays off search (draft).${
+                    linkedTypeLabel
+                      ? ` Suggestion dropdowns show only catalog names linked to ${linkedTypeLabel}.`
+                      : ""
+                  }`
                 : "Listing will go live (published). Save to DB is separate — this will not save Property Name/location to catalog."}
             </DialogDescription>
           </DialogHeader>
@@ -1692,11 +1800,11 @@ export function ListingReviewTable({
                   ?.microMarketId ||
                 "";
               const rejectPnOptions = selectedMmId
-                ? propertyNames.filter(
+                ? linkedCatalog.propertyNames.filter(
                     (row) =>
                       !row.microMarketId || row.microMarketId === selectedMmId,
                   )
-                : propertyNames;
+                : linkedCatalog.propertyNames;
 
               const applyRejectPick = (field: CatalogField, next: CatalogPick) => {
                 setRejectCatalogDraft((prev) => {
@@ -1712,7 +1820,7 @@ export function ListingReviewTable({
                   const pnStillValid =
                     !mmId ||
                     !prev.propertyName.id ||
-                    propertyNames.some(
+                    linkedCatalog.propertyNames.some(
                       (pn) =>
                         pn.id === prev.propertyName.id &&
                         (!pn.microMarketId || pn.microMarketId === mmId),
@@ -1737,6 +1845,9 @@ export function ListingReviewTable({
                     value={rejectCatalogDraft[field]}
                     loading={catalogLoading}
                     allowCreate={false}
+                    emptyText={catalogEmptyText(
+                      FIELD_LABEL[field].toLowerCase() + "s",
+                    )}
                     placeholder={`Select ${FIELD_LABEL[field].toLowerCase()}`}
                     onChange={(next) => applyRejectPick(field, next)}
                   />
@@ -1815,7 +1926,7 @@ export function ListingReviewTable({
                       <CompareField
                         label="Location"
                         original={getHighlightedLocationName(item)}
-                        right={rejectPick("location", locations)}
+                        right={rejectPick("location", linkedCatalog.locations)}
                       />
                       {rejectCatalogDraft?.microMarket.name ? (
                         <p className="text-[10px] text-gray-500">
@@ -1851,7 +1962,7 @@ export function ListingReviewTable({
                       <CompareField
                         label="Micro market"
                         original={getHighlightedMicroMarketName(item)}
-                        right={rejectPick("microMarket", microMarkets)}
+                        right={rejectPick("microMarket", linkedCatalog.microMarkets)}
                       />
                       {rejectRemarksDraft.rejectMicroMarket &&
                         remarkInput(

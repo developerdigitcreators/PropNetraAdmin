@@ -113,9 +113,12 @@ export function feedbackApiError(err: unknown, fallback: string): string {
 }
 
 export const feedbacksService = {
-  list: async (search?: string): Promise<FeedbackItem[]> => {
+  list: async (search?: string, userId?: string): Promise<FeedbackItem[]> => {
+    const params: Record<string, string> = {};
+    if (search?.trim()) params.search = search.trim();
+    if (userId?.trim()) params.userId = userId.trim();
     const response = await axiosClient.get('/admin/feedbacks', {
-      params: search?.trim() ? { search: search.trim() } : undefined,
+      params: Object.keys(params).length ? params : undefined,
     });
     return asArray(response.data)
       .map(normalizeFeedback)

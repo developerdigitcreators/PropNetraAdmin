@@ -266,6 +266,530 @@ function highlightName(value: ListingHighlightRef): string {
   return value.name || '';
 }
 
+export type CreateFormOption = {
+  id: string;
+  name: string;
+  is_active?: boolean;
+  phase?: number | null;
+  [key: string]: unknown;
+};
+
+export type CreateFormFieldOption = {
+  label: string;
+  value: string;
+};
+
+export type CreateFormField = {
+  key: string;
+  label: string;
+  type: string;
+  required?: boolean;
+  options?: CreateFormFieldOption[];
+  placeholder?: string;
+  moduleKey?: string;
+  raw?: Record<string, unknown>;
+};
+
+export type CreateFormSchema = {
+  fields: CreateFormField[];
+  modules: { key: string; label: string; fields: CreateFormField[] }[];
+  raw: unknown;
+};
+
+export type CreateFormProperty = {
+  id: string;
+  name: string;
+  cityId?: string;
+  cityName?: string;
+  propertyTypeId?: string;
+};
+
+export type CreateFormPrefillLocation = {
+  id: string;
+  name: string;
+};
+
+export type CreateFormPrefill = {
+  locationId: string;
+  locationName: string;
+  microMarketId: string;
+  microMarketName: string;
+  locations: CreateFormPrefillLocation[];
+  cityId?: string;
+  cityName?: string;
+};
+
+export type CreateVerifiedListingPayload = {
+  category_id: string;
+  building_type_id: string;
+  property_type_id: string;
+  property_name_id: string;
+  location_id: string;
+  micro_market_id: string;
+  price?: number | null;
+  price_on_request?: boolean;
+  details?: Record<string, unknown>;
+  owner_user_id?: string | null;
+};
+
+function pickStr(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const nested = (value as { data?: unknown }).data;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    return nested as Record<string, unknown>;
+  }
+  return value as Record<string, unknown>;
+}
+
+function asOptionList(data: unknown): CreateFormOption[] {
+  const list = Array.isArray(data)
+    ? data
+    : Array.isArray((data as { data?: unknown })?.data)
+      ? ((data as { data: unknown[] }).data)
+      : Array.isArray((data as { items?: unknown })?.items)
+        ? ((data as { items: unknown[] }).items)
+        : [];
+  return list
+    .map((raw) => {
+      const row = asObject(raw);
+      const id = pickStr(row.id);
+      const name = pickStr(row.name, row.label, row.display_name, row.displayName);
+      if (!id || !name) return null;
+      return {
+        ...row,
+        id,
+        name,
+        is_active: row.is_active !== false && row.isActive !== false,
+        phase:
+          typeof row.phase === 'number'
+            ? row.phase
+            : typeof row.phase === 'string' && row.phase.trim()
+              ? Number(row.phase)
+              : null,
+      } as CreateFormOption;
+    })
+    .filter((row): row is CreateFormOption => !!row);
+}
+
+function normalizeFieldOptions(raw: unknown): CreateFormFieldOption[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (typeof item === 'string' || typeof item === 'number') {
+        const value = String(item);
+        return { label: value, value };
+      }
+      const row = asObject(item);
+      const value = pickStr(
+        row.value,
+        row.option_value,
+        row.optionValue,
+        row.id,
+        row.key,
+        row.label,
+        row.name,
+      );
+      const label = pickStr(
+        row.label,
+        row.option_label,
+        row.optionLabel,
+        row.name,
+        row.display_name,
+        value,
+      );
+      if (!value) return null;
+      return { label: label || value, value };
+    })
+    .filter((row): row is CreateFormFieldOption => !!row);
+}
+
+function collectModulesRaw(data: unknown): unknown[] {
+  if (Array.isArray(data)) return data;
+  const root = asObject(data);
+  const nestedSchema = asObject(root.schema);
+  const nestedForm = asObject(root.form);
+  const candidates = [
+    root.modules,
+    root.formModules,
+    root.form_modules,
+    root.priceModules,
+    root.price_modules,
+    root.sections,
+    root.steps,
+    nestedSchema.modules,
+    nestedSchema.formModules,
+    nestedForm.modules,
+    nestedForm.formModules,
+    root.data,
+  ];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate) && candidate.length > 0) return candidate;
+  }
+  // Single module object with fields
+  if (
+    Array.isArray(root.fields) ||
+    Array.isArray(root.form_fields) ||
+    Array.isArray(root.formFields)
+  ) {
+    return [root];
+  }
+  return [];
+}
+
+function collectFieldsRaw(mod: Record<string, unknown>): unknown[] {
+  const candidates = [
+    mod.fields,
+    mod.form_fields,
+    mod.formFields,
+    mod.form_module_fields,
+    mod.moduleFields,
+    mod.children,
+  ];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+  return [];
+}
+
+const SKIP_CREATE_SCHEMA_KEYS = new Set([
+  'category',
+  'category_id',
+  'building_type',
+  'building_type_id',
+  'property_type',
+  'property_type_id',
+  'property_name',
+  'property_name_id',
+  'location',
+  'location_id',
+  'micro_market',
+  'micro_market_id',
+  'micromarket',
+  'owner_user_id',
+  'owner',
+]);
+
+function normalizeCreateField(
+  raw: unknown,
+  moduleKey = '',
+): CreateFormField | null {
+  const row = asObject(raw);
+  const key = pickStr(
+    row.key,
+    row.field_key,
+    row.fieldKey,
+    row.name,
+    row.slug,
+  );
+  if (!key) return null;
+  // Skip catalog/hierarchy fields that are already collected above the form.
+  if (SKIP_CREATE_SCHEMA_KEYS.has(key.trim().toLowerCase().replace(/[\s-]+/g, '_'))) {
+    return null;
+  }
+  const type = pickStr(
+    row.type,
+    row.field_type,
+    row.fieldType,
+    row.input_type,
+    row.inputType,
+    'text',
+  ).toLowerCase();
+  const label = pickStr(
+    row.label,
+    row.display_name,
+    row.displayName,
+    row.title,
+    key,
+  );
+  const fieldId = pickStr(row.id, row.field_id, row.fieldId);
+  return {
+    key,
+    label: label || key,
+    type: type || 'text',
+    required:
+      row.required === true ||
+      row.is_required === true ||
+      row.isRequired === true ||
+      row.is_mandatory === true ||
+      row.isMandatory === true,
+    options: normalizeFieldOptions(
+      row.options ??
+        row.choices ??
+        row.values ??
+        row.module_options ??
+        row.moduleOptions,
+    ),
+    placeholder: pickStr(row.placeholder, row.hint) || undefined,
+    moduleKey: moduleKey || pickStr(row.module_key, row.moduleKey) || undefined,
+    raw: fieldId ? { ...row, id: fieldId } : row,
+  };
+}
+
+function normalizeModule(raw: unknown): { key: string; label: string; fields: CreateFormField[] } | null {
+  const row = asObject(raw);
+  const key = pickStr(row.key, row.module_key, row.moduleKey, row.name, row.id);
+  const label = pickStr(row.label, row.display_name, row.displayName, row.name, key);
+  const fields = collectFieldsRaw(row)
+    .map((field) => normalizeCreateField(field, key))
+    .filter((field): field is CreateFormField => !!field);
+  if (!key && fields.length === 0) return null;
+  // Hide modules with no renderable fields (pure catalog modules)
+  if (fields.length === 0) return null;
+  return { key: key || 'module', label: label || key || 'Module', fields };
+}
+
+export function normalizeCreateSchema(data: unknown): CreateFormSchema {
+  const root = asObject(data);
+  const modulesRaw = collectModulesRaw(data);
+  const modules = modulesRaw
+    .map(normalizeModule)
+    .filter((mod): mod is { key: string; label: string; fields: CreateFormField[] } => !!mod);
+
+  const topFieldsRaw = Array.isArray(root.fields)
+    ? root.fields
+    : Array.isArray(root.form_fields)
+      ? root.form_fields
+      : Array.isArray(root.formFields)
+        ? root.formFields
+        : [];
+  const topFields = topFieldsRaw
+    .map((field) => normalizeCreateField(field))
+    .filter((field): field is CreateFormField => !!field);
+
+  // Keep price/price_on_request in schema if present — UI still has dedicated controls,
+  // but they should not be the only reason modules disappear.
+  const fields =
+    topFields.length > 0
+      ? topFields
+      : modules.flatMap((mod) => mod.fields);
+
+  return { fields, modules, raw: data };
+}
+
+async function enrichFieldOptions(fields: CreateFormField[]): Promise<CreateFormField[]> {
+  return Promise.all(
+    fields.map(async (field) => {
+      if ((field.options?.length || 0) > 0) return field;
+      const fieldId = pickStr(field.raw?.id);
+      if (!fieldId) return field;
+      try {
+        const response = await axiosClient.get(`/admin/module-options/field/${fieldId}`);
+        const options = normalizeFieldOptions(response.data);
+        if (options.length === 0) return field;
+        return { ...field, options };
+      } catch {
+        return field;
+      }
+    }),
+  );
+}
+
+async function buildSchemaFromModuleConfigs(params: {
+  categoryId: string;
+  buildingTypeId: string;
+  propertyTypeId: string;
+}): Promise<CreateFormSchema> {
+  const [modulesRes, configsRes] = await Promise.all([
+    axiosClient.get('/admin/listing-config/form-modules'),
+    axiosClient.get('/admin/module-configs', {
+      params: {
+        categoryId: params.categoryId,
+        buildingTypeId: params.buildingTypeId,
+        propertyTypeId: params.propertyTypeId,
+      },
+    }),
+  ]);
+
+  const modulesList = Array.isArray(modulesRes.data)
+    ? modulesRes.data
+    : Array.isArray((modulesRes.data as { data?: unknown })?.data)
+      ? ((modulesRes.data as { data: unknown[] }).data)
+      : [];
+  const configsList = Array.isArray(configsRes.data)
+    ? configsRes.data
+    : Array.isArray((configsRes.data as { data?: unknown })?.data)
+      ? ((configsRes.data as { data: unknown[] }).data)
+      : [];
+
+  const configByModuleId = new Map<string, Record<string, unknown>>();
+  for (const conf of configsList) {
+    const row = asObject(conf);
+    const moduleId = pickStr(row.module_id, row.moduleId, asObject(row.module).id);
+    if (moduleId) configByModuleId.set(moduleId, row);
+  }
+
+  const visibleModules = modulesList
+    .map((mod) => {
+      const row = asObject(mod);
+      const id = pickStr(row.id);
+      const key = pickStr(row.key, row.module_key, row.moduleKey, row.name, id);
+      const label = pickStr(row.label, row.display_name, row.displayName, row.name, key);
+      if (!id || !key) return null;
+      const conf = configByModuleId.get(id);
+      const isCommon = row.is_common === true || row.isCommon === true;
+      const isVisible =
+        conf == null
+          ? isCommon
+          : conf.is_visible === true || conf.isVisible === true;
+      if (!isVisible) return null;
+      // Skip modules that are only catalog pickers in the app flow.
+      if (SKIP_CREATE_SCHEMA_KEYS.has(key.toLowerCase())) return null;
+      const isMandatory =
+        conf?.is_mandatory === true ||
+        conf?.isMandatory === true ||
+        conf?.is_required === true;
+      return { id, key, label: label || key, isMandatory };
+    })
+    .filter(
+      (mod): mod is { id: string; key: string; label: string; isMandatory: boolean } => !!mod,
+    );
+
+  const modules = await Promise.all(
+    visibleModules.map(async (mod) => {
+      try {
+        const fieldsRes = await axiosClient.get(
+          `/admin/listing-config/form-modules/${mod.id}/fields`,
+        );
+        const fieldsRaw = Array.isArray(fieldsRes.data)
+          ? fieldsRes.data
+          : Array.isArray((fieldsRes.data as { data?: unknown })?.data)
+            ? ((fieldsRes.data as { data: unknown[] }).data)
+            : [];
+        let fields = fieldsRaw
+          .map((field) => {
+            const normalized = normalizeCreateField(field, mod.key);
+            if (!normalized) return null;
+            if (mod.isMandatory) normalized.required = true;
+            return normalized;
+          })
+          .filter((field): field is CreateFormField => !!field);
+        fields = await enrichFieldOptions(fields);
+        if (fields.length === 0) return null;
+        return { key: mod.key, label: mod.label, fields };
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  const resolved = modules.filter(
+    (mod): mod is { key: string; label: string; fields: CreateFormField[] } => !!mod,
+  );
+  return {
+    modules: resolved,
+    fields: resolved.flatMap((mod) => mod.fields),
+    raw: { modules: modulesList, configs: configsList, source: 'module-configs-fallback' },
+  };
+}
+
+function normalizeCreateProperty(raw: unknown): CreateFormProperty | null {
+  const row = asObject(raw);
+  const id = pickStr(row.id, row.property_name_id, row.propertyNameId);
+  const name = pickStr(row.name, row.property_name, row.propertyName, row.label);
+  if (!id || !name) return null;
+  const city = asObject(row.city);
+  return {
+    id,
+    name,
+    cityId: pickStr(row.city_id, row.cityId, city.id) || undefined,
+    cityName: pickStr(row.city_name, row.cityName, city.name) || undefined,
+    propertyTypeId:
+      pickStr(row.property_type_id, row.propertyTypeId, asObject(row.property_type).id) ||
+      undefined,
+  };
+}
+
+function normalizePrefill(raw: unknown): CreateFormPrefill {
+  const row = asObject(raw);
+  const locationsRaw = Array.isArray(row.locations)
+    ? row.locations
+    : Array.isArray(row.location_options)
+      ? row.location_options
+      : [];
+  const locations = locationsRaw
+    .map((item) => {
+      const loc = asObject(item);
+      const id = pickStr(loc.id, loc.location_id, loc.locationId);
+      const name = pickStr(loc.name, loc.location_name, loc.locationName);
+      if (!id || !name) return null;
+      return { id, name };
+    })
+    .filter((item): item is CreateFormPrefillLocation => !!item);
+
+  const singleLoc = asObject(row.location);
+  const locationId =
+    pickStr(row.location_id, row.locationId, singleLoc.id) ||
+    (locations.length === 1 ? locations[0].id : '');
+  const locationName =
+    pickStr(row.location_name, row.locationName, singleLoc.name) ||
+    locations.find((l) => l.id === locationId)?.name ||
+    '';
+
+  const mm = asObject(row.micro_market ?? row.microMarket);
+  const microMarketId = pickStr(
+    row.micro_market_id,
+    row.microMarketId,
+    mm.id,
+  );
+  const microMarketName = pickStr(
+    row.micro_market_name,
+    row.microMarketName,
+    mm.name,
+  );
+  const city = asObject(row.city);
+
+  return {
+    locationId,
+    locationName,
+    microMarketId,
+    microMarketName,
+    locations:
+      locations.length > 0
+        ? locations
+        : locationId
+          ? [{ id: locationId, name: locationName || locationId }]
+          : [],
+    cityId: pickStr(row.city_id, row.cityId, city.id) || undefined,
+    cityName: pickStr(row.city_name, row.cityName, city.name) || undefined,
+  };
+}
+
+export function listingCreateApiError(err: unknown, fallback: string): string {
+  const e = err as {
+    response?: { data?: { message?: unknown; error?: unknown } };
+    message?: string;
+  };
+  const nested = e?.response?.data;
+  const fromError =
+    nested && typeof nested === 'object' && 'error' in nested
+      ? (nested as { error?: { message?: unknown } }).error?.message
+      : undefined;
+  const msg = fromError ?? nested?.message ?? nested?.error;
+  if (Array.isArray(msg)) return msg.filter(Boolean).join(', ');
+  if (typeof msg === 'string' && msg.trim()) return msg;
+  return e?.message || fallback;
+}
+
+/** Categories that appear in DB but are not product-ready for admin create yet. */
+export function isCreateCategoryDisabled(option: CreateFormOption): boolean {
+  const key = option.name
+    .trim()
+    .toLowerCase()
+    .replace(/[\s/_-]+/g, ' ');
+  return (
+    key.includes('direct builder') ||
+    key.includes('developer') ||
+    key === 'builder floor direct'
+  );
+}
+
 export const listingsService = {
   getReviewQueue: async (
     tab: ReviewTab = 'unverified',
@@ -284,6 +808,96 @@ export const listingsService = {
 
     const response = await axiosClient.get('/admin/listings/review', { params });
     return asQueueResult(response.data);
+  },
+
+  getCreateCategories: async (): Promise<CreateFormOption[]> => {
+    const response = await axiosClient.get('/admin/listings/create-form/categories');
+    return asOptionList(response.data);
+  },
+
+  getCreateBuildingTypes: async (categoryId: string): Promise<CreateFormOption[]> => {
+    const response = await axiosClient.get('/admin/listings/create-form/building-types', {
+      params: { categoryId },
+    });
+    return asOptionList(response.data);
+  },
+
+  getCreatePropertyTypes: async (buildingTypeId: string): Promise<CreateFormOption[]> => {
+    const response = await axiosClient.get('/admin/listings/create-form/property-types', {
+      params: { buildingTypeId },
+    });
+    return asOptionList(response.data);
+  },
+
+  getCreateSchema: async (params: {
+    categoryId: string;
+    buildingTypeId: string;
+    propertyTypeId: string;
+  }): Promise<CreateFormSchema> => {
+    try {
+      const response = await axiosClient.get('/admin/listings/create-form/schema', {
+        params,
+      });
+      let normalized = normalizeCreateSchema(response.data);
+      if (normalized.fields.length > 0 || normalized.modules.length > 0) {
+        const enrichedModules = await Promise.all(
+          normalized.modules.map(async (mod) => ({
+            ...mod,
+            fields: await enrichFieldOptions(mod.fields),
+          })),
+        );
+        const enrichedTop = await enrichFieldOptions(normalized.fields);
+        return {
+          ...normalized,
+          modules: enrichedModules,
+          fields:
+            enrichedTop.length > 0
+              ? enrichedTop
+              : enrichedModules.flatMap((mod) => mod.fields),
+        };
+      }
+    } catch {
+      // Fall through to Listings Config module matrix.
+    }
+    return buildSchemaFromModuleConfigs(params);
+  },
+
+  searchCreateProperties: async (params: {
+    q?: string;
+    propertyTypeId: string;
+    cityId?: string;
+  }): Promise<CreateFormProperty[]> => {
+    const response = await axiosClient.get('/admin/listings/create-form/properties', {
+      params: {
+        q: params.q?.trim() || undefined,
+        propertyTypeId: params.propertyTypeId,
+        cityId: params.cityId || undefined,
+      },
+    });
+    const list = Array.isArray(response.data)
+      ? response.data
+      : Array.isArray((response.data as { data?: unknown })?.data)
+        ? ((response.data as { data: unknown[] }).data)
+        : Array.isArray((response.data as { items?: unknown })?.items)
+          ? ((response.data as { items: unknown[] }).items)
+          : [];
+    return list
+      .map(normalizeCreateProperty)
+      .filter((row): row is CreateFormProperty => !!row);
+  },
+
+  getCreatePropertyPrefill: async (propertyId: string): Promise<CreateFormPrefill> => {
+    const response = await axiosClient.get(
+      `/admin/listings/create-form/properties/${propertyId}/prefill`,
+    );
+    return normalizePrefill(response.data);
+  },
+
+  createVerifiedListing: async (
+    payload: CreateVerifiedListingPayload,
+  ): Promise<unknown> => {
+    const response = await axiosClient.post('/admin/listings/verified', payload);
+    return response.data;
   },
 
   approveReview: async (id: string, payload: ApproveListingReviewPayload = {}): Promise<void> => {

@@ -170,11 +170,16 @@ export function ticketApiError(err: unknown, fallback: string): string {
 }
 
 export const supportTicketsService = {
-  list: async (search?: string, status?: TicketStatus | ''): Promise<SupportTicketItem[]> => {
+  list: async (
+    search?: string,
+    status?: TicketStatus | '',
+    userId?: string,
+  ): Promise<SupportTicketItem[]> => {
     const response = await axiosClient.get('/admin/support-tickets', {
       params: {
         ...(search?.trim() ? { search: search.trim() } : {}),
         ...(status ? { status } : {}),
+        ...(userId?.trim() ? { userId: userId.trim() } : {}),
       },
     });
     return asArray(response.data)

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   listingsService,
   type ApproveListingReviewPayload,
@@ -12,7 +13,7 @@ import {
 } from "@/services/listings.service";
 import { ListingReviewTable } from "@/modules/listings/listing-review-table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Inbox } from "lucide-react";
+import { Loader2, Inbox, Plus } from "lucide-react";
 import { PermissionGuard } from "@/components/common/permission-guard";
 import { PaginationBar } from "@/components/common/pagination-bar";
 import {
@@ -21,8 +22,15 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
+import { useAuthStore } from "@/store/use-auth-store";
+import { permissionSetHas } from "@/lib/super-admin";
 
 export default function ReviewListingPage() {
+  const canCreatePost = useAuthStore(
+    (s) =>
+      permissionSetHas(s.permissions, "locations:read") ||
+      permissionSetHas(s.permissions, "listings:create"),
+  );
   const [tab, setTab] = useState<ReviewTab>("unverified");
   const [unverified, setUnverified] = useState<ListingReviewItem[]>([]);
   const [verified, setVerified] = useState<ListingReviewItem[]>([]);
@@ -243,14 +251,25 @@ export default function ReviewListingPage() {
       }
     >
       <div className="space-y-6 pb-12">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-            Review Listing
-          </h1>
-          <p className="text-gray-500 mt-1">
-            Approve custom project names / locations and publish listings for
-            other agents.
-          </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+              Review Listing
+            </h1>
+            <p className="text-gray-500 mt-1">
+              Approve custom project names / locations and publish listings for
+              other agents.
+            </p>
+          </div>
+          {canCreatePost && (
+            <Link
+              href="/add-post"
+              className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add Post
+            </Link>
+          )}
         </div>
 
         <Tabs

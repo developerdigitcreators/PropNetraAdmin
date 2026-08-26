@@ -12,15 +12,7 @@ export type AnalyticsUser = {
   email: string;
 };
 
-export type ViewProperty = {
-  id: string;
-  name: string;
-  viewCount: number;
-  city: string;
-  location: string;
-};
-
-export type LeadRow = {
+export type PersonRow = {
   id: string;
   name: string;
   contact: string;
@@ -28,24 +20,37 @@ export type LeadRow = {
   city: string;
   location: string;
   occurredAt: string | null;
-  archived: boolean;
+  channels: string[];
 };
 
 export type DayBucket<T> = {
   date: string;
   items: T[];
   total: number;
+  detailAvailable: boolean;
+  usageHint?: UsageHint | null;
 };
 
 export type MonthBucket<T> = {
   month: string;
   days: DayBucket<T>[];
+  total: number;
 };
 
 export type GroupedTab<T> = {
   days: DayBucket<T>[];
   months: MonthBucket<T>[];
   summary: T[];
+  total: number;
+};
+
+export type UsageHint = {
+  period?: string;
+  viewsUsed?: number;
+  viewsLimit?: number | null;
+  unlimitedViews?: boolean;
+  coinsUsed?: number;
+  coinsGranted?: number;
 };
 
 export type UserAnalyticsRange = {
@@ -57,9 +62,10 @@ export type UserAnalyticsRange = {
 export type UserAnalyticsDetail = {
   user: AnalyticsUser;
   range: UserAnalyticsRange;
-  views: GroupedTab<ViewProperty>;
-  contacted: GroupedTab<LeadRow>;
-  interested: GroupedTab<LeadRow>;
+  usage: UsageHint | null;
+  views: GroupedTab<PersonRow>;
+  contacted: GroupedTab<PersonRow>;
+  interested: GroupedTab<PersonRow>;
 };
 
 export type UserAnalyticsTab = 'views' | 'contacted' | 'interested';
@@ -89,14 +95,15 @@ function pickNumber(...values: unknown[]): number {
   return 0;
 }
 
-function asBool(value: unknown): boolean {
+function asBool(value: unknown, fallback = false): boolean {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value !== 0;
   if (typeof value === 'string') {
     const v = value.toLowerCase().trim();
-    if (['true', '1', 'yes', 'archived'].includes(v)) return true;
+    if (['true', '1', 'yes'].includes(v)) return true;
+    if (['false', '0', 'no'].includes(v)) return false;
   }
-  return false;
+  return fallback;
 }
 
 function asArray(data: unknown, ...keys: string[]): unknown[] {
@@ -133,13 +140,13 @@ function spansMultipleMonths(from: string, to: string): boolean {
 }
 
 function sortDays<T>(days: DayBucket<T>[]): DayBucket<T>[] {
-  return [...days].sort((a, b) => a.date.localeCompare(b.date));
+  return [...days].sort((a, b) => b.date.localeCompare(a.date));
 }
 
 function sortMonths<T>(months: MonthBucket<T>[]): MonthBucket<T>[] {
   return [...months]
     .map((month) => ({ ...month, days: sortDays(month.days) }))
-    .sort((a, b) => a.month.localeCompare(b.month));
+    .sort((a, b) => b.month.localeCompare(a.month));
 }
 
 function groupDaysByMonth<T>(days: DayBucket<T>[]): MonthBucket<T>[] {
@@ -151,31 +158,12 @@ function groupDaysByMonth<T>(days: DayBucket<T>[]): MonthBucket<T>[] {
     map.set(key, list);
   }
   return sortMonths(
-    Array.from(map.entries()).map(([month, grouped]) => ({ month, days: grouped })),
+    Array.from(map.entries()).map(([month, grouped]) => ({
+      month,
+      days: grouped,
+      total: grouped.reduce((sum, day) => sum + day.total, 0),
+    })),
   );
-}
-
-function flattenMonths<T>(months: MonthBucket<T>[]): DayBucket<T>[] {
-  return sortDays(months.flatMap((month) => month.days));
-}
-
-function mergeDays<T>(days: DayBucket<T>[], extra: DayBucket<T>[]): DayBucket<T>[] {
-  const map = new Map<string, DayBucket<T>>();
-  for (const day of [...days, ...extra]) {
-    if (!day.date) continue;
-    const existing = map.get(day.date);
-    if (!existing) {
-      map.set(day.date, {
-        date: day.date,
-        items: [...day.items],
-        total: day.total,
-      });
-      continue;
-    }
-    existing.items.push(...day.items);
-    existing.total = Math.max(existing.total, day.total) || existing.items.length;
-  }
-  return sortDays(Array.from(map.values()));
 }
 
 export function userAnalyticsApiError(err: unknown, fallback: string): string {
@@ -212,68 +200,34 @@ function normalizeUser(raw: unknown): AnalyticsUser | null {
   return {
     id,
     name: pickString(nested.name, nested.fullName, nested.full_name),
-    contact: pickString(nested.contact, nested.phone, nested.mobile, nested.contactNo, nested.contact_no),
+    contact: pickString(nested.contact, nested.phone, nested.mobile),
     email: pickString(nested.email),
   };
 }
 
-function normalizeViewProperty(raw: unknown, index: number): ViewProperty | null {
+function normalizeChannels(raw: unknown): string[] {
   const row = asRecord(raw);
-  if (!row) return null;
-  const name = pickString(
-    row.name,
-    row.title,
-    row.project,
-    row.projectName,
-    row.project_name,
-    row.propertyName,
-    row.property_name,
-    row.listingName,
-    row.listing_name,
-  );
-  const viewCount = pickNumber(row.viewCount, row.view_count, row.views, row.count, row.total);
-  const id =
-    pickString(row.id, row.listingId, row.listing_id, row.propertyId, row.property_id) ||
-    `${name || 'listing'}-${index}`;
-  if (!name && viewCount <= 0) return null;
-  return {
-    id,
-    name: name || 'Untitled listing',
-    viewCount,
-    city: pickString(row.city, row.cityName, row.city_name),
-    location: pickString(row.location, row.locationName, row.location_name, row.address),
-  };
+  const fromArray = asArray(row?.channels ?? raw);
+  const list = fromArray
+    .map((item) => pickString(item).toLowerCase())
+    .filter((item) => item === 'call' || item === 'whatsapp');
+  const single = pickString(row?.channel).toLowerCase();
+  if (single === 'call' || single === 'whatsapp') list.push(single);
+  return [...new Set(list)];
 }
 
-function normalizeLead(raw: unknown, index: number): LeadRow | null {
+function normalizePerson(raw: unknown, index: number): PersonRow | null {
   const row = asRecord(raw);
   if (!row) return null;
-  const person = asRecord(row.user) || asRecord(row.contactedBy) || asRecord(row.contacted_by) || row;
-  const name = pickString(
-    person.name,
-    row.name,
-    row.fullName,
-    row.full_name,
-    row.userName,
-    row.user_name,
-  );
-  const contact = pickString(
-    person.contact,
-    person.phone,
-    row.contact,
-    row.contactNo,
-    row.contact_no,
-    row.phone,
-    row.mobile,
-  );
+  const person = asRecord(row.user) || row;
+  const name = pickString(person.name, row.name, row.fullName);
+  const contact = pickString(person.contact, person.phone, row.contact, row.phone);
   const project = pickString(
     row.project,
     row.projectName,
     row.project_name,
-    row.propertyName,
-    row.property_name,
-    row.listingName,
-    row.listing_name,
+    row.displayTitle,
+    row.display_title,
   );
   const occurredAt =
     pickString(
@@ -281,175 +235,103 @@ function normalizeLead(raw: unknown, index: number): LeadRow | null {
       row.occurred_at,
       row.dateTime,
       row.date_time,
-      row.contactedAt,
-      row.contacted_at,
       row.createdAt,
       row.created_at,
-      row.timestamp,
+      row.interestedAt,
+      row.interested_at,
       row.date,
     ) || null;
   const id =
-    pickString(row.id, row.leadId, row.lead_id, person.id) ||
-    `${name || contact || 'lead'}-${occurredAt || index}`;
+    pickString(row.id, row.userId, row.user_id, person.id) ||
+    `${name || contact || 'person'}-${occurredAt || index}`;
   if (!name && !contact && !project) return null;
   return {
     id,
     name: name || 'Unknown',
     contact,
     project,
-    city: pickString(row.city, row.cityName, row.city_name, asRecord(row.city)?.name),
-    location: pickString(row.location, row.locationName, row.location_name, asRecord(row.location)?.name),
+    city: pickString(row.city, row.cityName, row.city_name),
+    location: pickString(row.location, row.locationName, row.location_name),
     occurredAt,
-    archived: asBool(row.archived ?? row.isArchived ?? row.is_archived ?? row.status === 'archived'),
+    channels: normalizeChannels(row),
   };
 }
 
-function dayItems<T>(
-  row: Record<string, unknown>,
-  mapItem: (raw: unknown, index: number) => T | null,
-): T[] {
-  return asArray(
-    row,
-    'items',
-    'properties',
-    'listings',
-    'views',
-    'contacts',
-    'contacted',
-    'leads',
-    'users',
-    'inquiries',
-    'interested',
-    'entries',
-  )
-    .map((item, index) => mapItem(item, index))
-    .filter((item): item is T => !!item);
-}
-
-function normalizeDayBucket<T>(
-  raw: unknown,
-  mapItem: (raw: unknown, index: number) => T | null,
-  fallbackDate = '',
-): DayBucket<T> | null {
-  if (typeof raw === 'string') {
-    const date = isoDate(raw);
-    return date ? { date, items: [], total: 0 } : null;
-  }
+function normalizeUsage(raw: unknown): UsageHint | null {
   const row = asRecord(raw);
   if (!row) return null;
-  const date = isoDate(row.date ?? row.day ?? row.key ?? row.label) || fallbackDate;
-  const nested = asRecord(row.bucket) || asRecord(row.data) || row;
-  const items = dayItems(nested, mapItem);
-  const total = pickNumber(nested.total, nested.count, nested.viewCount, nested.view_count, nested.views);
-  if (!date && items.length === 0) return null;
   return {
-    date: date || fallbackDate,
+    period: pickString(row.period) || undefined,
+    viewsUsed: pickNumber(row.viewsUsed, row.views_used),
+    viewsLimit:
+      row.viewsLimit === null || row.views_limit === null
+        ? null
+        : pickNumber(row.viewsLimit, row.views_limit),
+    unlimitedViews: asBool(row.unlimitedViews ?? row.unlimited_views),
+    coinsUsed: pickNumber(row.coinsUsed, row.coins_used, row.coinsSpent, row.coins_spent),
+    coinsGranted: pickNumber(row.coinsGranted, row.coins_granted),
+  };
+}
+
+function normalizeDayBucket(raw: unknown): DayBucket<PersonRow> | null {
+  const row = asRecord(raw);
+  if (!row) return null;
+  const date = isoDate(row.date ?? row.day ?? row.key);
+  if (!date) return null;
+  const items = asArray(row, 'items', 'entries', 'records')
+    .map((item, index) => normalizePerson(item, index))
+    .filter((item): item is PersonRow => !!item);
+  const total = pickNumber(row.count, row.total) || items.length;
+  return {
+    date,
     items,
-    total: total || items.reduce((sum, item) => {
-      const count = (item as { viewCount?: number }).viewCount;
-      return sum + (typeof count === 'number' ? count : 1);
-    }, 0),
+    total,
+    detailAvailable: asBool(row.detailAvailable ?? row.detail_available, items.length > 0 || total === 0),
+    usageHint: normalizeUsage(row.usage ?? row.usageHint),
   };
 }
 
-function normalizeMonthBucket<T>(
-  raw: unknown,
-  mapItem: (raw: unknown, index: number) => T | null,
-): MonthBucket<T> | null {
-  const row = asRecord(raw);
-  if (!row) return null;
-  const nested = asRecord(row.bucket) || asRecord(row.data) || row;
-  const days = asArray(nested, 'days', 'dates', 'entries', 'items')
-    .map((day) => normalizeDayBucket(day, mapItem))
-    .filter((day): day is DayBucket<T> => !!day && !!day.date);
-  const month =
-    pickString(nested.month, nested.monthKey, nested.month_key, nested.key).replace(/^(\d{4}-\d{2}).*/, '$1') ||
-    (days[0] ? monthKeyFromDate(days[0].date) : '');
-  if (!month && days.length === 0) return null;
-  const leftoverItems = days.length ? [] : dayItems(nested, mapItem);
-  const leftoverDays =
-    leftoverItems.length && month
-      ? [
-          {
-            date: `${month}-01`,
-            items: leftoverItems,
-            total: leftoverItems.length,
-          },
-        ]
-      : [];
-  return {
-    month: month || 'unknown',
-    days: sortDays([...days, ...leftoverDays]),
-  };
-}
-
-function normalizeGroupedTab<T>(
-  raw: unknown,
-  mapItem: (raw: unknown, index: number) => T | null,
-  summaryKeys: string[],
-): GroupedTab<T> {
+function normalizeGroupedTab(raw: unknown): GroupedTab<PersonRow> {
   const row = asRecord(raw);
   const source = row ? (asRecord(row.tab) || asRecord(row.data) || row) : null;
-  const summary = source
-    ? asArray(source, ...summaryKeys)
-        .map((item, index) => mapItem(item, index))
-        .filter((item): item is T => !!item)
-    : [];
-
   const days = source
     ? asArray(source, 'days', 'dates', 'timeline')
-        .map((day) => normalizeDayBucket(day, mapItem))
-        .filter((day): day is DayBucket<T> => !!day && !!day.date)
+        .map(normalizeDayBucket)
+        .filter((day): day is DayBucket<PersonRow> => !!day)
     : [];
 
-  const months = source
+  const monthsRaw = source
     ? asArray(source, 'months', 'groups')
-        .map((month) => normalizeMonthBucket(month, mapItem))
-        .filter((month): month is MonthBucket<T> => !!month)
+        .map((monthRaw) => {
+          const month = asRecord(monthRaw);
+          if (!month) return null;
+          const key =
+            pickString(month.key, month.month, month.monthKey).replace(/^(\d{4}-\d{2}).*/, '$1') ||
+            '';
+          const monthDays = asArray(month, 'days')
+            .map(normalizeDayBucket)
+            .filter((day): day is DayBucket<PersonRow> => !!day);
+          if (!key && !monthDays.length) return null;
+          return {
+            month: key || monthKeyFromDate(monthDays[0]?.date || '') || 'unknown',
+            days: sortDays(monthDays),
+            total: pickNumber(month.count, month.total) || monthDays.reduce((s, d) => s + d.total, 0),
+          } satisfies MonthBucket<PersonRow>;
+        })
+        .filter((month): month is MonthBucket<PersonRow> => !!month)
     : [];
 
-  const flatItems: { date: string; item: T }[] = [];
-  if (source) {
-    asArray(source, 'items', 'entries', 'records', 'leads', 'contacts', 'contacted', 'interested', 'inquiries')
-      .forEach((item, index) => {
-        const mapped = mapItem(item, index);
-        if (!mapped) return;
-        const obj = asRecord(item);
-        const date = isoDate(
-          obj?.date ??
-            obj?.occurredAt ??
-            obj?.occurred_at ??
-            obj?.dateTime ??
-            obj?.date_time ??
-            obj?.createdAt ??
-            obj?.created_at,
-        );
-        flatItems.push({ date, item: mapped });
-      });
-  }
-
-  const flatDays = flatItems
-    .filter((row) => row.date)
-    .reduce<DayBucket<T>[]>((acc, row) => {
-      const existing = acc.find((day) => day.date === row.date);
-      if (existing) {
-        existing.items.push(row.item);
-        existing.total += 1;
-        return acc;
-      }
-      acc.push({ date: row.date, items: [row.item], total: 1 });
-      return acc;
-    }, []);
-
-  const mergedDays = mergeDays(days, [...flattenMonths(months), ...flatDays]);
-  const mergedMonths = months.length ? sortMonths(months) : groupDaysByMonth(mergedDays);
-
-  const dateless = flatItems.filter((row) => !row.date).map((row) => row.item);
+  const mergedDays = sortDays(days.length ? days : monthsRaw.flatMap((m) => m.days));
+  const months = monthsRaw.length ? sortMonths(monthsRaw) : groupDaysByMonth(mergedDays);
+  const total =
+    pickNumber(source?.total) ||
+    mergedDays.reduce((sum, day) => sum + day.total, 0);
 
   return {
     days: mergedDays,
-    months: mergedMonths,
-    summary: summary.length ? summary : dateless,
+    months,
+    summary: [],
+    total,
   };
 }
 
@@ -461,8 +343,8 @@ function resolveGroupBy(raw: unknown, from: string, to: string): 'day' | 'month'
   return spansMultipleMonths(from, to) ? 'month' : 'day';
 }
 
-function emptyTab<T>(): GroupedTab<T> {
-  return { days: [], months: [], summary: [] };
+function emptyTab(): GroupedTab<PersonRow> {
+  return { days: [], months: [], summary: [], total: 0 };
 }
 
 function normalizeDetail(raw: unknown, fallbackUser?: AnalyticsUser | null): UserAnalyticsDetail | null {
@@ -473,8 +355,8 @@ function normalizeDetail(raw: unknown, fallbackUser?: AnalyticsUser | null): Use
   if (!user) return null;
 
   const rangeRow = asRecord(payload.range) || payload;
-  const from = isoDate(rangeRow.from ?? rangeRow.start ?? rangeRow.startDate ?? rangeRow.start_date);
-  const to = isoDate(rangeRow.to ?? rangeRow.end ?? rangeRow.endDate ?? rangeRow.end_date);
+  const from = isoDate(rangeRow.from ?? rangeRow.start);
+  const to = isoDate(rangeRow.to ?? rangeRow.end);
   const tabs = asRecord(payload.tabs) || payload;
 
   return {
@@ -484,16 +366,11 @@ function normalizeDetail(raw: unknown, fallbackUser?: AnalyticsUser | null): Use
       to,
       groupBy: resolveGroupBy(rangeRow, from, to),
     },
-    views: normalizeGroupedTab(tabs.views, normalizeViewProperty, ['properties', 'listings', 'summary']),
-    contacted: normalizeGroupedTab(
-      tabs.contacted ?? tabs.contacts ?? tabs.contact,
-      normalizeLead,
-      ['items', 'leads', 'contacts'],
-    ),
+    usage: normalizeUsage(payload.usage),
+    views: normalizeGroupedTab(tabs.views),
+    contacted: normalizeGroupedTab(tabs.contacted ?? tabs.contacts),
     interested: normalizeGroupedTab(
-      tabs.interested ?? tabs.inquiry ?? tabs.inquiries,
-      normalizeLead,
-      ['items', 'leads', 'inquiries'],
+      tabs.interested ?? tabs.leads ?? tabs.inquiry ?? tabs.inquiries,
     ),
   };
 }
@@ -506,34 +383,9 @@ function listParams(params: Record<string, string | undefined>) {
   return next;
 }
 
-export function countTabItems<T>(tab: GroupedTab<T>): number {
-  const fromDays = tab.days.reduce((sum, day) => sum + day.items.length, 0);
-  if (fromDays) return fromDays;
-  const fromMonths = tab.months.reduce(
-    (sum, month) => sum + month.days.reduce((inner, day) => inner + day.items.length, 0),
-    0,
-  );
-  if (fromMonths) return fromMonths;
-  return tab.summary.length;
-}
-
-export function sumViewCount(tab: GroupedTab<ViewProperty>): number {
-  const fromSummary = tab.summary.reduce((sum, item) => sum + item.viewCount, 0);
-  if (fromSummary) return fromSummary;
-  const fromDays = tab.days.reduce((sum, day) => {
-    const itemSum = day.items.reduce((inner, item) => inner + item.viewCount, 0);
-    return sum + (itemSum || day.total);
-  }, 0);
-  if (fromDays) return fromDays;
-  return tab.months.reduce((sum, month) => {
-    return (
-      sum +
-      month.days.reduce((inner, day) => {
-        const itemSum = day.items.reduce((count, item) => count + item.viewCount, 0);
-        return inner + (itemSum || day.total);
-      }, 0)
-    );
-  }, 0);
+export function countTabItems(tab: GroupedTab<PersonRow>): number {
+  if (tab.total) return tab.total;
+  return tab.days.reduce((sum, day) => sum + day.total, 0);
 }
 
 export const userAnalyticsService = {
@@ -601,6 +453,7 @@ export const userAnalyticsService = {
           to: params.to,
           groupBy: spansMultipleMonths(params.from, params.to) ? 'month' : 'day',
         },
+        usage: null,
         views: emptyTab(),
         contacted: emptyTab(),
         interested: emptyTab(),
@@ -609,7 +462,9 @@ export const userAnalyticsService = {
     if (!detail.range.from) detail.range.from = params.from;
     if (!detail.range.to) detail.range.to = params.to;
     if (!detail.range.groupBy) {
-      detail.range.groupBy = spansMultipleMonths(detail.range.from, detail.range.to) ? 'month' : 'day';
+      detail.range.groupBy = spansMultipleMonths(detail.range.from, detail.range.to)
+        ? 'month'
+        : 'day';
     }
     return detail;
   },

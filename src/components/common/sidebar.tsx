@@ -19,6 +19,10 @@ import {
   Headset,
   BarChart3,
   Trash2,
+  UserX,
+  PlusSquare,
+  CreditCard,
+  Package,
 } from "lucide-react";
 import { PermissionGuard } from "@/components/common/permission-guard";
 import { useAuthStore } from "@/store/use-auth-store";
@@ -47,7 +51,7 @@ const MENU_ITEMS: MenuItem[] = [
     permission: "dashboard:read",
   },
   {
-    name: "User Analytics",
+    name: "User Profile",
     path: "/user-analytics",
     icon: BarChart3,
     permission: "user_analytics:read",
@@ -75,6 +79,12 @@ const MENU_ITEMS: MenuItem[] = [
     path: "/moderation",
     icon: MapPin,
     permission: "locations:read",
+  },
+  {
+    name: "Add Post",
+    path: "/add-post",
+    icon: PlusSquare,
+    permission: ["locations:read", "listings:create"],
   },
   {
     name: "Location Management",
@@ -113,6 +123,18 @@ const MENU_ITEMS: MenuItem[] = [
     permission: "faqs:read",
   },
   {
+    name: "Subscription Plans",
+    path: "/subscription-plans",
+    icon: CreditCard,
+    permission: "subscriptions:read",
+  },
+  {
+    name: "Subscription Add-ons",
+    path: "/subscription-addons",
+    icon: Package,
+    permission: "subscriptions:read",
+  },
+  {
     name: "Feedback",
     path: "/feedbacks",
     icon: MessageSquare,
@@ -123,6 +145,12 @@ const MENU_ITEMS: MenuItem[] = [
     path: "/support-tickets",
     icon: Headset,
     permission: "support_tickets:read",
+  },
+  {
+    name: "Account Deletion Requests",
+    path: "/account-deletions",
+    icon: UserX,
+    permission: "account_deletions:read",
   },
   {
     name: "RBAC Roles",

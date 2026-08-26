@@ -21,6 +21,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { SearchableSelect } from '@/components/common/searchable-select';
+import { ImageUrlOrUpload } from '@/components/image-url-or-upload';
 import { Loader2, Image as ImageIcon, Video } from 'lucide-react';
 
 export type BannerFormProps = {
@@ -304,36 +305,27 @@ export function BannerForm({
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">
-          <label className="text-sm font-medium text-gray-700">
-            Banner media URL <span className="text-red-500">*</span>
-          </label>
+          <span className="text-sm font-medium text-gray-700">
+            Banner media <span className="text-red-500">*</span>
+          </span>
           <Badge variant="outline" className="gap-1 capitalize">
             {mediaType === 'video' ? <Video className="w-3 h-3" /> : <ImageIcon className="w-3 h-3" />}
             {mediaType}
           </Badge>
         </div>
-        <Input
+        <ImageUrlOrUpload
+          label="Media URL"
           value={mediaUrl}
-          onChange={(e) => {
-            setMediaUrl(e.target.value);
+          onChange={(url) => {
+            setMediaUrl(url);
             if (fieldErrors.mediaUrl) setFieldErrors((f) => ({ ...f, mediaUrl: undefined }));
           }}
+          kind="banner"
           placeholder="https://cdn.example.com/banner.jpg"
-          required
-          aria-invalid={!!fieldErrors.mediaUrl}
-          className={fieldErrors.mediaUrl ? 'border-red-500 focus-visible:ring-red-500' : ''}
+          hint="Paste an image/video URL, or upload an image (video stays URL-only)."
+          error={fieldErrors.mediaUrl}
+          previewClassName="mt-2 w-full max-w-sm h-32 rounded-lg border border-gray-200 object-cover bg-gray-50"
         />
-        {fieldErrors.mediaUrl ? (
-          <p className="text-xs text-red-600">{fieldErrors.mediaUrl}</p>
-        ) : (
-          <p className="text-xs text-gray-500">Paste an image or video URL. Upload comes later.</p>
-        )}
-        {mediaUrl && mediaType === 'image' && (
-          <div className="mt-2 w-full max-w-sm h-32 rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={mediaUrl} alt="Preview" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-          </div>
-        )}
       </div>
 
       <div className="rounded-xl border border-gray-200 p-4 space-y-4">

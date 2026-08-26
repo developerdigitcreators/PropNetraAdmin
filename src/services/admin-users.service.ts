@@ -16,6 +16,33 @@ export type SignupRemark = {
   createdAt: string;
   createdByUserId?: string | null;
   createdByName?: string | null;
+  source?: 'admin' | 'system' | null;
+  phase?: 'otp_issued' | 'otp_verified' | null;
+};
+
+export type CallStatus =
+  | 'not_contacted'
+  | 'wrong_no'
+  | 'not_interested'
+  | 'in_discussion'
+  | 'shifted_and_verified';
+
+export const CALL_STATUS_OPTIONS: { value: CallStatus; label: string }[] = [
+  { value: 'not_contacted', label: 'Not Contacted' },
+  { value: 'wrong_no', label: 'Wrong No.' },
+  { value: 'not_interested', label: 'Not Interested' },
+  { value: 'in_discussion', label: 'In-discussion' },
+  { value: 'shifted_and_verified', label: 'Shifted & Verified' },
+];
+
+export type RemarksPayload = {
+  signupSessionId: string;
+  remarks: SignupRemark[];
+  issuedHistory?: SignupRemark[];
+  verifiedHistory?: SignupRemark[];
+  remarksCount?: number;
+  latestRemarkPreview?: string | null;
+  callStatusEditable?: boolean;
 };
 
 export const adminUsersService = {
@@ -63,16 +90,19 @@ export const adminUsersService = {
 
   listRemarks: async (signupSessionId: string) => {
     const response = await axiosClient.get(`/admin/users/${signupSessionId}/remarks`);
-    return response.data as { signupSessionId: string; remarks: SignupRemark[] };
+    return response.data as RemarksPayload;
   },
 
   addRemark: async (signupSessionId: string, text: string) => {
     const response = await axiosClient.post(`/admin/users/${signupSessionId}/remarks`, { text });
-    return response.data as {
-      signupSessionId: string;
-      remark: SignupRemark;
-      remarks: SignupRemark[];
-    };
+    return response.data as RemarksPayload & { remark: SignupRemark };
+  },
+
+  updateCallStatus: async (signupSessionId: string, callStatus: CallStatus) => {
+    const response = await axiosClient.put(`/admin/users/${signupSessionId}/call-status`, {
+      callStatus,
+    });
+    return response.data;
   },
 
   deleteRemark: async (signupSessionId: string, remarkId: string) => {

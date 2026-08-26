@@ -24,7 +24,7 @@ import {
 } from '@/services/notifications.service';
 import { locationService } from '@/services/location.service';
 import { FormattedTextField } from '@/modules/notifications/chat/formatted-text-field';
-import { AttachUrlDialog } from '@/modules/notifications/chat/attach-url-dialog';
+import { ImageUrlOrUpload } from '@/components/image-url-or-upload';
 import { PopupPreviewDialog } from './popup-preview-dialog';
 import { formatDateTime } from '@/modules/notifications/chat/message-bubble';
 import {
@@ -41,7 +41,6 @@ import {
 } from './popup-draft';
 import {
   Globe,
-  Image as ImageIcon,
   Loader2,
   MapPin,
   Megaphone,
@@ -135,7 +134,6 @@ export function PopupsPanel({
   const [submitError, setSubmitError] = useState('');
   const [touched, setTouched] = useState(false);
 
-  const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<InAppPopup | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
@@ -490,36 +488,16 @@ export function PopupsPanel({
                   />
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-700">Image (optional)</label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={draft.imageUrl}
-                      onChange={(e) => patch({ imageUrl: e.target.value })}
-                      placeholder="https://cdn.example.com/sale.jpg"
-                      readOnly={readOnly}
-                      className="font-mono text-xs"
-                    />
-                    {!readOnly && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={() => setImageDialogOpen(true)}
-                        aria-label="Attach image URL"
-                      >
-                        <ImageIcon className="w-4 h-4" />
-                      </Button>
-                    )}
-                  </div>
-                  {draft.imageUrl.trim() && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={draft.imageUrl.trim()}
-                      alt=""
-                      className="mt-2 max-h-32 rounded-lg object-cover"
-                    />
-                  )}
+                <div className={readOnly ? 'pointer-events-none opacity-70' : undefined}>
+                  <ImageUrlOrUpload
+                    label="Image (optional)"
+                    value={draft.imageUrl}
+                    onChange={(url) => patch({ imageUrl: url })}
+                    kind="popup"
+                    placeholder="https://cdn.example.com/sale.jpg"
+                    hint="Paste HTTPS URL or upload."
+                    previewClassName="mt-2 max-h-32 rounded-lg object-cover"
+                  />
                 </div>
 
                 <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
@@ -862,18 +840,6 @@ export function PopupsPanel({
           </p>
         </div>
       </div>
-
-      <AttachUrlDialog
-        open={imageDialogOpen}
-        kind="image"
-        kindLabel="Image"
-        initialUrl={draft.imageUrl}
-        onClose={() => setImageDialogOpen(false)}
-        onSave={(url) => {
-          patch({ imageUrl: url });
-          setImageDialogOpen(false);
-        }}
-      />
 
       <PopupPreviewDialog
         open={previewOpen}

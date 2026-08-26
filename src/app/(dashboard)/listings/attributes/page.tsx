@@ -2,18 +2,19 @@
 
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
-import { listingConfigService } from '@/services/listing-config.service';
+import { listingConfigApiError, listingConfigService } from '@/services/listing-config.service';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Loader2, Plus, Edit2, Trash2, Check, ImageIcon } from 'lucide-react';
+import { Loader2, Plus, Edit2, Trash2, Check } from 'lucide-react';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { SortableTableBody } from '@/components/common/sortable-list';
 import { withCount } from '@/lib/filter-label';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
+import { ImageUrlOrUpload } from '@/components/image-url-or-upload';
 
 type AttributeRef = {
   id: string;
@@ -199,6 +200,8 @@ export default function AttributesPage() {
   const [buildingTypes, setBuildingTypes] = useState<ListingAttribute[]>([]);
   const [propertyTypes, setPropertyTypes] = useState<ListingAttribute[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [saveError, setSaveError] = useState('');
 
   // Filters
   const [filterCategoryBT, setFilterCategoryBT] = useState<string>('');
@@ -214,23 +217,15 @@ export default function AttributesPage() {
   const [isMultiSelectOpen, setIsMultiSelectOpen] = useState(false);
 
   const [formData, setFormData] = useState<AttributeFormData>(EMPTY_FORM);
-  const [shareOg, setShareOg] = useState({
-    client_list_share_image_url: '',
-    og_fallback_image_url: '',
-  });
-  const [shareOgSaving, setShareOgSaving] = useState(false);
-  const [shareOgMessage, setShareOgMessage] = useState('');
-  const [shareOgError, setShareOgError] = useState('');
-  const [isShareOgOpen, setIsShareOgOpen] = useState(false);
 
   const fetchData = async () => {
     setIsLoading(true);
+    setError('');
     try {
-      const [cats, bTypes, pTypes, og] = await Promise.all([
+      const [cats, bTypes, pTypes] = await Promise.all([
         listingConfigService.getCategories(),
         listingConfigService.getBuildingTypes(),
         listingConfigService.getPropertyTypes(),
-        listingConfigService.getShareOg().catch(() => null),
       ]);
       const nextCats = asAttributeList(cats);
       const nextBuildingTypes = asAttributeList(bTypes);
@@ -238,7 +233,6 @@ export default function AttributesPage() {
       setCategories(nextCats);
       setBuildingTypes(nextBuildingTypes);
       setPropertyTypes(nextPropertyTypes);
-      if (og) setShareOg(og);
 
       if (nextCats.length > 0) {
         const btCatValid = nextCats.some((c) => c.id === filterCategoryBT);
@@ -261,7 +255,10 @@ export default function AttributesPage() {
         setFilterBuildingTypePT('');
       }
     } catch (err) {
-      console.error('Failed to fetch data', err);
+      setCategories([]);
+      setBuildingTypes([]);
+      setPropertyTypes([]);
+      setError(listingConfigApiError(err, 'Failed to load listing attributes.'));
     } finally {
       setIsLoading(false);
     }
@@ -276,6 +273,7 @@ export default function AttributesPage() {
 
   const handleOpenModal = (item: ListingAttribute | null = null) => {
     setEditingItem(item);
+    setSaveError('');
     if (item) {
       const categoryId = item.category_id || item.category?.id || '';
       const buildingTypeId = item.building_type_id || item.building_type?.id || '';
@@ -317,6 +315,7 @@ export default function AttributesPage() {
   const handleSave = async () => {
     if (!formData.name) return;
     setIsSubmitting(true);
+    setSaveError('');
     try {
       const payload: AttributeWritePayload = { name: formData.name, is_active: formData.is_active };
       
@@ -400,7 +399,7 @@ export default function AttributesPage() {
       setIsModalOpen(false);
       fetchData();
     } catch (err) {
-      console.error('Save failed', err);
+      setSaveError(listingConfigApiError(err, 'Failed to save. Please try again.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -417,7 +416,7 @@ export default function AttributesPage() {
       }
       fetchData();
     } catch (err) {
-      console.error('Toggle status failed', err);
+      setError(listingConfigApiError(err, 'Failed to update status.'));
     }
   };
 
@@ -478,7 +477,7 @@ export default function AttributesPage() {
         updates.map((item) => handleUpdateSortOrder(item, item.sortOrder, type)),
       );
     } catch (err) {
-      console.error('Reorder failed', err);
+      setError(listingConfigApiError(err, 'Failed to reorder. Reloading…'));
       await fetchData();
       throw err;
     }
@@ -502,8 +501,9 @@ export default function AttributesPage() {
       setIsDeleteModalOpen(false);
       fetchData();
     } catch (err) {
-      console.error('Delete failed', err);
-      alert('Failed to delete. Ensure it is not in use.');
+      setError(
+        listingConfigApiError(err, 'Failed to delete. Ensure it is not in use.'),
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -512,11 +512,6 @@ export default function AttributesPage() {
   const canCreate = permissions.has(activeTab === 'categories' ? 'listing_categories:create' : activeTab === 'building_types' ? 'building_types:create' : 'property_types:create');
   const canUpdate = permissions.has(activeTab === 'categories' ? 'listing_categories:update' : activeTab === 'building_types' ? 'building_types:update' : 'property_types:update');
   const canDelete = permissions.has(activeTab === 'categories' ? 'listing_categories:delete' : activeTab === 'building_types' ? 'building_types:delete' : 'property_types:delete');
-  const canEditShareOg =
-    permissions.has('property_types:update') ||
-    permissions.has('listing_categories:update') ||
-    permissions.has('building_types:update') ||
-    permissions.has('ALL:ALL');
 
   const renderTable = (data: ListingAttribute[], type: string) => {
     const sorted = sortByOrder(data);
@@ -552,7 +547,7 @@ export default function AttributesPage() {
             <tbody>
               <tr>
                 <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
-                  No records found.
+                  {error ? 'Could not load records.' : 'No records found.'}
                 </td>
               </tr>
             </tbody>
@@ -659,19 +654,6 @@ export default function AttributesPage() {
           <p className="text-gray-500 mt-1">Manage core hierarchy data (Property Categories, Building Types, Property Types).</p>
         </div>
         <div className="flex items-center gap-2">
-          {canEditShareOg && (
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShareOgMessage('');
-                setShareOgError('');
-                setIsShareOgOpen(true);
-              }}
-            >
-              <ImageIcon className="w-4 h-4 mr-2" />
-              Client share image
-            </Button>
-          )}
           {canCreate && activeTab !== 'categories' && (
             <Button onClick={() => handleOpenModal()} className="bg-primary text-white hover:bg-primary/90">
               <Plus className="w-4 h-4 mr-2" /> Add New
@@ -679,6 +661,22 @@ export default function AttributesPage() {
           )}
         </div>
       </div>
+
+      {error && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-red-50 p-3 text-sm text-red-600">
+          <p>{error}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void fetchData()}
+            disabled={isLoading}
+            className="bg-white"
+          >
+            {isLoading && <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />}
+            Retry
+          </Button>
+        </div>
+      )}
 
       <Tabs
         value={activeTab}
@@ -936,40 +934,34 @@ export default function AttributesPage() {
             )}
 
             {(activeTab === 'property_types' || activeTab === 'categories') && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Icon URL</label>
-                <Input value={formData.icon_url} onChange={e => setFormData({...formData, icon_url: e.target.value})} placeholder="https://link-to-icon.png" />
-                <p className="text-xs text-gray-500">Provide an image URL for this icon.</p>
-              </div>
+              <ImageUrlOrUpload
+                label="Icon URL"
+                value={formData.icon_url}
+                onChange={(url) => setFormData({ ...formData, icon_url: url })}
+                kind="icon"
+                placeholder="https://link-to-icon.png"
+                hint="Paste a public HTTPS URL, or upload an image."
+              />
             )}
 
             {activeTab === 'property_types' && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">WhatsApp / share image URL (1200×630)</label>
-                <Input
-                  value={formData.share_image_url}
-                  onChange={(e) => setFormData({ ...formData, share_image_url: e.target.value })}
-                  placeholder="https://…/apartment-share.jpg"
-                />
-                <p className="text-xs text-gray-500">
-                  Default card for every listing of this type. Property-name images override this.
-                  Public HTTPS JPEG/PNG.
-                </p>
-                {formData.share_image_url.trim() ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={formData.share_image_url.trim()}
-                    alt=""
-                    className="h-16 w-28 rounded border bg-gray-50 object-cover"
-                  />
-                ) : null}
-              </div>
+              <ImageUrlOrUpload
+                label="WhatsApp / share image URL (1200×630)"
+                value={formData.share_image_url}
+                onChange={(url) => setFormData({ ...formData, share_image_url: url })}
+                kind="property_type"
+                placeholder="https://…/apartment-share.jpg"
+                hint="Default card for every listing of this type. Property-name images override this. Paste URL or upload."
+              />
             )}
 
             <div className="flex items-center justify-between pt-2">
               <label className="text-sm font-medium">Active Status</label>
               <Switch checked={formData.is_active} onCheckedChange={c => setFormData({...formData, is_active: c})} />
             </div>
+            {saveError && (
+              <p className="text-sm text-red-600">{saveError}</p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
@@ -982,76 +974,6 @@ export default function AttributesPage() {
               }
             >
               {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={isShareOgOpen}
-        onOpenChange={(open) => {
-          if (!shareOgSaving) setIsShareOgOpen(open);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Client share image</DialogTitle>
-            <DialogDescription>
-              Used when an agent shares the full client list. Public HTTPS JPEG/PNG, roughly 1200×630.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2 py-2">
-            <label className="text-sm font-medium">Image URL</label>
-            <Input
-              value={shareOg.client_list_share_image_url}
-              onChange={(e) => {
-                setShareOg((s) => ({ ...s, client_list_share_image_url: e.target.value }));
-                setShareOgMessage('');
-                setShareOgError('');
-              }}
-              placeholder="https://…/client-list-1200x630.jpg"
-            />
-            {shareOg.client_list_share_image_url.trim() ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={shareOg.client_list_share_image_url.trim()}
-                alt=""
-                className="h-16 w-28 rounded border bg-gray-50 object-cover"
-              />
-            ) : null}
-            {shareOgError ? (
-              <p className="text-sm text-red-600">{shareOgError}</p>
-            ) : shareOgMessage ? (
-              <p className="text-sm text-green-600">{shareOgMessage}</p>
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsShareOgOpen(false)} disabled={shareOgSaving}>
-              Cancel
-            </Button>
-            <Button
-              onClick={async () => {
-                setShareOgSaving(true);
-                setShareOgMessage('');
-                setShareOgError('');
-                try {
-                  const saved = await listingConfigService.updateShareOg({
-                    client_list_share_image_url: shareOg.client_list_share_image_url.trim() || null,
-                    og_fallback_image_url: shareOg.og_fallback_image_url.trim() || null,
-                  });
-                  setShareOg(saved);
-                  setIsShareOgOpen(false);
-                } catch {
-                  setShareOgError('Failed to save client share image.');
-                } finally {
-                  setShareOgSaving(false);
-                }
-              }}
-              disabled={shareOgSaving}
-              className="bg-primary text-white hover:bg-primary/90"
-            >
-              {shareOgSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Save
             </Button>
           </DialogFooter>
         </DialogContent>

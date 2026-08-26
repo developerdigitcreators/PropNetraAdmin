@@ -14,6 +14,7 @@ import { Loader2, Plus, Edit2, Trash2, Search } from 'lucide-react';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { withCount } from '@/lib/filter-label';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
+import { ImageUrlOrUpload } from '@/components/image-url-or-upload';
 
 function pickStr(...values: unknown[]): string {
   for (const value of values) {
@@ -498,28 +499,15 @@ export default function PropertyNamesPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Share / WhatsApp image URL <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  value={form.image_url}
-                  onChange={(e) => setForm({ ...form, image_url: e.target.value })}
-                  placeholder="https://…/crest-1200x630.jpg"
-                />
-                <p className="text-xs text-gray-500">
-                  Required. Public HTTPS JPEG/PNG, roughly 1200×630. Overrides the property-type
-                  default for this project.
-                </p>
-                {form.image_url.trim() ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={form.image_url.trim()}
-                    alt=""
-                    className="h-16 w-28 rounded border bg-gray-50 object-cover"
-                  />
-                ) : null}
-              </div>
+              <ImageUrlOrUpload
+                label="Share / WhatsApp image URL"
+                value={form.image_url}
+                onChange={(url) => setForm({ ...form, image_url: url })}
+                kind="property_name"
+                required
+                placeholder="https://…/crest-1200x630.jpg"
+                hint="Required. Paste HTTPS URL or upload (~1200×630). Overrides the property-type default for this project."
+              />
               <div className="space-y-2">
                 <label className="text-sm font-medium">State</label>
                 <Select

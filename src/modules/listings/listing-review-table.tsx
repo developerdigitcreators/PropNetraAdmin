@@ -34,6 +34,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SearchableSelect } from "@/components/common/searchable-select";
+import { ImageUrlOrUpload } from "@/components/image-url-or-upload";
 import {
   Select,
   SelectContent,
@@ -1585,27 +1586,19 @@ export function ListingReviewTable({
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    Image URL <span className="text-red-500">*</span>
-                  </label>
-                  <Input
-                    value={saveDraft.imageUrl}
-                    onChange={(e) =>
-                      setSaveDraft((prev) =>
-                        prev ? { ...prev, imageUrl: e.target.value } : prev,
-                      )
-                    }
-                    placeholder="https://… (share / OG image)"
-                  />
-                  {saveDraft.imageUrl.trim() ? (
-                    <img
-                      src={saveDraft.imageUrl.trim()}
-                      alt=""
-                      className="h-16 w-28 object-cover rounded border bg-gray-50"
-                    />
-                  ) : null}
-                </div>
+                <ImageUrlOrUpload
+                  label="Image URL"
+                  value={saveDraft.imageUrl}
+                  onChange={(url) =>
+                    setSaveDraft((prev) =>
+                      prev ? { ...prev, imageUrl: url } : prev,
+                    )
+                  }
+                  kind="property_name"
+                  required
+                  placeholder="https://… (share / OG image)"
+                  hint="Paste HTTPS URL or upload. Used as property-name share image."
+                />
                 </>
               ) : null}
 

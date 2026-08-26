@@ -706,7 +706,7 @@ export function UserAnalyticsPanel() {
                     {' · '}
                     coins {usage.coinsUsed ?? 0} / {usage.coinsGranted ?? 50}
                     <span className="ml-1 text-gray-400">
-                      (quota for this user; Views tab = people who opened their listings)
+                      (quota for this user — card views they opened this month)
                     </span>
                   </p>
                 ) : null}
@@ -797,7 +797,7 @@ export function UserAnalyticsPanel() {
                       <CollapsibleTimeline
                         tab={detail?.views || { days: [], months: [], summary: [], total: 0 }}
                         groupBy={groupBy}
-                        empty="No people viewed this user’s listings in this range."
+                        empty="This user did not view any listings in this range."
                         emptyDetail="No view details on this date."
                       />
                     </TabsContent>

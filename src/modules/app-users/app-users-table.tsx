@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { rbacService } from '@/services/rbac.service';
-import { adminUsersService, type AppUserBucket, type SignupRemark } from '@/services/admin-users.service';
+import { adminUsersService, type AppUserBucket, type SignupRemark, type CallStatus, CALL_STATUS_OPTIONS } from '@/services/admin-users.service';
 import { locationService } from '@/services/location.service';
 import { withCount } from '@/lib/filter-label';
 import { useAuthStore } from '@/store/use-auth-store';
@@ -236,7 +236,7 @@ function ViewOnlyModal({
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className={isRegistered ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : undefined}>
             <div className="rounded-lg border border-gray-100 px-3 py-2.5">
               <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
                 {isRegistered ? 'Created' : 'Session created'}
@@ -245,18 +245,16 @@ function ViewOnlyModal({
                 {formatDateTime(user.createdAt)}
               </p>
             </div>
-            <div className="rounded-lg border border-gray-100 px-3 py-2.5">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
-                {isRegistered ? 'Last login' : 'Expires'}
-              </p>
-              <p className="mt-1 text-gray-800 text-xs whitespace-nowrap">
-                {formatDateTime(
-                  isRegistered
-                    ? user.lastLoginAt ?? user.last_login_at
-                    : user.expiresAt,
-                )}
-              </p>
-            </div>
+            {isRegistered && (
+              <div className="rounded-lg border border-gray-100 px-3 py-2.5">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                  Last login
+                </p>
+                <p className="mt-1 text-gray-800 text-xs whitespace-nowrap">
+                  {formatDateTime(user.lastLoginAt ?? user.last_login_at)}
+                </p>
+              </div>
+            )}
           </div>
 
           {chips.length > 0 && (
@@ -305,11 +303,137 @@ function ViewOnlyModal({
   );
 }
 
+function remarkAuthor(r: UserRemark) {
+  if (r.source === 'system') return 'System';
+  return r.createdByName || 'Admin';
+}
+
+function splitRemarkHistory(remarks: UserRemark[]) {
+  const issuedHistory = remarks.filter((r) => (r.phase || 'otp_issued') !== 'otp_verified');
+  const verifiedHistory = remarks.filter((r) => r.phase === 'otp_verified');
+  return { issuedHistory, verifiedHistory };
+}
+
+function RemarkCard({ r }: { r: UserRemark }) {
+  return (
+    <li className="rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-sm">
+      <p className="text-gray-800 whitespace-pre-wrap break-words">{r.text}</p>
+      <p className="text-[10px] text-gray-400 mt-1.5">
+        {remarkAuthor(r)} · {formatDateTime(r.createdAt)}
+      </p>
+    </li>
+  );
+}
+
+function RemarksList({ remarks, empty }: { remarks: UserRemark[]; empty: string }) {
+  if (remarks.length === 0) {
+    return (
+      <p className="text-sm text-gray-500 py-4 text-center border border-dashed border-gray-200 rounded-xl">
+        {empty}
+      </p>
+    );
+  }
+  return (
+    <ul className="space-y-2 max-h-48 overflow-y-auto pr-1">
+      {[...remarks].reverse().map((r) => (
+        <RemarkCard key={r.id} r={r} />
+      ))}
+    </ul>
+  );
+}
+
+function CallStatusCell({
+  user,
+  disabled,
+  onChange,
+}: {
+  user: any;
+  disabled: boolean;
+  onChange: (value: CallStatus) => void;
+}) {
+  const value = (user.callStatus || 'not_contacted') as CallStatus;
+  const label =
+    CALL_STATUS_OPTIONS.find((o) => o.value === value)?.label || user.callStatusLabel || 'Not Contacted';
+  const locked = !!user.callStatusLocked || !!user.actionsLocked;
+
+  if (locked) {
+    return (
+      <div className="min-w-[150px] space-y-1">
+        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+          {label}
+        </Badge>
+        {user.callStatusUpdatedByName && (
+          <p className="text-[10px] text-gray-400">By {user.callStatusUpdatedByName}</p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-w-[160px] space-y-1">
+      <Select
+        value={value}
+        disabled={disabled}
+        onValueChange={(v) => {
+          if (v) onChange(v as CallStatus);
+        }}
+      >
+        <SelectTrigger
+          className="w-[168px] bg-white h-8 text-xs"
+          title={
+            disabled
+              ? 'Add at least one remark before updating Call Status'
+              : 'Call Status'
+          }
+        >
+          <SelectValue>{label}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {CALL_STATUS_OPTIONS.filter((o) => o.value !== 'shifted_and_verified').map((o) => (
+            <SelectItem key={o.value} value={o.value}>
+              {o.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {user.callStatusUpdatedByName && (
+        <p className="text-[10px] text-gray-400">By {user.callStatusUpdatedByName}</p>
+      )}
+    </div>
+  );
+}
+
+function RemarksSummaryCell({ user, remarks }: { user: any; remarks: UserRemark[] }) {
+  const count = user.remarksCount ?? remarks.length;
+  const latest =
+    user.latestRemarkPreview ||
+    remarks[remarks.length - 1]?.text ||
+    null;
+  return (
+    <div className="min-w-[140px] max-w-[200px] space-y-1">
+      {count === 0 ? (
+        <span className="text-gray-400 text-xs">No remarks</span>
+      ) : (
+        <>
+          <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">
+            {count} remark{count === 1 ? '' : 's'}
+          </Badge>
+          {latest && (
+            <p className="text-[11px] text-gray-500 line-clamp-2 leading-snug">{latest}</p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 function RemarksModal({
   open,
   onOpenChange,
   user,
   remarks,
+  issuedHistory,
+  verifiedHistory,
+  splitHistory,
   onAdd,
   canUpdate,
 }: {
@@ -317,6 +441,9 @@ function RemarksModal({
   onOpenChange: (v: boolean) => void;
   user: any | null;
   remarks: UserRemark[];
+  issuedHistory?: UserRemark[];
+  verifiedHistory?: UserRemark[];
+  splitHistory?: boolean;
   onAdd: (text: string) => void | Promise<void>;
   canUpdate: boolean;
 }) {
@@ -328,6 +455,12 @@ function RemarksModal({
   }, [open, user?.id]);
 
   if (!user) return null;
+
+  const split = splitRemarkHistory(remarks);
+  const issued = issuedHistory?.length || verifiedHistory?.length ? issuedHistory || [] : split.issuedHistory;
+  const verified =
+    issuedHistory?.length || verifiedHistory?.length ? verifiedHistory || [] : split.verifiedHistory;
+  const showSplit = !!splitHistory || verified.length > 0;
 
   const submit = async () => {
     const text = draft.trim();
@@ -385,28 +518,30 @@ function RemarksModal({
             </div>
           )}
 
-          <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
-              Remarks ({remarks.length})
-            </p>
-            {remarks.length === 0 ? (
-              <p className="text-sm text-gray-500 py-4 text-center border border-dashed border-gray-200 rounded-xl">
-                No remarks yet.
+          {showSplit ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                  Issued history ({issued.length})
+                </p>
+                <RemarksList remarks={issued} empty="No remarks from OTP Issued." />
+              </div>
+              <hr className="border-gray-200" />
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                  Verified history ({verified.length})
+                </p>
+                <RemarksList remarks={verified} empty="No remarks after OTP verification." />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                Remarks ({remarks.length})
               </p>
-            ) : (
-              <ul className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                {[...remarks].reverse().map((r) => (
-                  <li
-                    key={r.id}
-                    className="rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-sm"
-                  >
-                    <p className="text-gray-800 whitespace-pre-wrap break-words">{r.text}</p>
-                    <p className="text-[10px] text-gray-400 mt-1.5">{formatDateTime(r.createdAt)}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+              <RemarksList remarks={remarks} empty="No remarks yet." />
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -442,6 +577,7 @@ export function AppUsersTable({ tab }: Props) {
   const [remarksMap, setRemarksMap] = useState<Record<string, UserRemark[]>>({});
   const [remarksUser, setRemarksUser] = useState<any>(null);
   const [remarksOpen, setRemarksOpen] = useState(false);
+  const [remarksViewOnly, setRemarksViewOnly] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     setIsLoading(true);
@@ -453,8 +589,7 @@ export function AppUsersTable({ tab }: Props) {
       });
       const rows = Array.isArray(data) ? data : [];
       setUsers(rows);
-      // Seed remarks map from API (OTP Issued / in-progress)
-      if (tab === 'otp_issued') {
+      if (tab === 'otp_issued' || tab === 'otp_verified') {
         const map: Record<string, UserRemark[]> = {};
         for (const row of rows) {
           if (Array.isArray(row.remarks)) map[row.id] = row.remarks;
@@ -572,32 +707,66 @@ export function AppUsersTable({ tab }: Props) {
       const res = await adminUsersService.addRemark(userId, text);
       const list = res?.remarks || [];
       setRemarksMap((prev) => ({ ...prev, [userId]: list }));
+      const patch = {
+        remarks: list,
+        remarksCount: res.remarksCount ?? list.length,
+        latestRemarkPreview: res.latestRemarkPreview ?? list[list.length - 1]?.text ?? null,
+                callStatusEditable: res.callStatusEditable !== false,
+        issuedHistory: res.issuedHistory,
+        verifiedHistory: res.verifiedHistory,
+      };
       setUsers((prev) =>
-        prev.map((u) => (u.id === userId ? { ...u, remarks: list } : u)),
+        prev.map((u) => (u.id === userId ? { ...u, ...patch } : u)),
       );
+      setRemarksUser((prev: any) => (prev && prev.id === userId ? { ...prev, ...patch } : prev));
     } catch (err) {
       console.error(err);
       alert('Failed to save remark.');
     }
   };
 
-  const openRemarks = async (user: any) => {
+  const handleCallStatus = async (user: any, callStatus: CallStatus) => {
+    try {
+      const updated = await adminUsersService.updateCallStatus(user.id, callStatus);
+      setUsers((prev) =>
+        prev.map((u) => (u.id === user.id ? { ...u, ...updated } : u)),
+      );
+    } catch (err: any) {
+      console.error(err);
+      const msg =
+        err?.response?.data?.error?.message ||
+        err?.response?.data?.message ||
+        'Failed to update call status.';
+      alert(msg);
+    }
+  };
+
+  const openRemarks = async (user: any, viewOnly = false) => {
     setRemarksUser(user);
     setRemarksOpen(true);
+    setRemarksViewOnly(viewOnly);
     try {
       const res = await adminUsersService.listRemarks(user.id);
       const list = res?.remarks || [];
       setRemarksMap((prev) => ({ ...prev, [user.id]: list }));
+      const patch = {
+        remarks: list,
+        remarksCount: res.remarksCount ?? list.length,
+        latestRemarkPreview: res.latestRemarkPreview ?? user.latestRemarkPreview,
+        issuedHistory: res.issuedHistory,
+        verifiedHistory: res.verifiedHistory,
+      };
       setUsers((prev) =>
-        prev.map((u) => (u.id === user.id ? { ...u, remarks: list } : u)),
+        prev.map((u) => (u.id === user.id ? { ...u, ...patch } : u)),
       );
+      setRemarksUser((prev: any) => (prev && prev.id === user.id ? { ...prev, ...patch } : prev));
     } catch (err) {
       console.error(err);
     }
   };
 
   const colSpan =
-    tab === 'otp_issued' ? 6 : tab === 'otp_verified' ? 5 : 7;
+    tab === 'otp_issued' ? 6 : tab === 'otp_verified' ? 8 : 7;
 
   return (
     <>
@@ -681,8 +850,8 @@ export function AppUsersTable({ tab }: Props) {
                 {tab === 'otp_issued' && (
                   <>
                     <th className="px-5 py-4 font-semibold text-gray-700">OTP Status</th>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Signup Step</th>
                     <th className="px-5 py-4 font-semibold text-gray-700">Session</th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">Call Status</th>
                     <th className="px-5 py-4 font-semibold text-gray-700">Remarks</th>
                   </>
                 )}
@@ -690,7 +859,10 @@ export function AppUsersTable({ tab }: Props) {
                   <>
                     <th className="px-5 py-4 font-semibold text-gray-700">Signup Step</th>
                     <th className="px-5 py-4 font-semibold text-gray-700">Filled</th>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Session Expires</th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">Call Status</th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">Remarks</th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">Added By</th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">Verified Date & Time</th>
                   </>
                 )}
                 {tab === 'master' && (
@@ -737,49 +909,33 @@ export function AppUsersTable({ tab }: Props) {
                           <td className="px-5 py-4">
                             <OtpStatusChips user={user} />
                           </td>
-                          <td className="px-5 py-4">
-                            {stepMeta ? (
-                              <div className="space-y-1">
-                                <Badge variant="outline" className={stepMeta.className}>
-                                  {stepMeta.label}
-                                </Badge>
-                                {user.signupStepLabel && (
-                                  <p className="text-[11px] text-gray-500 max-w-[180px] leading-snug">
-                                    {user.signupStepLabel}
-                                  </p>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-gray-400 text-xs">—</span>
-                            )}
-                          </td>
                           <td className="px-5 py-4 text-xs text-gray-600 whitespace-nowrap">
                             <p>Created: {formatDateTime(user.createdAt)}</p>
-                            <p className="text-gray-400">Expires: {formatDateTime(user.expiresAt)}</p>
                           </td>
                           <td className="px-5 py-4">
-                            {(() => {
-                              const list = remarksMap[user.id] || [];
-                              const latest = list[list.length - 1];
-                              return (
-                                <div className="min-w-[140px] max-w-[200px] space-y-1">
-                                  {list.length === 0 ? (
-                                    <span className="text-gray-400 text-xs">No remarks</span>
-                                  ) : (
-                                    <>
-                                      <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">
-                                        {list.length} remark{list.length === 1 ? '' : 's'}
-                                      </Badge>
-                                      {latest && (
-                                        <p className="text-[11px] text-gray-500 line-clamp-2 leading-snug">
-                                          {latest.text}
-                                        </p>
-                                      )}
-                                    </>
-                                  )}
-                                </div>
-                              );
-                            })()}
+                            <CallStatusCell
+                              user={user}
+                              disabled={
+                                !canUpdate ||
+                                !!user.callStatusLocked ||
+                                !!user.actionsLocked ||
+                                !(
+                                  user.callStatusEditable ||
+                                  (remarksMap[user.id] || user.remarks || []).some(
+                                    (r: UserRemark) => r.source !== 'system',
+                                  )
+                                )
+                              }
+                              onChange={(value) => {
+                                void handleCallStatus(user, value);
+                              }}
+                            />
+                          </td>
+                          <td className="px-5 py-4">
+                            <RemarksSummaryCell
+                              user={user}
+                              remarks={remarksMap[user.id] || user.remarks || []}
+                            />
                           </td>
                         </>
                       )}
@@ -805,8 +961,30 @@ export function AppUsersTable({ tab }: Props) {
                           <td className="px-5 py-4">
                             <FilledFieldsCell filled={user.filledFields} />
                           </td>
+                          <td className="px-5 py-4">
+                            <CallStatusCell
+                              user={user}
+                              disabled
+                              onChange={() => undefined}
+                            />
+                          </td>
+                          <td className="px-5 py-4">
+                            <RemarksSummaryCell
+                              user={user}
+                              remarks={remarksMap[user.id] || user.remarks || []}
+                            />
+                          </td>
+                          <td className="px-5 py-4 text-xs text-gray-700 whitespace-nowrap">
+                            <p className="font-medium">{user.addedByName || '—'}</p>
+                            {user.callStatusUpdatedByName &&
+                              user.callStatusUpdatedByName !== user.addedByName && (
+                                <p className="text-[10px] text-gray-400">
+                                  Status: {user.callStatusUpdatedByName}
+                                </p>
+                              )}
+                          </td>
                           <td className="px-5 py-4 text-xs text-gray-600 whitespace-nowrap">
-                            {formatDateTime(user.expiresAt)}
+                            {formatDateTime(user.verifiedAt || user.otpVerifiedAt)}
                           </td>
                         </>
                       )}
@@ -883,27 +1061,41 @@ export function AppUsersTable({ tab }: Props) {
                               onClick={() => {
                                 void openRemarks(user);
                               }}
+                              disabled={!!user.actionsLocked && !user.remarksEditable}
                               className="text-primary hover:text-primary hover:bg-primary-light"
                               title={canUpdate ? 'Add remarks' : 'View remarks'}
                             >
                               <MessageSquarePlus className="w-4 h-4" />
                             </Button>
                           )}
-                          {tab !== 'master' && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setViewUser(user);
-                                setViewOpen(true);
-                              }}
-                              className="text-gray-500 hover:text-gray-700"
-                              title="View"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </Button>
+                          {tab === 'otp_verified' && (
+                            <>
+                              {canUpdate && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    void openRemarks(user, false);
+                                  }}
+                                  className="text-primary hover:text-primary hover:bg-primary-light"
+                                  title="Add remark"
+                                >
+                                  <Plus className="w-4 h-4" />
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  void openRemarks(user, true);
+                                }}
+                                className="text-gray-500 hover:text-gray-700"
+                                title="View remarks"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                            </>
                           )}
-
                           {tab === 'master' && (
                             <>
                               {canApprove && canUpdate && (
@@ -963,13 +1155,16 @@ export function AppUsersTable({ tab }: Props) {
 
       <ViewOnlyModal open={viewOpen} onOpenChange={setViewOpen} user={viewUser} />
 
-      {tab === 'otp_issued' && (
+      {(tab === 'otp_issued' || tab === 'otp_verified') && (
         <RemarksModal
           open={remarksOpen}
           onOpenChange={setRemarksOpen}
           user={remarksUser}
           remarks={remarksUser ? remarksMap[remarksUser.id] || remarksUser.remarks || [] : []}
-          canUpdate={canUpdate}
+          issuedHistory={remarksUser?.issuedHistory}
+          verifiedHistory={remarksUser?.verifiedHistory}
+          splitHistory={tab === 'otp_verified'}
+          canUpdate={canUpdate && !remarksViewOnly && !(remarksUser?.actionsLocked && tab === 'otp_issued')}
           onAdd={async (text) => {
             if (remarksUser) await addRemark(remarksUser.id, text);
           }}

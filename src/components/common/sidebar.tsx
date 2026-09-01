@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -23,9 +23,12 @@ import {
   PlusSquare,
   CreditCard,
   Package,
+  Gift,
+  ClipboardList,
 } from "lucide-react";
 import { PermissionGuard } from "@/components/common/permission-guard";
 import { useAuthStore } from "@/store/use-auth-store";
+import { listingsService } from "@/services/listings.service";
 import {
   APP_USERS_ANY_READ,
   APP_USER_TAB_ACCESS,
@@ -41,6 +44,7 @@ type MenuItem = {
   permission: string | string[];
   children?: MenuChild[];
   defaultChildPath?: string;
+  badgeKey?: 'my_listings';
 };
 
 const MENU_ITEMS: MenuItem[] = [
@@ -79,6 +83,13 @@ const MENU_ITEMS: MenuItem[] = [
     path: "/moderation",
     icon: MapPin,
     permission: "locations:read",
+  },
+  {
+    name: "My Listings",
+    path: "/my-listings",
+    icon: ClipboardList,
+    permission: "admin_my_listings:read",
+    badgeKey: "my_listings",
   },
   {
     name: "Add Post",
@@ -132,6 +143,18 @@ const MENU_ITEMS: MenuItem[] = [
     name: "Subscription Add-ons",
     path: "/subscription-addons",
     icon: Package,
+    permission: "subscriptions:read",
+  },
+  {
+    name: "Referral Benefits",
+    path: "/referral-benefits",
+    icon: Gift,
+    permission: "subscriptions:read",
+  },
+  {
+    name: "Referral Overview",
+    path: "/referral-overview",
+    icon: Gift,
     permission: "subscriptions:read",
   },
   {
@@ -190,6 +213,23 @@ export function Sidebar() {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     "/app-users": pathname.startsWith("/app-users") || pathname.startsWith("/rbac/app-users"),
   });
+  const [myListingsBadge, setMyListingsBadge] = useState(0);
+
+  useEffect(() => {
+    if (!hasPermission("admin_my_listings", "read")) return;
+    let cancelled = false;
+    void listingsService
+      .getMyListingsSummary()
+      .then((summary) => {
+        if (!cancelled) setMyListingsBadge(summary.totalActionable);
+      })
+      .catch(() => {
+        if (!cancelled) setMyListingsBadge(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasPermission, pathname]);
 
   const appUsersDefaultPath = defaultAppUsersPath(hasPermission);
 
@@ -293,7 +333,12 @@ export function Sidebar() {
                     <Icon
                       className={`w-5 h-5 mr-3 ${isActive ? "text-primary" : "text-gray-400"}`}
                     />
-                    {item.name}
+                    <span className="flex-1">{item.name}</span>
+                    {item.badgeKey === "my_listings" && myListingsBadge > 0 ? (
+                      <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-xs font-semibold text-white">
+                        {myListingsBadge}
+                      </span>
+                    ) : null}
                   </Link>
                 )}
               </div>

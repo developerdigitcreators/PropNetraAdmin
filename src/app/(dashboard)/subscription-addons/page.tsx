@@ -15,6 +15,12 @@ import {
 } from '@/services/subscriptions.service';
 import { Package, Edit2, Loader2 } from 'lucide-react';
 
+const AUTOMATIC_ADDON_TYPES = new Set(['LISTING_PRIORITY']);
+
+function isAutomaticAddon(type: string) {
+  return AUTOMATIC_ADDON_TYPES.has(type);
+}
+
 export default function SubscriptionAddonsPage() {
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const canUpdate = hasPermission('subscriptions', 'update');
@@ -82,7 +88,8 @@ export default function SubscriptionAddonsPage() {
             Subscription Add-ons
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            Configure NetraCoin packs and boost pricing. Keep Builder / Priority disabled until ready.
+            Configure NetraCoin packs and boost pricing. Listing priority is automatic for top
+            paid referrers (not a purchasable add-on).
           </p>
         </div>
 
@@ -119,8 +126,20 @@ export default function SubscriptionAddonsPage() {
                         <div className="mt-0.5 text-xs text-gray-500">{addon.description}</div>
                       ) : null}
                     </td>
-                    <td className="px-4 py-3">{addon.coinCost}</td>
-                    <td className="px-4 py-3">{addon.quantity}</td>
+                    <td className="px-4 py-3">
+                      {isAutomaticAddon(addon.type) ? (
+                        <span className="text-gray-400">—</span>
+                      ) : (
+                        addon.coinCost
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {isAutomaticAddon(addon.type) ? (
+                        <span className="text-gray-400">—</span>
+                      ) : (
+                        addon.quantity
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <Badge variant={addon.enabled ? 'default' : 'outline'}>
                         {addon.enabled ? 'Enabled' : 'Disabled'}

@@ -4,6 +4,7 @@ import {
   type CreateInAppPopupPayload,
   type InAppPopup,
   type PopupAudience,
+  type PopupTimerDisplay,
   type UpdateInAppPopupPayload,
 } from '@/services/notifications.service';
 import { isHttpsUrl } from '../chat/draft';
@@ -17,6 +18,11 @@ export type PopupDraft = {
   body: string;
   bodyFormat: BroadcastBodyFormat;
   imageUrl: string;
+  backgroundColor: string;
+  textColor: string;
+  ctaColor: string;
+  displayDurationSec: number;
+  timerDisplay: PopupTimerDisplay;
   ctaLabel: string;
   targetMode: PopupTargetMode;
   stateId: string;
@@ -34,6 +40,11 @@ export function emptyPopupDraft(): PopupDraft {
     body: '',
     bodyFormat: 'plain',
     imageUrl: '',
+    backgroundColor: '#0F172A',
+    textColor: '#FFFFFF',
+    ctaColor: '#E11D48',
+    displayDurationSec: 8,
+    timerDisplay: 'progress_bar',
     ctaLabel: 'View',
     targetMode: 'global',
     stateId: '',
@@ -63,6 +74,18 @@ export function popupDraftErrors(draft: PopupDraft): string[] {
   }
   if (draft.imageUrl.trim() && !isHttpsUrl(draft.imageUrl.trim())) {
     errors.push('Image must be a valid HTTPS link.');
+  }
+  if (!/^#[0-9A-Fa-f]{6}$/.test(draft.backgroundColor.trim())) {
+    errors.push('Pick a valid background color.');
+  }
+  if (!/^#[0-9A-Fa-f]{6}$/.test(draft.textColor.trim())) {
+    errors.push('Pick a valid text color.');
+  }
+  if (!/^#[0-9A-Fa-f]{6}$/.test(draft.ctaColor.trim())) {
+    errors.push('Pick a valid button color.');
+  }
+  if (draft.displayDurationSec < 0 || draft.displayDurationSec > 60) {
+    errors.push('Display duration must be between 0 and 60 seconds.');
   }
   if (!popupLinkOk(draft)) {
     errors.push(
@@ -96,6 +119,11 @@ export function popupDraftToCreatePayload(draft: PopupDraft): CreateInAppPopupPa
     body: draft.body.trim(),
     bodyFormat: draft.bodyFormat,
     ...(imageUrl ? { imageUrl } : {}),
+    backgroundColor: draft.backgroundColor.trim().toUpperCase(),
+    textColor: draft.textColor.trim().toUpperCase(),
+    ctaColor: draft.ctaColor.trim().toUpperCase(),
+    displayDurationSec: draft.displayDurationSec,
+    timerDisplay: draft.displayDurationSec > 0 ? draft.timerDisplay : 'none',
     ctaLabel: draft.ctaLabel.trim() || 'View',
     ...place,
     audience: draft.audience,
@@ -114,6 +142,11 @@ export function popupDraftToUpdatePayload(draft: PopupDraft): UpdateInAppPopupPa
     body: draft.body.trim(),
     bodyFormat: draft.bodyFormat,
     imageUrl: imageUrl || null,
+    backgroundColor: draft.backgroundColor.trim().toUpperCase(),
+    textColor: draft.textColor.trim().toUpperCase(),
+    ctaColor: draft.ctaColor.trim().toUpperCase(),
+    displayDurationSec: draft.displayDurationSec,
+    timerDisplay: draft.displayDurationSec > 0 ? draft.timerDisplay : 'none',
     ctaLabel: draft.ctaLabel.trim() || 'View',
     ...place,
     audience: draft.audience,
@@ -138,6 +171,11 @@ export function popupToDraft(
     body: popup.body || '',
     bodyFormat: popup.bodyFormat === 'markdown' ? 'markdown' : 'plain',
     imageUrl: popup.imageUrl || '',
+    backgroundColor: popup.backgroundColor || '#0F172A',
+    textColor: popup.textColor || '#FFFFFF',
+    ctaColor: popup.ctaColor || '#E11D48',
+    displayDurationSec: popup.displayDurationSec ?? 8,
+    timerDisplay: popup.timerDisplay || 'progress_bar',
     ctaLabel: popup.ctaLabel || 'View',
     targetMode: global ? 'global' : 'city',
     stateId: popup.stateIds?.[0] || stateFromCity,

@@ -98,6 +98,37 @@ export type UpdateAddonPayload = {
   description?: string | null;
 };
 
+/** Display stored paise as INR (API still uses paise). */
+export function formatInrFromPaise(paise: number | null | undefined): string {
+  if (paise == null || !Number.isFinite(paise)) return '—';
+  if (paise === 0) return 'Free';
+  const rupees = paise / 100;
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: Number.isInteger(rupees) ? 0 : 2,
+  }).format(rupees);
+}
+
+export function paiseToRupeesInput(paise: number | null | undefined): string {
+  if (paise == null || !Number.isFinite(paise)) return '';
+  const rupees = paise / 100;
+  return Number.isInteger(rupees) ? String(rupees) : rupees.toFixed(2);
+}
+
+export function rupeesInputToPaise(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100);
+}
+
+export function isPaidSubscriptionPlan(code: string): boolean {
+  const key = String(code || '').toUpperCase();
+  return key !== 'FREE_TRIAL' && key !== 'FREE_LIFETIME';
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)

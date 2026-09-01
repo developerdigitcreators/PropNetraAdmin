@@ -1,7 +1,7 @@
 import { axiosClient } from '@/lib/axios-client';
 import { deleteWithRemark } from '@/lib/delete-with-remark';
 
-export type ReelPlatform = 'youtube' | 'instagram' | 'unknown';
+export type ReelPlatform = 'instagram' | 'upload' | 'youtube' | 'unknown';
 
 export type NetraReel = {
   id: string;
@@ -38,6 +38,14 @@ export type CreateNetraReelPayload = {
   isActive?: boolean;
 };
 
+export type CreateNetraReelUploadPayload = {
+  video: File;
+  thumbnail?: File | null;
+  title?: string;
+  caption?: string;
+  isActive?: boolean;
+};
+
 export type UpdateNetraReelPayload = Partial<CreateNetraReelPayload> & {
   sortOrder?: number;
 };
@@ -49,8 +57,6 @@ export type ParsedReelSource = {
   thumbnailUrl: string;
   kind: 'shorts' | 'video' | 'reel' | 'post' | '';
 };
-
-const YOUTUBE_THUMB = (id: string) => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -108,29 +114,13 @@ export function parseReelSource(rawUrl: string): ParsedReelSource | null {
   const host = url.hostname.replace(/^www\./, '').replace(/^m\./, '');
   const path = url.pathname.replace(/\/+$/, '');
 
-  if (host === 'youtu.be' || host === 'youtube.com' || host === 'music.youtube.com' || host === 'youtube-nocookie.com') {
-    let id = url.searchParams.get('v') || '';
-    let kind: ParsedReelSource['kind'] = 'video';
-    const shorts = path.match(/\/shorts\/([A-Za-z0-9_-]{6,})/);
-    const embed = path.match(/\/embed\/([A-Za-z0-9_-]{6,})/);
-    const live = path.match(/\/live\/([A-Za-z0-9_-]{6,})/);
-    if (host === 'youtu.be') id = path.split('/').filter(Boolean)[0] || id;
-    if (shorts) {
-      id = shorts[1];
-      kind = 'shorts';
-    } else if (embed) {
-      id = embed[1];
-    } else if (live) {
-      id = live[1];
-    }
-    if (!id) return null;
-    return {
-      platform: 'youtube',
-      externalId: id,
-      kind,
-      embedUrl: `https://www.youtube.com/embed/${id}`,
-      thumbnailUrl: YOUTUBE_THUMB(id),
-    };
+  if (
+    host === 'youtu.be' ||
+    host === 'youtube.com' ||
+    host === 'music.youtube.com' ||
+    host === 'youtube-nocookie.com'
+  ) {
+    return null;
   }
 
   if (host === 'instagram.com' || host === 'instagr.am') {
@@ -151,21 +141,20 @@ export function parseReelSource(rawUrl: string): ParsedReelSource | null {
 }
 
 export function isSupportedReelUrl(url: string): boolean {
-  const platform = parseReelSource(url)?.platform;
-  return platform === 'youtube' || platform === 'instagram';
+  return parseReelSource(url)?.platform === 'instagram';
 }
 
 export function platformLabel(platform: ReelPlatform): string {
-  if (platform === 'youtube') return 'YouTube';
-  if (platform === 'instagram') return 'Instagram';
+  if (platform === 'instagram') return 'Instagram (legacy)';
+  if (platform === 'upload') return 'Upload';
+  if (platform === 'youtube') return 'YouTube (legacy)';
   return 'Link';
 }
 
-export function youtubeWatchUrl(videoId: string): string {
-  return `https://www.youtube.com/watch?v=${videoId}`;
-}
-
-export function youtubeEmbedSrc(videoId: string, opts: { autoplay?: boolean; muted?: boolean; origin?: string } = {}): string {
+export function youtubeEmbedSrc(
+  videoId: string,
+  opts: { autoplay?: boolean; muted?: boolean; origin?: string } = {},
+): string {
   const params = new URLSearchParams({
     enablejsapi: '1',
     playsinline: '1',
@@ -184,8 +173,9 @@ export function youtubeEmbedSrc(videoId: string, opts: { autoplay?: boolean; mut
 
 function inferPlatform(raw: Record<string, unknown>, sourceUrl: string, parsed: ParsedReelSource | null): ReelPlatform {
   const explicit = pickString(raw.platform, raw.source, raw.provider).toLowerCase();
-  if (explicit.includes('you')) return 'youtube';
+  if (explicit === 'upload' || explicit.includes('upload')) return 'upload';
   if (explicit.includes('insta')) return 'instagram';
+  if (explicit.includes('you')) return 'youtube';
   if (parsed?.platform && parsed.platform !== 'unknown') return parsed.platform;
   const fromUrl = parseReelSource(sourceUrl);
   return fromUrl?.platform || 'unknown';
@@ -196,20 +186,31 @@ export function normalizeNetraReel(raw: unknown, index = 0): NetraReel | null {
   if (!obj) return null;
   const id = pickString(obj.id, obj._id);
   const sourceUrl = pickString(obj.sourceUrl, obj.source_url, obj.url, obj.link);
-  if (!id && !sourceUrl) return null;
+  const videoUrl = pickString(obj.videoUrl, obj.video_url, obj.streamUrl, obj.stream_url);
+  if (!id && !sourceUrl && !videoUrl) return null;
 
-  const parsed = parseReelSource(sourceUrl);
+  const parsed = sourceUrl ? parseReelSource(sourceUrl) : null;
   const platform = inferPlatform(obj, sourceUrl, parsed);
-  const externalId = pickString(obj.externalId, obj.external_id, obj.videoId, obj.video_id, obj.shortCode, obj.short_code, parsed?.externalId);
+  const externalId = pickString(
+    obj.externalId,
+    obj.external_id,
+    obj.sourceId,
+    obj.source_id,
+    obj.videoId,
+    obj.video_id,
+    parsed?.externalId,
+  );
   const embedUrl = pickString(obj.embedUrl, obj.embed_url, parsed?.embedUrl);
-  const videoUrl = pickString(obj.videoUrl, obj.video_url, obj.playbackUrl, obj.playback_url, obj.mediaUrl, obj.media_url);
   const thumbnailUrl = pickString(obj.thumbnailUrl, obj.thumbnail_url, obj.thumbUrl, obj.thumb_url, parsed?.thumbnailUrl);
   const sortOrderRaw = obj.sortOrder ?? obj.sort_order ?? obj.order ?? index + 1;
-  const sortOrder = typeof sortOrderRaw === 'number' && Number.isFinite(sortOrderRaw) ? sortOrderRaw : Number(sortOrderRaw) || index + 1;
+  const sortOrder =
+    typeof sortOrderRaw === 'number' && Number.isFinite(sortOrderRaw)
+      ? sortOrderRaw
+      : Number(sortOrderRaw) || index + 1;
 
   return {
     id: id || `temp-${index}`,
-    sourceUrl,
+    sourceUrl: sourceUrl || videoUrl,
     title: pickString(obj.title, obj.name),
     caption: pickString(obj.caption, obj.description, obj.body),
     thumbnailUrl,
@@ -236,13 +237,28 @@ export function normalizePreview(raw: unknown, sourceUrl: string): NetraReelPrev
     caption: pickString(obj.caption, obj.description),
     thumbnailUrl: pickString(obj.thumbnailUrl, obj.thumbnail_url, parsed?.thumbnailUrl),
     embedUrl: pickString(obj.embedUrl, obj.embed_url, parsed?.embedUrl),
-    videoUrl: pickString(obj.videoUrl, obj.video_url, obj.playbackUrl, obj.mediaUrl),
-    externalId: pickString(obj.externalId, obj.external_id, obj.videoId, parsed?.externalId),
+    videoUrl: pickString(obj.videoUrl, obj.video_url, obj.streamUrl, obj.mediaUrl),
+    externalId: pickString(obj.externalId, obj.external_id, obj.sourceId, obj.videoId, parsed?.externalId),
   };
 }
 
 function sortReels(items: NetraReel[]): NetraReel[] {
   return [...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+}
+
+function multipartConfig() {
+  return {
+    headers: { 'Content-Type': undefined as unknown as string },
+    transformRequest: [
+      (data: unknown, headers: unknown) => {
+        if (headers && typeof headers === 'object') {
+          delete (headers as Record<string, unknown>)['Content-Type'];
+        }
+        return data;
+      },
+    ],
+    timeout: 120000,
+  };
 }
 
 export const netraReelsService = {
@@ -270,11 +286,38 @@ export const netraReelsService = {
       thumbnailUrl: payload.thumbnailUrl || '',
       isActive: payload.isActive !== false,
       sortOrder: 0,
-      platform: parseReelSource(payload.sourceUrl)?.platform || 'unknown',
+      platform: 'instagram',
       embedUrl: parseReelSource(payload.sourceUrl)?.embedUrl || '',
       videoUrl: '',
       externalId: parseReelSource(payload.sourceUrl)?.externalId || '',
     };
+  },
+
+  createUpload: async (payload: CreateNetraReelUploadPayload): Promise<NetraReel> => {
+    const form = new FormData();
+    form.append('video', payload.video);
+    if (payload.thumbnail) form.append('thumbnail', payload.thumbnail);
+    if (payload.title?.trim()) form.append('title', payload.title.trim());
+    if (payload.caption?.trim()) form.append('caption', payload.caption.trim());
+    if (payload.isActive === false) form.append('isActive', 'false');
+
+    const response = await axiosClient.post('/admin/netra-reels/upload', form, multipartConfig());
+    const reel = normalizeNetraReel(response.data);
+    if (!reel) throw new Error('Upload succeeded but reel response was invalid');
+    return reel;
+  },
+
+  replaceUploadMedia: async (
+    id: string,
+    files: { video?: File | null; thumbnail?: File | null },
+  ): Promise<NetraReel | null> => {
+    const form = new FormData();
+    if (files.video) form.append('video', files.video);
+    if (files.thumbnail) form.append('thumbnail', files.thumbnail);
+    if (!files.video && !files.thumbnail) return null;
+
+    const response = await axiosClient.put(`/admin/netra-reels/${id}/upload-media`, form, multipartConfig());
+    return normalizeNetraReel(response.data);
   },
 
   update: async (id: string, payload: UpdateNetraReelPayload): Promise<NetraReel | null> => {

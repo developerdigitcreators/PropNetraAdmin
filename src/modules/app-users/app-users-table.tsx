@@ -1,19 +1,37 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { UserFormModal } from '@/modules/rbac/user-form-modal';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Switch } from '@/components/ui/switch';
-import { rbacService } from '@/services/rbac.service';
-import { adminUsersService, type AppUserBucket, type SignupRemark, type CallStatus, CALL_STATUS_OPTIONS } from '@/services/admin-users.service';
-import { locationService } from '@/services/location.service';
-import { withCount } from '@/lib/filter-label';
-import { useAuthStore } from '@/store/use-auth-store';
-import { moduleForAppUsersTab } from '@/modules/app-users/app-users-access';
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { UserFormModal } from "@/modules/rbac/user-form-modal";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
+import { rbacService } from "@/services/rbac.service";
+import {
+  adminUsersService,
+  type AppUserBucket,
+  type SignupRemark,
+  type CallStatus,
+  CALL_STATUS_OPTIONS,
+} from "@/services/admin-users.service";
+import { locationService } from "@/services/location.service";
+import { withCount } from "@/lib/filter-label";
+import { useAuthStore } from "@/store/use-auth-store";
+import { moduleForAppUsersTab } from "@/modules/app-users/app-users-access";
 import {
   Loader2,
   Plus,
@@ -24,11 +42,12 @@ import {
   Eye,
   Search,
   MessageSquarePlus,
-} from 'lucide-react';
+} from "lucide-react";
+import { VerificationDocsSection } from "@/modules/user-analytics/verification-docs-section";
 
-export type AppUsersTab = 'otp_issued' | 'otp_verified' | 'master';
+export type AppUsersTab = "otp_issued" | "otp_verified" | "master";
 
-type AccountStatusFilter = 'pending_approval' | 'active' | 'suspended' | '';
+type AccountStatusFilter = "pending_approval" | "active" | "suspended" | "";
 
 type UserRemark = SignupRemark;
 
@@ -41,24 +60,42 @@ type FilledChip = {
 };
 
 const STEP_CHIP: Record<string, { label: string; className: string }> = {
-  basic: { label: 'OTP Sent', className: 'bg-amber-50 text-amber-700 border-amber-200' },
-  verification: { label: 'Company pending', className: 'bg-sky-50 text-sky-700 border-sky-200' },
-  profile: { label: 'Password pending', className: 'bg-violet-50 text-violet-700 border-violet-200' },
-  password: { label: 'Password pending', className: 'bg-violet-50 text-violet-700 border-violet-200' },
-  logged_in: { label: 'Logged In', className: 'bg-green-50 text-green-700 border-green-200' },
-  completed: { label: 'Completed', className: 'bg-green-50 text-green-700 border-green-200' },
+  basic: {
+    label: "OTP Sent",
+    className: "bg-amber-50 text-amber-700 border-amber-200",
+  },
+  verification: {
+    label: "Company pending",
+    className: "bg-sky-50 text-sky-700 border-sky-200",
+  },
+  profile: {
+    label: "Password pending",
+    className: "bg-violet-50 text-violet-700 border-violet-200",
+  },
+  password: {
+    label: "Password pending",
+    className: "bg-violet-50 text-violet-700 border-violet-200",
+  },
+  logged_in: {
+    label: "Logged In",
+    className: "bg-green-50 text-green-700 border-green-200",
+  },
+  completed: {
+    label: "Completed",
+    className: "bg-green-50 text-green-700 border-green-200",
+  },
 };
 
 function formatDateTime(value?: string | Date | null) {
-  if (!value) return '—';
+  if (!value) return "—";
   const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '—';
+  if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString(undefined, {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -69,29 +106,46 @@ function buildFilledChips(filled: Record<string, boolean>): FilledChip[] {
   const phoneVerified = !!filled.contactVerified;
 
   return [
-    { key: 'name', label: 'Name', filled: !!filled.name },
+    { key: "name", label: "Name", filled: !!filled.name },
     {
-      key: 'email',
-      label: 'Email',
+      key: "email",
+      label: "Email",
       filled: emailFilled,
-      note: emailFilled ? (emailVerified ? 'verified' : 'unverified') : undefined,
+      note: emailFilled
+        ? emailVerified
+          ? "verified"
+          : "unverified"
+        : undefined,
     },
     {
-      key: 'contact',
-      label: 'Phone',
+      key: "contact",
+      label: "Phone",
       filled: phoneFilled,
-      note: phoneFilled ? (phoneVerified ? 'verified' : 'unverified') : undefined,
+      note: phoneFilled
+        ? phoneVerified
+          ? "verified"
+          : "unverified"
+        : undefined,
     },
-    { key: 'companyName', label: 'Company', filled: !!filled.companyName },
-    { key: 'address', label: 'Address', filled: !!filled.address },
-    { key: 'city', label: 'City', filled: !!filled.city },
-    { key: 'gstNumber', label: 'GST', filled: !!filled.gstNumber, optional: true },
-    { key: 'password', label: 'Password', filled: !!filled.password },
-    { key: 'referId', label: 'Refer ID', filled: !!filled.referId },
+    { key: "companyName", label: "Company", filled: !!filled.companyName },
+    { key: "address", label: "Address", filled: !!filled.address },
+    { key: "city", label: "City", filled: !!filled.city },
+    {
+      key: "gstNumber",
+      label: "GST",
+      filled: !!filled.gstNumber,
+      optional: true,
+    },
+    { key: "password", label: "Password", filled: !!filled.password },
+    { key: "referId", label: "Refer ID", filled: !!filled.referId },
   ];
 }
 
-function FilledFieldsCell({ filled }: { filled?: Record<string, boolean> | null }) {
+function FilledFieldsCell({
+  filled,
+}: {
+  filled?: Record<string, boolean> | null;
+}) {
   if (!filled) return <span className="text-gray-400 text-xs">—</span>;
 
   const chips = buildFilledChips(filled);
@@ -101,7 +155,7 @@ function FilledFieldsCell({ filled }: { filled?: Record<string, boolean> | null 
     <div className="space-y-1.5 min-w-[200px] max-w-[280px]">
       <div className="flex flex-wrap gap-1">
         {chips.map((chip) => {
-          const unverified = chip.filled && chip.note === 'unverified';
+          const unverified = chip.filled && chip.note === "unverified";
           return (
             <span
               key={chip.key}
@@ -115,26 +169,38 @@ function FilledFieldsCell({ filled }: { filled?: Record<string, boolean> | null 
               className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium border ${
                 !chip.filled
                   ? chip.optional
-                    ? 'bg-orange-50 text-orange-600 border-orange-200'
-                    : 'bg-red-50 text-red-600 border-red-200'
+                    ? "bg-orange-50 text-orange-600 border-orange-200"
+                    : "bg-red-50 text-red-600 border-red-200"
                   : unverified
-                    ? 'bg-amber-50 text-amber-700 border-amber-200'
-                    : 'bg-green-50 text-green-700 border-green-200'
+                    ? "bg-amber-50 text-amber-700 border-amber-200"
+                    : "bg-green-50 text-green-700 border-green-200"
               }`}
             >
-              {chip.filled ? <Check className="w-3 h-3 shrink-0" /> : <X className="w-3 h-3 shrink-0" />}
+              {chip.filled ? (
+                <Check className="w-3 h-3 shrink-0" />
+              ) : (
+                <X className="w-3 h-3 shrink-0" />
+              )}
               <span>{chip.label}</span>
-              {chip.note === 'verified' && <span className="opacity-70">· ✓</span>}
-              {chip.note === 'unverified' && <span className="opacity-70">· unverified</span>}
-              {chip.optional && !chip.filled && <span className="opacity-70">· opt</span>}
+              {chip.note === "verified" && (
+                <span className="opacity-70">· ✓</span>
+              )}
+              {chip.note === "unverified" && (
+                <span className="opacity-70">· unverified</span>
+              )}
+              {chip.optional && !chip.filled && (
+                <span className="opacity-70">· opt</span>
+              )}
             </span>
           );
         })}
       </div>
       {missing.length > 0 && (
         <p className="text-[10px] text-red-600">
-          Missing:{' '}
-          {missing.map((m) => (m.optional ? `${m.label} (optional)` : m.label)).join(', ')}
+          Missing:{" "}
+          {missing
+            .map((m) => (m.optional ? `${m.label} (optional)` : m.label))
+            .join(", ")}
         </p>
       )}
     </div>
@@ -148,21 +214,21 @@ function OtpStatusChips({ user }: { user: any }) {
         variant="outline"
         className={
           user.emailVerified
-            ? 'bg-green-50 text-green-700 border-green-200'
-            : 'bg-amber-50 text-amber-700 border-amber-200'
+            ? "bg-green-50 text-green-700 border-green-200"
+            : "bg-amber-50 text-amber-700 border-amber-200"
         }
       >
-        {user.emailVerified ? 'Email verified' : 'Email pending'}
+        {user.emailVerified ? "Email verified" : "Email pending"}
       </Badge>
       <Badge
         variant="outline"
         className={
           user.contactVerified
-            ? 'bg-green-50 text-green-700 border-green-200'
-            : 'bg-amber-50 text-amber-700 border-amber-200'
+            ? "bg-green-50 text-green-700 border-green-200"
+            : "bg-amber-50 text-amber-700 border-amber-200"
         }
       >
-        {user.contactVerified ? 'Phone verified' : 'Phone pending'}
+        {user.contactVerified ? "Phone verified" : "Phone pending"}
       </Badge>
     </div>
   );
@@ -179,35 +245,47 @@ function ViewOnlyModal({
 }) {
   if (!user) return null;
   const stepMeta = STEP_CHIP[user.signupStep];
-  const isRegistered = user.kind === 'registered';
+  const isRegistered = user.kind === "registered";
   const chips = user.filledFields ? buildFilledChips(user.filledFields) : [];
   const missing = chips.filter((c) => !c.filled);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isRegistered ? 'User details' : 'Signup session'}</DialogTitle>
+          <DialogTitle>
+            {isRegistered ? "User details" : "Signup session"}
+          </DialogTitle>
           <DialogDescription>
             {isRegistered
-              ? 'Registered app user (view only).'
-              : 'View-only details for in-progress signup.'}
+              ? "Registered app user (view only)."
+              : "View-only details for in-progress signup."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 text-sm pt-1 pb-2">
           <div className="rounded-xl border border-gray-100 bg-gray-50/80 p-3 space-y-3">
             <div>
-              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Name</p>
-              <p className="mt-0.5 font-semibold text-gray-900 break-words">{user.name || '—'}</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                Name
+              </p>
+              <p className="mt-0.5 font-semibold text-gray-900 break-words">
+                {user.name || "—"}
+              </p>
             </div>
             <div>
-              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Email</p>
-              <p className="mt-0.5 text-gray-800 break-all">{user.email || '—'}</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                Email
+              </p>
+              <p className="mt-0.5 text-gray-800 break-all">
+                {user.email || "—"}
+              </p>
             </div>
             <div>
-              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Contact</p>
-              <p className="mt-0.5 text-gray-800">{user.contact || '—'}</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                Contact
+              </p>
+              <p className="mt-0.5 text-gray-800">{user.contact || "—"}</p>
             </div>
           </div>
 
@@ -229,17 +307,25 @@ function ViewOnlyModal({
                 {stepMeta.label}
               </Badge>
             ) : (
-              <p className="text-gray-800">{user.signupStepLabel || user.signupStep || '—'}</p>
+              <p className="text-gray-800">
+                {user.signupStepLabel || user.signupStep || "—"}
+              </p>
             )}
             {user.signupStepLabel && stepMeta && (
-              <p className="mt-1.5 text-xs text-gray-500 leading-snug">{user.signupStepLabel}</p>
+              <p className="mt-1.5 text-xs text-gray-500 leading-snug">
+                {user.signupStepLabel}
+              </p>
             )}
           </div>
 
-          <div className={isRegistered ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : undefined}>
+          <div
+            className={
+              isRegistered ? "grid grid-cols-1 sm:grid-cols-2 gap-3" : undefined
+            }
+          >
             <div className="rounded-lg border border-gray-100 px-3 py-2.5">
               <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
-                {isRegistered ? 'Created' : 'Session created'}
+                {isRegistered ? "Created" : "Session created"}
               </p>
               <p className="mt-1 text-gray-800 text-xs whitespace-nowrap">
                 {formatDateTime(user.createdAt)}
@@ -264,17 +350,19 @@ function ViewOnlyModal({
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {chips.map((chip) => {
-                  const unverified = chip.filled && chip.note === 'unverified';
+                  const unverified = chip.filled && chip.note === "unverified";
                   return (
                     <span
                       key={chip.key}
-                      title={chip.note ? `${chip.label} (${chip.note})` : chip.label}
+                      title={
+                        chip.note ? `${chip.label} (${chip.note})` : chip.label
+                      }
                       className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium border ${
                         !chip.filled
-                          ? 'bg-red-50 text-red-600 border-red-200'
+                          ? "bg-red-50 text-red-600 border-red-200"
                           : unverified
-                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                            : 'bg-green-50 text-green-700 border-green-200'
+                            ? "bg-amber-50 text-amber-700 border-amber-200"
+                            : "bg-green-50 text-green-700 border-green-200"
                       }`}
                     >
                       {chip.filled ? (
@@ -283,8 +371,10 @@ function ViewOnlyModal({
                         <X className="w-3 h-3 shrink-0" />
                       )}
                       {chip.label}
-                      {chip.note === 'unverified' && (
-                        <span className="opacity-70 font-normal">unverified</span>
+                      {chip.note === "unverified" && (
+                        <span className="opacity-70 font-normal">
+                          unverified
+                        </span>
                       )}
                     </span>
                   );
@@ -292,11 +382,15 @@ function ViewOnlyModal({
               </div>
               {missing.length > 0 && (
                 <p className="mt-2 text-xs text-red-600 leading-snug">
-                  Missing: {missing.map((m) => m.label).join(', ')}
+                  Missing: {missing.map((m) => m.label).join(", ")}
                 </p>
               )}
             </div>
           )}
+
+          {isRegistered && user.id ? (
+            <VerificationDocsSection userId={String(user.id)} />
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>
@@ -304,13 +398,15 @@ function ViewOnlyModal({
 }
 
 function remarkAuthor(r: UserRemark) {
-  if (r.source === 'system') return 'System';
-  return r.createdByName || 'Admin';
+  if (r.source === "system") return "System";
+  return r.createdByName || "Admin";
 }
 
 function splitRemarkHistory(remarks: UserRemark[]) {
-  const issuedHistory = remarks.filter((r) => (r.phase || 'otp_issued') !== 'otp_verified');
-  const verifiedHistory = remarks.filter((r) => r.phase === 'otp_verified');
+  const issuedHistory = remarks.filter(
+    (r) => (r.phase || "otp_issued") !== "otp_verified",
+  );
+  const verifiedHistory = remarks.filter((r) => r.phase === "otp_verified");
   return { issuedHistory, verifiedHistory };
 }
 
@@ -325,7 +421,13 @@ function RemarkCard({ r }: { r: UserRemark }) {
   );
 }
 
-function RemarksList({ remarks, empty }: { remarks: UserRemark[]; empty: string }) {
+function RemarksList({
+  remarks,
+  empty,
+}: {
+  remarks: UserRemark[];
+  empty: string;
+}) {
   if (remarks.length === 0) {
     return (
       <p className="text-sm text-gray-500 py-4 text-center border border-dashed border-gray-200 rounded-xl">
@@ -351,19 +453,26 @@ function CallStatusCell({
   disabled: boolean;
   onChange: (value: CallStatus) => void;
 }) {
-  const value = (user.callStatus || 'not_contacted') as CallStatus;
+  const value = (user.callStatus || "not_contacted") as CallStatus;
   const label =
-    CALL_STATUS_OPTIONS.find((o) => o.value === value)?.label || user.callStatusLabel || 'Not Contacted';
+    CALL_STATUS_OPTIONS.find((o) => o.value === value)?.label ||
+    user.callStatusLabel ||
+    "Not Contacted";
   const locked = !!user.callStatusLocked || !!user.actionsLocked;
 
   if (locked) {
     return (
       <div className="min-w-[150px] space-y-1">
-        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+        <Badge
+          variant="outline"
+          className="bg-green-50 text-green-700 border-green-200"
+        >
           {label}
         </Badge>
         {user.callStatusUpdatedByName && (
-          <p className="text-[10px] text-gray-400">By {user.callStatusUpdatedByName}</p>
+          <p className="text-[10px] text-gray-400">
+            By {user.callStatusUpdatedByName}
+          </p>
         )}
       </div>
     );
@@ -382,14 +491,16 @@ function CallStatusCell({
           className="w-[168px] bg-white h-8 text-xs"
           title={
             disabled
-              ? 'Add at least one remark before updating Call Status'
-              : 'Call Status'
+              ? "Add at least one remark before updating Call Status"
+              : "Call Status"
           }
         >
           <SelectValue>{label}</SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {CALL_STATUS_OPTIONS.filter((o) => o.value !== 'shifted_and_verified').map((o) => (
+          {CALL_STATUS_OPTIONS.filter(
+            (o) => o.value !== "shifted_and_verified",
+          ).map((o) => (
             <SelectItem key={o.value} value={o.value}>
               {o.label}
             </SelectItem>
@@ -397,29 +508,40 @@ function CallStatusCell({
         </SelectContent>
       </Select>
       {user.callStatusUpdatedByName && (
-        <p className="text-[10px] text-gray-400">By {user.callStatusUpdatedByName}</p>
+        <p className="text-[10px] text-gray-400">
+          By {user.callStatusUpdatedByName}
+        </p>
       )}
     </div>
   );
 }
 
-function RemarksSummaryCell({ user, remarks }: { user: any; remarks: UserRemark[] }) {
+function RemarksSummaryCell({
+  user,
+  remarks,
+}: {
+  user: any;
+  remarks: UserRemark[];
+}) {
   const count = user.remarksCount ?? remarks.length;
   const latest =
-    user.latestRemarkPreview ||
-    remarks[remarks.length - 1]?.text ||
-    null;
+    user.latestRemarkPreview || remarks[remarks.length - 1]?.text || null;
   return (
     <div className="min-w-[140px] max-w-[200px] space-y-1">
       {count === 0 ? (
         <span className="text-gray-400 text-xs">No remarks</span>
       ) : (
         <>
-          <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">
-            {count} remark{count === 1 ? '' : 's'}
+          <Badge
+            variant="outline"
+            className="bg-gray-50 text-gray-700 border-gray-200"
+          >
+            {count} remark{count === 1 ? "" : "s"}
           </Badge>
           {latest && (
-            <p className="text-[11px] text-gray-500 line-clamp-2 leading-snug">{latest}</p>
+            <p className="text-[11px] text-gray-500 line-clamp-2 leading-snug">
+              {latest}
+            </p>
           )}
         </>
       )}
@@ -447,19 +569,24 @@ function RemarksModal({
   onAdd: (text: string) => void | Promise<void>;
   canUpdate: boolean;
 }) {
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (open) setDraft('');
+    if (open) setDraft("");
   }, [open, user?.id]);
 
   if (!user) return null;
 
   const split = splitRemarkHistory(remarks);
-  const issued = issuedHistory?.length || verifiedHistory?.length ? issuedHistory || [] : split.issuedHistory;
+  const issued =
+    issuedHistory?.length || verifiedHistory?.length
+      ? issuedHistory || []
+      : split.issuedHistory;
   const verified =
-    issuedHistory?.length || verifiedHistory?.length ? verifiedHistory || [] : split.verifiedHistory;
+    issuedHistory?.length || verifiedHistory?.length
+      ? verifiedHistory || []
+      : split.verifiedHistory;
   const showSplit = !!splitHistory || verified.length > 0;
 
   const submit = async () => {
@@ -468,7 +595,7 @@ function RemarksModal({
     setBusy(true);
     try {
       await onAdd(text);
-      setDraft('');
+      setDraft("");
     } finally {
       setBusy(false);
     }
@@ -478,26 +605,28 @@ function RemarksModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Remarks</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-lg font-bold">Remarks</DialogTitle>
+          {/* <DialogDescription>
             {canUpdate
               ? `Add remarks for ${user.name || user.email || 'this signup'}. Previous remarks cannot be edited or deleted (append-only).`
               : `Remarks for ${user.name || user.email || 'this signup'}.`}
-          </DialogDescription>
+          </DialogDescription> */}
         </DialogHeader>
 
         <div className="space-y-4 pt-1 pb-2">
           <div className="rounded-xl border border-gray-100 bg-gray-50/80 px-3 py-2.5 text-sm">
-            <p className="font-medium text-gray-900">{user.name || '—'}</p>
-            <p className="text-xs text-gray-500 break-all">{user.email || '—'}</p>
-            <p className="text-xs text-gray-400">{user.contact || '—'}</p>
+            <p className="font-medium text-gray-900">{user.name || "—"}</p>
+            <p className="text-xs text-gray-500 break-all">
+              {user.email || "—"}
+            </p>
+            <p className="text-xs text-gray-400">{user.contact || "—"}</p>
           </div>
 
           {canUpdate && (
             <div className="space-y-2">
-              <label className="text-xs font-medium uppercase tracking-wide text-gray-400">
+              {/* <label className="text-xs font-medium uppercase tracking-wide text-gray-400">
                 Add remark
-              </label>
+              </label> */}
               <textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
@@ -512,8 +641,12 @@ function RemarksModal({
                 className="bg-primary text-white hover:bg-primary/90"
                 size="sm"
               >
-                {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Plus className="w-4 h-4 mr-1.5" />}
-                Add remark
+                {busy ? (
+                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                ) : (
+                  <Plus className="w-4 h-4 mr-1.5" />
+                )}
+                Save Remark
               </Button>
             </div>
           )}
@@ -524,14 +657,20 @@ function RemarksModal({
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
                   Issued history ({issued.length})
                 </p>
-                <RemarksList remarks={issued} empty="No remarks from OTP Issued." />
+                <RemarksList
+                  remarks={issued}
+                  empty="No remarks from OTP Issued."
+                />
               </div>
               <hr className="border-gray-200" />
               <div className="space-y-2">
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
                   Verified history ({verified.length})
                 </p>
-                <RemarksList remarks={verified} empty="No remarks after OTP verification." />
+                <RemarksList
+                  remarks={verified}
+                  empty="No remarks after OTP verification."
+                />
               </div>
             </div>
           ) : (
@@ -555,17 +694,21 @@ type Props = {
 export function AppUsersTable({ tab }: Props) {
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const tabModule = moduleForAppUsersTab(tab);
-  const canCreate = hasPermission(tabModule, 'create');
-  const canUpdate = hasPermission(tabModule, 'update');
+  const canCreate = hasPermission(tabModule, "create");
+  const canUpdate = hasPermission(tabModule, "update");
   const bucket: AppUserBucket =
-    tab === 'otp_issued' ? 'otp_issued' : tab === 'otp_verified' ? 'otp_verified' : 'master';
+    tab === "otp_issued"
+      ? "otp_issued"
+      : tab === "otp_verified"
+        ? "otp_verified"
+        : "master";
 
   const [users, setUsers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [approvingId, setApprovingId] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<AccountStatusFilter>('');
-  const [cityFilter, setCityFilter] = useState('');
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<AccountStatusFilter>("");
+  const [cityFilter, setCityFilter] = useState("");
   const [cities, setCities] = useState<{ id: string; name: string }[]>([]);
 
   const [roles, setRoles] = useState<any[]>([]);
@@ -574,7 +717,9 @@ export function AppUsersTable({ tab }: Props) {
   const [viewUser, setViewUser] = useState<any>(null);
   const [viewOpen, setViewOpen] = useState(false);
   const [togglingActiveId, setTogglingActiveId] = useState<string | null>(null);
-  const [remarksMap, setRemarksMap] = useState<Record<string, UserRemark[]>>({});
+  const [remarksMap, setRemarksMap] = useState<Record<string, UserRemark[]>>(
+    {},
+  );
   const [remarksUser, setRemarksUser] = useState<any>(null);
   const [remarksOpen, setRemarksOpen] = useState(false);
   const [remarksViewOnly, setRemarksViewOnly] = useState(false);
@@ -583,13 +728,13 @@ export function AppUsersTable({ tab }: Props) {
     setIsLoading(true);
     try {
       const data = await adminUsersService.getUsers({
-        audience: 'app',
-        includeInProgress: tab !== 'master',
+        audience: "app",
+        includeInProgress: tab !== "master",
         bucket,
       });
       const rows = Array.isArray(data) ? data : [];
       setUsers(rows);
-      if (tab === 'otp_issued' || tab === 'otp_verified') {
+      if (tab === "otp_issued" || tab === "otp_verified") {
         const map: Record<string, UserRemark[]> = {};
         for (const row of rows) {
           if (Array.isArray(row.remarks)) map[row.id] = row.remarks;
@@ -597,7 +742,7 @@ export function AppUsersTable({ tab }: Props) {
         setRemarksMap(map);
       }
     } catch (err) {
-      console.error('Failed to fetch users', err);
+      console.error("Failed to fetch users", err);
       setUsers([]);
     } finally {
       setIsLoading(false);
@@ -616,9 +761,9 @@ export function AppUsersTable({ tab }: Props) {
   }, []);
 
   useEffect(() => {
-    if (tab !== 'master') return;
+    if (tab !== "master") return;
     rbacService
-      .getRoles('app')
+      .getRoles("app")
       .then((data) => setRoles(Array.isArray(data) ? data : []))
       .catch(console.error);
   }, [tab]);
@@ -634,7 +779,12 @@ export function AppUsersTable({ tab }: Props) {
   const countByCityName = useCallback(
     (cityName: string) => {
       const key = cityName.trim().toLowerCase();
-      return users.filter((u) => String(u.city || '').trim().toLowerCase() === key).length;
+      return users.filter(
+        (u) =>
+          String(u.city || "")
+            .trim()
+            .toLowerCase() === key,
+      ).length;
     },
     [users],
   );
@@ -647,9 +797,9 @@ export function AppUsersTable({ tab }: Props) {
       suspended: 0,
     };
     for (const u of users) {
-      if (u.status === 'pending_approval') counts.pending_approval += 1;
-      else if (u.status === 'active') counts.active += 1;
-      else if (u.status === 'suspended') counts.suspended += 1;
+      if (u.status === "pending_approval") counts.pending_approval += 1;
+      else if (u.status === "active") counts.active += 1;
+      else if (u.status === "suspended") counts.suspended += 1;
     }
     return counts;
   }, [users]);
@@ -658,45 +808,57 @@ export function AppUsersTable({ tab }: Props) {
     const q = search.trim().toLowerCase();
     const cityName = cityFilter.trim().toLowerCase();
     return users.filter((user) => {
-      const matchStatus = tab !== 'master' || !statusFilter || user.status === statusFilter;
+      const matchStatus =
+        tab !== "master" || !statusFilter || user.status === statusFilter;
       const matchCity =
-        !cityName || String(user.city || '').trim().toLowerCase() === cityName;
+        !cityName ||
+        String(user.city || "")
+          .trim()
+          .toLowerCase() === cityName;
       const matchSearch =
         !q ||
-        String(user.name || '').toLowerCase().includes(q) ||
-        String(user.email || '').toLowerCase().includes(q) ||
-        String(user.contact || '').toLowerCase().includes(q);
+        String(user.name || "")
+          .toLowerCase()
+          .includes(q) ||
+        String(user.email || "")
+          .toLowerCase()
+          .includes(q) ||
+        String(user.contact || "")
+          .toLowerCase()
+          .includes(q);
       return matchStatus && matchCity && matchSearch;
     });
   }, [users, search, statusFilter, cityFilter, tab]);
 
   const handleApprove = async (user: any) => {
-    if (user.kind !== 'registered') return;
+    if (user.kind !== "registered") return;
     setApprovingId(user.id);
     try {
       await adminUsersService.approveUser(user.id);
       await fetchUsers();
     } catch (err) {
       console.error(err);
-      alert('Failed to approve user.');
+      alert("Failed to approve user.");
     } finally {
       setApprovingId(null);
     }
   };
 
   const handleToggleActive = async (user: any, active: boolean) => {
-    if (user.kind !== 'registered') return;
+    if (user.kind !== "registered") return;
     setTogglingActiveId(user.id);
     try {
       await adminUsersService.setUserActive(user.id, active);
       setUsers((prev) =>
         prev.map((u) =>
-          u.id === user.id ? { ...u, status: active ? 'active' : 'suspended' } : u,
+          u.id === user.id
+            ? { ...u, status: active ? "active" : "suspended" }
+            : u,
         ),
       );
     } catch (err) {
       console.error(err);
-      alert('Failed to update account status.');
+      alert("Failed to update account status.");
     } finally {
       setTogglingActiveId(null);
     }
@@ -710,24 +872,30 @@ export function AppUsersTable({ tab }: Props) {
       const patch = {
         remarks: list,
         remarksCount: res.remarksCount ?? list.length,
-        latestRemarkPreview: res.latestRemarkPreview ?? list[list.length - 1]?.text ?? null,
-                callStatusEditable: res.callStatusEditable !== false,
+        latestRemarkPreview:
+          res.latestRemarkPreview ?? list[list.length - 1]?.text ?? null,
+        callStatusEditable: res.callStatusEditable !== false,
         issuedHistory: res.issuedHistory,
         verifiedHistory: res.verifiedHistory,
       };
       setUsers((prev) =>
         prev.map((u) => (u.id === userId ? { ...u, ...patch } : u)),
       );
-      setRemarksUser((prev: any) => (prev && prev.id === userId ? { ...prev, ...patch } : prev));
+      setRemarksUser((prev: any) =>
+        prev && prev.id === userId ? { ...prev, ...patch } : prev,
+      );
     } catch (err) {
       console.error(err);
-      alert('Failed to save remark.');
+      alert("Failed to save remark.");
     }
   };
 
   const handleCallStatus = async (user: any, callStatus: CallStatus) => {
     try {
-      const updated = await adminUsersService.updateCallStatus(user.id, callStatus);
+      const updated = await adminUsersService.updateCallStatus(
+        user.id,
+        callStatus,
+      );
       setUsers((prev) =>
         prev.map((u) => (u.id === user.id ? { ...u, ...updated } : u)),
       );
@@ -736,7 +904,7 @@ export function AppUsersTable({ tab }: Props) {
       const msg =
         err?.response?.data?.error?.message ||
         err?.response?.data?.message ||
-        'Failed to update call status.';
+        "Failed to update call status.";
       alert(msg);
     }
   };
@@ -752,21 +920,23 @@ export function AppUsersTable({ tab }: Props) {
       const patch = {
         remarks: list,
         remarksCount: res.remarksCount ?? list.length,
-        latestRemarkPreview: res.latestRemarkPreview ?? user.latestRemarkPreview,
+        latestRemarkPreview:
+          res.latestRemarkPreview ?? user.latestRemarkPreview,
         issuedHistory: res.issuedHistory,
         verifiedHistory: res.verifiedHistory,
       };
       setUsers((prev) =>
         prev.map((u) => (u.id === user.id ? { ...u, ...patch } : u)),
       );
-      setRemarksUser((prev: any) => (prev && prev.id === user.id ? { ...prev, ...patch } : prev));
+      setRemarksUser((prev: any) =>
+        prev && prev.id === user.id ? { ...prev, ...patch } : prev,
+      );
     } catch (err) {
       console.error(err);
     }
   };
 
-  const colSpan =
-    tab === 'otp_issued' ? 6 : tab === 'otp_verified' ? 8 : 7;
+  const colSpan = tab === "otp_issued" ? 6 : tab === "otp_verified" ? 8 : 7;
 
   return (
     <>
@@ -781,16 +951,21 @@ export function AppUsersTable({ tab }: Props) {
           />
         </div>
 
-        <Select value={cityFilter} onValueChange={(v) => setCityFilter(v ?? '')}>
+        <Select
+          value={cityFilter}
+          onValueChange={(v) => setCityFilter(v ?? "")}
+        >
           <SelectTrigger className="w-48 bg-white">
             <span>
               {cityFilter
                 ? withCount(cityFilter, countByCityName(cityFilter))
-                : withCount('All cities', users.length)}
+                : withCount("All cities", users.length)}
             </span>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">{withCount('All cities', users.length)}</SelectItem>
+            <SelectItem value="">
+              {withCount("All cities", users.length)}
+            </SelectItem>
             {cityOptions.map((name) => (
               <SelectItem key={name} value={name}>
                 {withCount(name, countByCityName(name))}
@@ -799,36 +974,45 @@ export function AppUsersTable({ tab }: Props) {
           </SelectContent>
         </Select>
 
-        {tab === 'master' && (
+        {tab === "master" && (
           <Select
             value={statusFilter}
-            onValueChange={(v) => setStatusFilter((v ?? '') as AccountStatusFilter)}
+            onValueChange={(v) =>
+              setStatusFilter((v ?? "") as AccountStatusFilter)
+            }
           >
             <SelectTrigger className="w-52 bg-white">
               <span>
                 {!statusFilter
-                  ? withCount('All statuses', statusCounts.all)
-                  : statusFilter === 'pending_approval'
-                    ? withCount('Pending approval', statusCounts.pending_approval)
-                    : statusFilter === 'suspended'
-                      ? withCount('Suspended', statusCounts.suspended)
-                      : withCount('Active', statusCounts.active)}
+                  ? withCount("All statuses", statusCounts.all)
+                  : statusFilter === "pending_approval"
+                    ? withCount(
+                        "Pending approval",
+                        statusCounts.pending_approval,
+                      )
+                    : statusFilter === "suspended"
+                      ? withCount("Suspended", statusCounts.suspended)
+                      : withCount("Active", statusCounts.active)}
               </span>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">{withCount('All statuses', statusCounts.all)}</SelectItem>
-              <SelectItem value="pending_approval">
-                {withCount('Pending approval', statusCounts.pending_approval)}
+              <SelectItem value="">
+                {withCount("All statuses", statusCounts.all)}
               </SelectItem>
-              <SelectItem value="active">{withCount('Active', statusCounts.active)}</SelectItem>
+              <SelectItem value="pending_approval">
+                {withCount("Pending approval", statusCounts.pending_approval)}
+              </SelectItem>
+              <SelectItem value="active">
+                {withCount("Active", statusCounts.active)}
+              </SelectItem>
               <SelectItem value="suspended">
-                {withCount('Suspended', statusCounts.suspended)}
+                {withCount("Suspended", statusCounts.suspended)}
               </SelectItem>
             </SelectContent>
           </Select>
         )}
 
-        {tab === 'master' && canCreate && (
+        {tab === "master" && canCreate && (
           <Button
             onClick={() => {
               setFormUser(null);
@@ -846,35 +1030,69 @@ export function AppUsersTable({ tab }: Props) {
           <table className="w-full text-sm text-left">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-5 py-4 font-semibold text-gray-700">Name / Email / Contact</th>
-                {tab === 'otp_issued' && (
+                <th className="px-5 py-4 font-semibold text-gray-700">
+                  Name / Email / Contact
+                </th>
+                {tab === "otp_issued" && (
                   <>
-                    <th className="px-5 py-4 font-semibold text-gray-700">OTP Status</th>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Session</th>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Call Status</th>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Remarks</th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">
+                      OTP Status
+                    </th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">
+                      Session
+                    </th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">
+                      Call Status
+                    </th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">
+                      Remarks
+                    </th>
                   </>
                 )}
-                {tab === 'otp_verified' && (
+                {tab === "otp_verified" && (
                   <>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Signup Step</th>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Filled</th>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Call Status</th>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Remarks</th>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Added By</th>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Verified Date & Time</th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">
+                      Signup Step
+                    </th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">
+                      Filled
+                    </th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">
+                      Call Status
+                    </th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">
+                      Remarks
+                    </th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">
+                      Added By
+                    </th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">
+                      Verified Date & Time
+                    </th>
                   </>
                 )}
-                {tab === 'master' && (
+                {tab === "master" && (
                   <>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Role</th>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Active</th>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Subscription</th>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Last Login</th>
-                    <th className="px-5 py-4 font-semibold text-gray-700">Created</th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">
+                      Role
+                    </th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">
+                      Active
+                    </th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">
+                      Subscription
+                    </th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">
+                      Last Login
+                    </th>
+                    <th className="px-5 py-4 font-semibold text-gray-700">
+                      Created
+                    </th>
                   </>
                 )}
-                <th className="px-5 py-4 font-semibold text-gray-700 text-right">Actions</th>
+                <th className="px-5 py-4 font-semibold text-gray-700 text-right">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -886,25 +1104,38 @@ export function AppUsersTable({ tab }: Props) {
                 </tr>
               ) : filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={colSpan} className="px-6 py-12 text-center text-gray-500">
+                  <td
+                    colSpan={colSpan}
+                    className="px-6 py-12 text-center text-gray-500"
+                  >
                     No users found.
                   </td>
                 </tr>
               ) : (
                 filteredUsers.map((user) => {
                   const stepMeta = STEP_CHIP[user.signupStep] || null;
-                  const isRegistered = user.kind === 'registered';
-                  const canApprove = isRegistered && user.status === 'pending_approval';
+                  const isRegistered = user.kind === "registered";
+                  const canApprove =
+                    isRegistered && user.status === "pending_approval";
 
                   return (
-                    <tr key={user.id} className="hover:bg-gray-50/50 transition-colors align-top">
+                    <tr
+                      key={user.id}
+                      className="hover:bg-gray-50/50 transition-colors align-top"
+                    >
                       <td className="px-5 py-4">
-                        <p className="font-medium text-gray-900">{user.name || '—'}</p>
-                        <p className="text-xs text-gray-500">{user.email || '—'}</p>
-                        <p className="text-xs text-gray-400">{user.contact || '—'}</p>
+                        <p className="font-medium text-gray-900">
+                          {user.name || "—"}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {user.email || "—"}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {user.contact || "—"}
+                        </p>
                       </td>
 
-                      {tab === 'otp_issued' && (
+                      {tab === "otp_issued" && (
                         <>
                           <td className="px-5 py-4">
                             <OtpStatusChips user={user} />
@@ -921,8 +1152,12 @@ export function AppUsersTable({ tab }: Props) {
                                 !!user.actionsLocked ||
                                 !(
                                   user.callStatusEditable ||
-                                  (remarksMap[user.id] || user.remarks || []).some(
-                                    (r: UserRemark) => r.source !== 'system',
+                                  (
+                                    remarksMap[user.id] ||
+                                    user.remarks ||
+                                    []
+                                  ).some(
+                                    (r: UserRemark) => r.source !== "system",
                                   )
                                 )
                               }
@@ -934,18 +1169,23 @@ export function AppUsersTable({ tab }: Props) {
                           <td className="px-5 py-4">
                             <RemarksSummaryCell
                               user={user}
-                              remarks={remarksMap[user.id] || user.remarks || []}
+                              remarks={
+                                remarksMap[user.id] || user.remarks || []
+                              }
                             />
                           </td>
                         </>
                       )}
 
-                      {tab === 'otp_verified' && (
+                      {tab === "otp_verified" && (
                         <>
                           <td className="px-5 py-4">
                             {stepMeta ? (
                               <div className="space-y-1">
-                                <Badge variant="outline" className={stepMeta.className}>
+                                <Badge
+                                  variant="outline"
+                                  className={stepMeta.className}
+                                >
                                   {stepMeta.label}
                                 </Badge>
                                 {user.signupStepLabel && (
@@ -971,25 +1211,32 @@ export function AppUsersTable({ tab }: Props) {
                           <td className="px-5 py-4">
                             <RemarksSummaryCell
                               user={user}
-                              remarks={remarksMap[user.id] || user.remarks || []}
+                              remarks={
+                                remarksMap[user.id] || user.remarks || []
+                              }
                             />
                           </td>
                           <td className="px-5 py-4 text-xs text-gray-700 whitespace-nowrap">
-                            <p className="font-medium">{user.addedByName || '—'}</p>
+                            <p className="font-medium">
+                              {user.addedByName || "—"}
+                            </p>
                             {user.callStatusUpdatedByName &&
-                              user.callStatusUpdatedByName !== user.addedByName && (
+                              user.callStatusUpdatedByName !==
+                                user.addedByName && (
                                 <p className="text-[10px] text-gray-400">
                                   Status: {user.callStatusUpdatedByName}
                                 </p>
                               )}
                           </td>
                           <td className="px-5 py-4 text-xs text-gray-600 whitespace-nowrap">
-                            {formatDateTime(user.verifiedAt || user.otpVerifiedAt)}
+                            {formatDateTime(
+                              user.verifiedAt || user.otpVerifiedAt,
+                            )}
                           </td>
                         </>
                       )}
 
-                      {tab === 'master' && (
+                      {tab === "master" && (
                         <>
                           <td className="px-5 py-4">
                             {user.userRoles?.[0]?.role?.name ? (
@@ -997,7 +1244,10 @@ export function AppUsersTable({ tab }: Props) {
                                 variant="secondary"
                                 className="bg-primary-light text-primary capitalize text-[10px]"
                               >
-                                {String(user.userRoles[0].role.name).replace('_', ' ')}
+                                {String(user.userRoles[0].role.name).replace(
+                                  "_",
+                                  " ",
+                                )}
                               </Badge>
                             ) : (
                               <span className="text-gray-400 text-xs">—</span>
@@ -1005,7 +1255,7 @@ export function AppUsersTable({ tab }: Props) {
                           </td>
                           <td className="px-5 py-4">
                             {(() => {
-                              const isActive = user.status === 'active';
+                              const isActive = user.status === "active";
                               const busy = togglingActiveId === user.id;
                               return (
                                 <div className="flex items-center gap-2">
@@ -1015,28 +1265,45 @@ export function AppUsersTable({ tab }: Props) {
                                     onCheckedChange={(checked) => {
                                       void handleToggleActive(user, checked);
                                     }}
-                                    aria-label={isActive ? 'Deactivate user' : 'Activate user'}
+                                    aria-label={
+                                      isActive
+                                        ? "Deactivate user"
+                                        : "Activate user"
+                                    }
                                   />
                                   <span
                                     className={`text-xs font-medium ${
-                                      isActive ? 'text-green-700' : 'text-gray-500'
+                                      isActive
+                                        ? "text-green-700"
+                                        : "text-gray-500"
                                     }`}
                                   >
-                                    {busy ? 'Saving…' : isActive ? 'Active' : 'Inactive'}
+                                    {busy
+                                      ? "Saving…"
+                                      : isActive
+                                        ? "Active"
+                                        : "Inactive"}
                                   </span>
                                 </div>
                               );
                             })()}
-                            {user.status === 'pending_approval' && (
-                              <p className="text-[10px] text-orange-600 mt-1">Pending approval</p>
+                            {user.status === "pending_approval" && (
+                              <p className="text-[10px] text-orange-600 mt-1">
+                                Pending approval
+                              </p>
                             )}
-                            {user.status === 'suspended' && (
-                              <p className="text-[10px] text-gray-500 mt-1">Suspended</p>
+                            {user.status === "suspended" && (
+                              <p className="text-[10px] text-gray-500 mt-1">
+                                Suspended
+                              </p>
                             )}
                           </td>
                           <td className="px-5 py-4">
                             {user.subscriptionStatus || user.subscription ? (
-                              <Badge variant="outline" className="text-gray-700 border-gray-200 bg-gray-50">
+                              <Badge
+                                variant="outline"
+                                className="text-gray-700 border-gray-200 bg-gray-50"
+                              >
                                 {user.subscriptionStatus || user.subscription}
                               </Badge>
                             ) : (
@@ -1044,7 +1311,9 @@ export function AppUsersTable({ tab }: Props) {
                             )}
                           </td>
                           <td className="px-5 py-4 text-xs text-gray-600 whitespace-nowrap">
-                            {formatDateTime(user.lastLoginAt ?? user.last_login_at)}
+                            {formatDateTime(
+                              user.lastLoginAt ?? user.last_login_at,
+                            )}
                           </td>
                           <td className="px-5 py-4 text-xs text-gray-600 whitespace-nowrap">
                             {formatDateTime(user.createdAt)}
@@ -1054,21 +1323,23 @@ export function AppUsersTable({ tab }: Props) {
 
                       <td className="px-5 py-4 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {tab === 'otp_issued' && (
+                          {tab === "otp_issued" && (
                             <Button
                               variant="ghost"
                               size="sm"
                               onClick={() => {
                                 void openRemarks(user);
                               }}
-                              disabled={!!user.actionsLocked && !user.remarksEditable}
+                              disabled={
+                                !!user.actionsLocked && !user.remarksEditable
+                              }
                               className="text-primary hover:text-primary hover:bg-primary-light"
-                              title={canUpdate ? 'Add remarks' : 'View remarks'}
+                              title={canUpdate ? "Add remarks" : "View remarks"}
                             >
                               <MessageSquarePlus className="w-4 h-4" />
                             </Button>
                           )}
-                          {tab === 'otp_verified' && (
+                          {tab === "otp_verified" && (
                             <>
                               {canUpdate && (
                                 <Button
@@ -1096,7 +1367,7 @@ export function AppUsersTable({ tab }: Props) {
                               </Button>
                             </>
                           )}
-                          {tab === 'master' && (
+                          {tab === "master" && (
                             <>
                               {canApprove && canUpdate && (
                                 <Button
@@ -1153,25 +1424,37 @@ export function AppUsersTable({ tab }: Props) {
         </div>
       </div>
 
-      <ViewOnlyModal open={viewOpen} onOpenChange={setViewOpen} user={viewUser} />
+      <ViewOnlyModal
+        open={viewOpen}
+        onOpenChange={setViewOpen}
+        user={viewUser}
+      />
 
-      {(tab === 'otp_issued' || tab === 'otp_verified') && (
+      {(tab === "otp_issued" || tab === "otp_verified") && (
         <RemarksModal
           open={remarksOpen}
           onOpenChange={setRemarksOpen}
           user={remarksUser}
-          remarks={remarksUser ? remarksMap[remarksUser.id] || remarksUser.remarks || [] : []}
+          remarks={
+            remarksUser
+              ? remarksMap[remarksUser.id] || remarksUser.remarks || []
+              : []
+          }
           issuedHistory={remarksUser?.issuedHistory}
           verifiedHistory={remarksUser?.verifiedHistory}
-          splitHistory={tab === 'otp_verified'}
-          canUpdate={canUpdate && !remarksViewOnly && !(remarksUser?.actionsLocked && tab === 'otp_issued')}
+          splitHistory={tab === "otp_verified"}
+          canUpdate={
+            canUpdate &&
+            !remarksViewOnly &&
+            !(remarksUser?.actionsLocked && tab === "otp_issued")
+          }
           onAdd={async (text) => {
             if (remarksUser) await addRemark(remarksUser.id, text);
           }}
         />
       )}
 
-      {tab === 'master' && (canCreate || canUpdate) && (
+      {tab === "master" && (canCreate || canUpdate) && (
         <UserFormModal
           open={formOpen}
           onOpenChange={setFormOpen}

@@ -30,6 +30,8 @@ import {
   type SupportTicketItem,
 } from '@/services/support-tickets.service';
 import { SubscriptionTab } from '@/modules/user-analytics/subscription-tab';
+import { ReferralTab } from '@/modules/user-analytics/referral-tab';
+import { VerificationDocsSection } from '@/modules/user-analytics/verification-docs-section';
 import Link from 'next/link';
 import {
   BarChart3,
@@ -455,13 +457,16 @@ export function UserAnalyticsPanel() {
         return;
       }
       setUsersLoading(true);
+      const q = search.trim();
+      const direct = q.length >= 2;
       userAnalyticsService
         .searchUsers({
-          stateId: stateId || undefined,
-          cityId: cityId || undefined,
+          // Direct name/phone/email search must not be limited by city/listings filters.
+          stateId: direct ? undefined : stateId || undefined,
+          cityId: direct ? undefined : cityId || undefined,
           from,
           to,
-          search,
+          search: q,
         })
         .then(setUsers)
         .catch((err) => {
@@ -746,11 +751,12 @@ export function UserAnalyticsPanel() {
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="subscription">
+              <TabsContent value="subscription" className="space-y-4">
+                {userId ? <VerificationDocsSection userId={userId} /> : null}
                 <SubscriptionTab userId={userId} />
               </TabsContent>
               <TabsContent value="refer">
-                <ComingSoon title="Refer and Earn" />
+                <ReferralTab userId={userId} />
               </TabsContent>
               <TabsContent value="write">
                 <WriteToUsTab userId={userId} />

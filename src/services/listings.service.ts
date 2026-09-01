@@ -329,7 +329,102 @@ export type CreateVerifiedListingPayload = {
   price?: number | null;
   price_on_request?: boolean;
   details?: Record<string, unknown>;
-  owner_user_id?: string | null;
+  lead_contact_name: string;
+  lead_contact_phone: string;
+  connected_staff_user_id: string;
+  floor_pricing?: Array<{
+    floor_number: number;
+    price?: number | null;
+    is_sold?: boolean;
+  }>;
+};
+
+export type StaffAssignee = {
+  id: string;
+  name: string;
+  contact: string;
+};
+
+export type MyListingsTab = 'admin_verified' | 'app_postings';
+
+export type MyListingItem = {
+  id: string;
+  title: string;
+  categoryName: string | null;
+  buildingTypeName: string | null;
+  propertyTypeName: string | null;
+  priceLabel: string;
+  status: string;
+  isActive: boolean;
+  isVerified: boolean;
+  expiresAt: string | null;
+  daysLeft: number | null;
+  expiringSoon: boolean;
+  interestCount: number;
+  leadContactName: string | null;
+  leadContactPhone: string | null;
+  connectedStaff: { id: string; name: string; contact: string } | null;
+  ownerUser: { id: string; name: string; contact: string } | null;
+  actions: { canRenew: boolean; canToggleActive: boolean };
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MyListingDetail = MyListingItem & {
+  propertyName: string | null;
+  locationName: string | null;
+  microMarketName: string | null;
+  cityName: string | null;
+  publishedAt: string | null;
+  dynamicData: Record<string, unknown>;
+  buildingType: { id: string; name: string } | null;
+  propertyType: { id: string; name: string } | null;
+  form: { dynamicData: Record<string, unknown> };
+};
+
+export type MyListingsResponse = {
+  items: MyListingItem[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  tab: MyListingsTab;
+  isSuperAdmin: boolean;
+  filters: {
+    categories: Array<{ id: string; name: string; total: number }>;
+    buildingTypes: Array<{ id: string; name: string; total: number }>;
+    propertyTypes: Array<{ id: string; name: string; total: number }>;
+  };
+};
+
+export type MyListingsSummary = {
+  expiringSoonCount: number;
+  newInterestCount: number;
+  totalActionable: number;
+};
+
+export type ListingInterestUser = {
+  id: string;
+  name: string;
+  contact: string | null;
+  email: string | null;
+  profilePhotoUrl: string | null;
+  kinds: string[];
+  firstInterestedAt: string;
+  lastInterestedAt: string;
+};
+
+export type ListingInterestDetails = {
+  listing: { id: string; title: string };
+  lead: { name: string | null; phone: string | null };
+  connectedStaff: { id: string; name: string; contact: string } | null;
+  interestedUsers: ListingInterestUser[];
+  remarks: Array<{
+    id: string;
+    body: string;
+    author: { id: string; name: string } | null;
+    createdAt: string;
+  }>;
 };
 
 function pickStr(...values: unknown[]): string {
@@ -783,11 +878,7 @@ export function isCreateCategoryDisabled(option: CreateFormOption): boolean {
     .trim()
     .toLowerCase()
     .replace(/[\s/_-]+/g, ' ');
-  return (
-    key.includes('direct builder') ||
-    key.includes('developer') ||
-    key === 'builder floor direct'
-  );
+  return key.includes('developer');
 }
 
 export const listingsService = {
@@ -822,9 +913,12 @@ export const listingsService = {
     return asOptionList(response.data);
   },
 
-  getCreatePropertyTypes: async (buildingTypeId: string): Promise<CreateFormOption[]> => {
+  getCreatePropertyTypes: async (
+    buildingTypeId: string,
+    categoryId?: string,
+  ): Promise<CreateFormOption[]> => {
     const response = await axiosClient.get('/admin/listings/create-form/property-types', {
-      params: { buildingTypeId },
+      params: { buildingTypeId, categoryId },
     });
     return asOptionList(response.data);
   },
@@ -897,6 +991,72 @@ export const listingsService = {
     payload: CreateVerifiedListingPayload,
   ): Promise<unknown> => {
     const response = await axiosClient.post('/admin/listings/verified', payload);
+    return response.data;
+  },
+
+  getStaffAssignees: async (): Promise<StaffAssignee[]> => {
+    const response = await axiosClient.get('/admin/listings/staff-assignees');
+    const data = response.data;
+    return Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+  },
+
+  getMyListingsSummary: async (): Promise<MyListingsSummary> => {
+    const response = await axiosClient.get('/admin/listings/my-listings/summary');
+    return response.data as MyListingsSummary;
+  },
+
+  getMyListings: async (params: {
+    tab?: MyListingsTab;
+    categoryId?: string;
+    buildingTypeId?: string;
+    propertyTypeId?: string;
+    status?: 'active' | 'expired' | 'inactive';
+    page?: number;
+    limit?: number;
+  }): Promise<MyListingsResponse> => {
+    const response = await axiosClient.get('/admin/listings/my-listings', { params });
+    return response.data as MyListingsResponse;
+  },
+
+  getMyListingDetail: async (listingId: string): Promise<MyListingDetail> => {
+    const response = await axiosClient.get(`/admin/listings/my-listings/${listingId}`);
+    return response.data as MyListingDetail;
+  },
+
+  getAdminListingRemarks: async (listingId: string) => {
+    const response = await axiosClient.get(`/admin/listings/my-listings/${listingId}/admin-remarks`);
+    return response.data as Array<{
+      id: string;
+      body: string;
+      author: { id: string; name: string } | null;
+      createdAt: string;
+    }>;
+  },
+
+  getListingInterestDetails: async (listingId: string): Promise<ListingInterestDetails> => {
+    const response = await axiosClient.get(
+      `/admin/listings/my-listings/${listingId}/interest-details`,
+    );
+    return response.data as ListingInterestDetails;
+  },
+
+  addAdminListingRemark: async (listingId: string, text: string) => {
+    const response = await axiosClient.post(`/admin/listings/my-listings/${listingId}/admin-remarks`, {
+      text,
+    });
+    return response.data;
+  },
+
+  markMyListingInterestSeen: async (listingId: string) => {
+    await axiosClient.post(`/admin/listings/my-listings/${listingId}/mark-interest-seen`);
+  },
+
+  setMyListingActive: async (listingId: string, active: boolean) => {
+    await axiosClient.put(`/admin/listings/my-listings/${listingId}/active`, { active });
+  },
+
+  renewMyListing: async (listingId: string) => {
+    const response = await axiosClient.post(`/admin/listings/my-listings/${listingId}/renew`);
     return response.data;
   },
 
@@ -1199,6 +1359,17 @@ const SKIP_DETAIL_KEYS = new Set([
   'updated_at',
   'createdat',
   'updatedat',
+  'created_by_admin_user_id',
+  'connected_staff_user_id',
+  'category_id',
+  'building_type_id',
+  'property_type_id',
+  'property_name_id',
+  'location_id',
+  'micromarket_id',
+  'micro_market_id',
+  'city_id',
+  'state_id',
   'images',
   'media',
   'documents',
@@ -1222,6 +1393,19 @@ const SKIP_DETAIL_KEYS = new Set([
   'area_unit_3',
 ]);
 
+function looksLikeUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value.trim(),
+  );
+}
+
+function shouldSkipDetailKey(norm: string): boolean {
+  if (SKIP_DETAIL_KEYS.has(norm)) return true;
+  if (/_id$/.test(norm)) return true;
+  if (norm === 'uuid' || norm.endsWith('_uuid')) return true;
+  return false;
+}
+
 function titleCaseWords(input: string): string {
   return input
     .replace(/\s+/g, ' ')
@@ -1242,8 +1426,8 @@ function humanizeDetailToken(raw: string): string {
   const bhkMatch = lower.match(/^(\d+)_bhk$/);
   if (bhkMatch) return `${bhkMatch[1]} BHK`;
 
-  // UUID / long ids — leave as-is
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return s;
+  // UUID — omit from readable detail rows
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return '';
   // Currency-looking or already spaced human text without underscores
   if (!/[_-]/.test(s)) {
     if (/^[a-z]+$/i.test(s)) return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
@@ -1358,7 +1542,7 @@ export function getListingDetailRows(item: ListingReviewItem): ListingDetailRow[
 
   const rows: ListingDetailRow[] = [];
   for (const [norm, entry] of byNorm) {
-    if (SKIP_DETAIL_KEYS.has(norm)) continue;
+    if (shouldSkipDetailKey(norm)) continue;
     // area_size_N / area_unit_N already removed; also skip bare title variants
     if (norm.startsWith('area_size') || norm.startsWith('area_unit')) continue;
 
@@ -1377,7 +1561,7 @@ export function getListingDetailRows(item: ListingReviewItem): ListingDetailRow[
     } else {
       value = formatDetailValue(entry.value);
     }
-    if (!value) continue;
+    if (!value || looksLikeUuid(value)) continue;
 
     rows.push({
       key: entry.originalKey,

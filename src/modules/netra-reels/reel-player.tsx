@@ -21,11 +21,12 @@ import {
   Heart,
   Pause,
   Play,
+  Upload,
   Volume2,
   VolumeX,
   X,
 } from 'lucide-react';
-import { InstagramIcon, YoutubeIcon } from '@/modules/netra-reels/platform-icons';
+import { InstagramIcon } from '@/modules/netra-reels/platform-icons';
 
 type ReelPlayerProps = {
   reels: NetraReel[];
@@ -51,10 +52,10 @@ function PlatformMark({ platform }: { platform: NetraReel['platform'] }) {
       </span>
     );
   }
-  if (platform === 'youtube') {
+  if (platform === 'upload') {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-medium text-white">
-        <YoutubeIcon className="w-3 h-3" /> YouTube
+        <Upload className="w-3 h-3" /> Upload
       </span>
     );
   }
@@ -101,7 +102,7 @@ function ReelSlide({
   const platform = reel.platform !== 'unknown' ? reel.platform : parsed?.platform || 'unknown';
   const videoId = reel.externalId || parsed?.externalId || '';
   const nativeSrc = reel.videoUrl;
-  const isNative = Boolean(nativeSrc);
+  const isNative = Boolean(nativeSrc) || platform === 'upload';
   const isYoutube = !isNative && platform === 'youtube' && Boolean(videoId);
   const isInstagram = !isNative && !isYoutube && platform === 'instagram';
   const instagramSrc = reel.embedUrl || parsed?.embedUrl;

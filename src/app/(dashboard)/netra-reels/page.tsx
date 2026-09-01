@@ -24,8 +24,9 @@ import {
   Play,
   Plus,
   Trash2,
+  Upload,
 } from 'lucide-react';
-import { InstagramIcon, YoutubeIcon } from '@/modules/netra-reels/platform-icons';
+import { InstagramIcon } from '@/modules/netra-reels/platform-icons';
 
 export default function NetraReelsPage() {
   const hasPermission = useAuthStore((s) => s.hasPermission);
@@ -139,7 +140,7 @@ export default function NetraReelsPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-gray-900">NetraReels</h1>
             <p className="text-gray-500 mt-1">
-              Admin-only Instagram and YouTube reels. Staff see this module only when NetraReels permission is granted.
+              Admin-only uploaded videos. Staff see this module only when NetraReels permission is granted.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -190,7 +191,7 @@ export default function NetraReelsPage() {
                   <tr>
                     <td colSpan={6} className="px-6 py-16 text-center text-gray-500">
                       <Clapperboard className="w-8 h-8 mx-auto mb-3 text-gray-300" />
-                      No reels yet. Add an Instagram or YouTube link to get started.
+                      No reels yet. Upload a video to get started.
                     </td>
                   </tr>
                 </tbody>
@@ -213,7 +214,11 @@ export default function NetraReelsPage() {
                             <img src={reel.thumbnailUrl} alt="" className="w-full h-full object-cover" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-white/70">
-                              {reel.platform === 'instagram' ? <InstagramIcon className="w-5 h-5" /> : <YoutubeIcon className="w-5 h-5" />}
+                              {reel.platform === 'instagram' ? (
+                                <InstagramIcon className="w-5 h-5" />
+                              ) : reel.platform === 'upload' ? (
+                                <Upload className="w-5 h-5" />
+                              ) : null}
                             </div>
                           )}
                           <span className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -230,8 +235,8 @@ export default function NetraReelsPage() {
                           <span className="inline-flex items-center gap-1">
                             {reel.platform === 'instagram' ? (
                               <InstagramIcon className="w-3 h-3" />
-                            ) : reel.platform === 'youtube' ? (
-                              <YoutubeIcon className="w-3 h-3 text-red-600" />
+                            ) : reel.platform === 'upload' ? (
+                              <Upload className="w-3 h-3" />
                             ) : null}
                             {platformLabel(reel.platform)}
                           </span>

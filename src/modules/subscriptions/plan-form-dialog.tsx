@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -12,6 +12,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  isPaidSubscriptionPlan,
+  paiseToRupeesInput,
+  rupeesInputToPaise,
   type PlanLimits,
   type SubscriptionPlanItem,
   type UpdatePlanPayload,
@@ -42,6 +45,26 @@ function emptyLimits(): PlanLimits {
   };
 }
 
+function Section({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border border-gray-100 bg-gray-50/60 p-4">
+      <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+      {description ? (
+        <p className="mt-1 text-xs leading-relaxed text-gray-500">{description}</p>
+      ) : null}
+      <div className="mt-3 space-y-3">{children}</div>
+    </section>
+  );
+}
+
 export function PlanFormDialog({
   open,
   plan,
@@ -54,8 +77,8 @@ export function PlanFormDialog({
   const [sortOrder, setSortOrder] = useState(0);
   const [isActive, setIsActive] = useState(true);
   const [trialDays, setTrialDays] = useState('');
-  const [pricePaise, setPricePaise] = useState('');
-  const [promoPricePaise, setPromoPricePaise] = useState('');
+  const [priceRupees, setPriceRupees] = useState('');
+  const [promoPriceRupees, setPromoPriceRupees] = useState('');
   const [promoWindowDays, setPromoWindowDays] = useState('');
   const [addonsEnabled, setAddonsEnabled] = useState(false);
   const [listingBoostEnabled, setListingBoostEnabled] = useState(false);
@@ -65,6 +88,8 @@ export function PlanFormDialog({
   const [limits, setLimits] = useState<PlanLimits>(emptyLimits());
   const [localError, setLocalError] = useState('');
 
+  const showPricing = plan ? isPaidSubscriptionPlan(plan.code) : false;
+
   useEffect(() => {
     if (!open || !plan) return;
     setLocalError('');
@@ -72,10 +97,8 @@ export function PlanFormDialog({
     setSortOrder(plan.sortOrder);
     setIsActive(plan.isActive);
     setTrialDays(plan.trialDays != null ? String(plan.trialDays) : '');
-    setPricePaise(plan.pricePaise != null ? String(plan.pricePaise) : '');
-    setPromoPricePaise(
-      plan.promoPricePaise != null ? String(plan.promoPricePaise) : '',
-    );
+    setPriceRupees(paiseToRupeesInput(plan.pricePaise));
+    setPromoPriceRupees(paiseToRupeesInput(plan.promoPricePaise));
     setPromoWindowDays(
       plan.promoWindowDays != null ? String(plan.promoWindowDays) : '',
     );
@@ -111,8 +134,8 @@ export function PlanFormDialog({
       sortOrder,
       isActive,
       trialDays: trialDays === '' ? null : Number(trialDays),
-      pricePaise: pricePaise === '' ? null : Number(pricePaise),
-      promoPricePaise: promoPricePaise === '' ? null : Number(promoPricePaise),
+      pricePaise: showPricing ? rupeesInputToPaise(priceRupees) : null,
+      promoPricePaise: showPricing ? rupeesInputToPaise(promoPriceRupees) : null,
       promoWindowDays: promoWindowDays === '' ? null : Number(promoWindowDays),
       addonsEnabled,
       listingBoostEnabled,
@@ -126,150 +149,189 @@ export function PlanFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Edit plan — {plan?.code}</DialogTitle>
+          <DialogTitle>Edit — {plan?.displayName}</DialogTitle>
           <DialogDescription>
-            All limits and flags are applied to the app immediately after save.
+            Changes apply in the app immediately after save. Prices are entered in{' '}
+            <strong>rupees (₹)</strong>, not paise.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 pt-1">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-gray-700">Display name</label>
-              <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-gray-700">Sort order</label>
-              <Input
-                type="number"
-                value={sortOrder}
-                onChange={(e) => setSortOrder(Number(e.target.value) || 0)}
+          <Section
+            title="Plan details"
+            description="Name shown to users in the app and sort order on the plans screen."
+          >
+            <div className="grid gap-3 sm:grid-cols-2">
+              <NumField
+                label="Display name"
+                type="text"
+                value={displayName}
+                onChange={setDisplayName}
+              />
+              <NumField
+                label="Sort order"
+                value={String(sortOrder)}
+                onChange={(v) => setSortOrder(Number(v) || 0)}
               />
             </div>
-          </div>
-
-          {plan?.code === 'FREE_TRIAL' ? (
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-gray-700">Trial days</label>
-              <Input
-                type="number"
+            <FlagRow
+              label="Plan is active"
+              hint="Inactive plans cannot be purchased or assigned."
+              checked={isActive}
+              onChange={setIsActive}
+            />
+            {plan?.code === 'FREE_TRIAL' ? (
+              <NumField
+                label="Free trial length (days)"
                 value={trialDays}
-                onChange={(e) => setTrialDays(e.target.value)}
+                onChange={setTrialDays}
                 placeholder="90"
               />
-            </div>
+            ) : null}
+          </Section>
+
+          {showPricing ? (
+            <Section
+              title="Pricing (₹ per year)"
+              description="Standard yearly price and optional intro offer for new subscribers."
+            >
+              <div className="grid gap-3 sm:grid-cols-3">
+                <NumField
+                  label="Yearly price (₹)"
+                  value={priceRupees}
+                  onChange={setPriceRupees}
+                  placeholder="1188"
+                  prefix="₹"
+                />
+                <NumField
+                  label="Intro offer price (₹)"
+                  value={promoPriceRupees}
+                  onChange={setPromoPriceRupees}
+                  placeholder="899"
+                  prefix="₹"
+                />
+                <NumField
+                  label="Intro offer window (days)"
+                  value={promoWindowDays}
+                  onChange={setPromoWindowDays}
+                  placeholder="30"
+                />
+              </div>
+            </Section>
           ) : null}
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-gray-700">Price (paise)</label>
-              <Input
-                type="number"
-                value={pricePaise}
-                onChange={(e) => setPricePaise(e.target.value)}
-                placeholder="118800"
+          <Section
+            title="Optional features"
+            description="Turn on add-on purchases, boosts, priority placement, or builder contact packs."
+          >
+            <div className="grid gap-1 sm:grid-cols-2">
+              <FlagRow
+                label="Add-ons & top-ups"
+                hint="NetraCoin packs and contact credit top-ups"
+                checked={addonsEnabled}
+                onChange={setAddonsEnabled}
+              />
+              <FlagRow
+                label="Listing boost"
+                hint="Paid boost to top of search"
+                checked={listingBoostEnabled}
+                onChange={setListingBoostEnabled}
+              />
+              <FlagRow
+                label="Listing priority"
+                hint="Priority placement in results"
+                checked={listingPriorityEnabled}
+                onChange={setListingPriorityEnabled}
+              />
+              <FlagRow
+                label="Builder contact packs"
+                hint="Direct Builder Floor contact unlocks"
+                checked={builderContactsEnabled}
+                onChange={setBuilderContactsEnabled}
+              />
+              <FlagRow
+                label="Unlimited listing views"
+                hint="When off, set daily/monthly view caps below"
+                checked={unlimitedViews}
+                onChange={setUnlimitedViews}
               />
             </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-gray-700">Promo price (paise)</label>
-              <Input
-                type="number"
-                value={promoPricePaise}
-                onChange={(e) => setPromoPricePaise(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-gray-700">Promo window days</label>
-              <Input
-                type="number"
-                value={promoWindowDays}
-                onChange={(e) => setPromoWindowDays(e.target.value)}
-              />
-            </div>
-          </div>
+          </Section>
 
-          <div className="grid gap-2 rounded-lg border border-gray-100 p-3 sm:grid-cols-2">
-            <FlagRow label="Active" checked={isActive} onChange={setIsActive} />
-            <FlagRow label="Add-ons" checked={addonsEnabled} onChange={setAddonsEnabled} />
-            <FlagRow
-              label="Listing boost"
-              checked={listingBoostEnabled}
-              onChange={setListingBoostEnabled}
-            />
-            <FlagRow
-              label="Listing priority"
-              checked={listingPriorityEnabled}
-              onChange={setListingPriorityEnabled}
-            />
-            <FlagRow
-              label="Builder contacts"
-              checked={builderContactsEnabled}
-              onChange={setBuilderContactsEnabled}
-            />
-            <FlagRow
-              label="Unlimited views"
-              checked={unlimitedViews}
-              onChange={setUnlimitedViews}
-            />
-          </div>
+          <Section
+            title="Resale & Rent limits"
+            description="Contact reveals when users unlock listing owner numbers, and max active posts."
+          >
+            <div className="grid gap-3 sm:grid-cols-2">
+              <NumField
+                label="Contact reveals per day"
+                value={String(limits.listingContactsDaily)}
+                onChange={(v) => setLimitField('listingContactsDaily', v)}
+              />
+              <NumField
+                label="Contact reveals per month"
+                value={String(limits.listingContactsMonthly)}
+                onChange={(v) => setLimitField('listingContactsMonthly', v)}
+              />
+              <NumField
+                label="Max active Resale / Rent posts"
+                value={String(limits.activeResaleRentPosts)}
+                onChange={(v) => setLimitField('activeResaleRentPosts', v)}
+              />
+            </div>
+          </Section>
 
-          <p className="text-sm font-semibold text-gray-800">Entitlements</p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <NumField
-              label="Listing contacts / day"
-              value={limits.listingContactsDaily}
-              onChange={(v) => setLimitField('listingContactsDaily', v)}
-            />
-            <NumField
-              label="Listing contacts / month"
-              value={limits.listingContactsMonthly}
-              onChange={(v) => setLimitField('listingContactsMonthly', v)}
-            />
-            <NumField
-              label="Active Resale+Rent posts"
-              value={limits.activeResaleRentPosts}
-              onChange={(v) => setLimitField('activeResaleRentPosts', v)}
-            />
-            <NumField
-              label="Active Buy-req posts"
-              value={limits.activeBuyReqPosts}
-              onChange={(v) => setLimitField('activeBuyReqPosts', v)}
-            />
-            <NumField
-              label="Buy-req contacts / day"
-              value={limits.buyReqContactsDaily}
-              onChange={(v) => setLimitField('buyReqContactsDaily', v)}
-            />
-            <NumField
-              label="Buy-req contacts / month"
-              value={limits.buyReqContactsMonthly}
-              onChange={(v) => setLimitField('buyReqContactsMonthly', v)}
-            />
-            {!unlimitedViews ? (
-              <>
-                <NumField
-                  label="Views / day"
-                  value={limits.listingViewsDaily ?? 0}
-                  onChange={(v) => setLimitField('listingViewsDaily', v)}
-                />
-                <NumField
-                  label="Views / month"
-                  value={limits.listingViewsMonthly ?? 0}
-                  onChange={(v) => setLimitField('listingViewsMonthly', v)}
-                />
-              </>
-            ) : null}
-            <NumField
-              label="Monthly coin grant"
-              value={limits.monthlyCoinGrant}
-              onChange={(v) => setLimitField('monthlyCoinGrant', v)}
-            />
-            <NumField
-              label="Listing boost hours"
-              value={limits.listingBoostHours}
-              onChange={(v) => setLimitField('listingBoostHours', v)}
-            />
-          </div>
+          <Section
+            title="Buy requirement limits"
+            description="Limits for buyer requirement posts and contact reveals."
+          >
+            <div className="grid gap-3 sm:grid-cols-2">
+              <NumField
+                label="Contact reveals per day"
+                value={String(limits.buyReqContactsDaily)}
+                onChange={(v) => setLimitField('buyReqContactsDaily', v)}
+              />
+              <NumField
+                label="Contact reveals per month"
+                value={String(limits.buyReqContactsMonthly)}
+                onChange={(v) => setLimitField('buyReqContactsMonthly', v)}
+              />
+              <NumField
+                label="Max active buy requirement posts"
+                value={String(limits.activeBuyReqPosts)}
+                onChange={(v) => setLimitField('activeBuyReqPosts', v)}
+              />
+            </div>
+          </Section>
+
+          <Section title="Views, coins & boost">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {!unlimitedViews ? (
+                <>
+                  <NumField
+                    label="Listing views per day"
+                    value={String(limits.listingViewsDaily ?? 0)}
+                    onChange={(v) => setLimitField('listingViewsDaily', v)}
+                  />
+                  <NumField
+                    label="Listing views per month"
+                    value={String(limits.listingViewsMonthly ?? 0)}
+                    onChange={(v) => setLimitField('listingViewsMonthly', v)}
+                  />
+                </>
+              ) : null}
+              <NumField
+                label="Monthly NetraCoin grant"
+                value={String(limits.monthlyCoinGrant)}
+                onChange={(v) => setLimitField('monthlyCoinGrant', v)}
+              />
+              <NumField
+                label="Listing boost duration (hours)"
+                value={String(limits.listingBoostHours)}
+                onChange={(v) => setLimitField('listingBoostHours', v)}
+              />
+            </div>
+          </Section>
 
           {(localError || error) && (
             <p className="text-sm text-red-600">{localError || error}</p>
@@ -292,16 +354,21 @@ export function PlanFormDialog({
 
 function FlagRow({
   label,
+  hint,
   checked,
   onChange,
 }: {
   label: string;
+  hint?: string;
   checked: boolean;
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 rounded-md px-1 py-1">
-      <span className="text-sm text-gray-700">{label}</span>
+    <div className="flex items-start justify-between gap-3 rounded-md px-1 py-2">
+      <div className="min-w-0">
+        <span className="text-sm font-medium text-gray-800">{label}</span>
+        {hint ? <p className="text-xs text-gray-500">{hint}</p> : null}
+      </div>
       <Switch checked={checked} onCheckedChange={(c) => onChange(Boolean(c))} />
     </div>
   );
@@ -311,15 +378,36 @@ function NumField({
   label,
   value,
   onChange,
+  placeholder,
+  prefix,
+  type = 'number',
 }: {
   label: string;
-  value: number;
+  value: string;
   onChange: (v: string) => void;
+  placeholder?: string;
+  prefix?: string;
+  type?: 'number' | 'text';
 }) {
   return (
     <div className="space-y-1.5">
       <label className="text-sm font-medium text-gray-700">{label}</label>
-      <Input type="number" value={value} onChange={(e) => onChange(e.target.value)} min={0} />
+      <div className="relative">
+        {prefix ? (
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">
+            {prefix}
+          </span>
+        ) : null}
+        <Input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          min={type === 'number' ? 0 : undefined}
+          step={type === 'number' ? 'any' : undefined}
+          className={prefix ? 'pl-7' : undefined}
+        />
+      </div>
     </div>
   );
 }

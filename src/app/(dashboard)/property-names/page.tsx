@@ -294,6 +294,9 @@ export default function PropertyNamesPage() {
   const selectedStateName = states.find((s) => s.id === form.state_id)?.name;
   const selectedCityName = cities.find((c) => c.id === form.city_id)?.name;
   const selectedMmName = microMarkets.find((m) => m.id === form.micro_market_id)?.name;
+  const selectedPropertyTypeName =
+    uniqueTypes.find((t) => t.id === form.property_type_id)?.name
+    ?? propertyTypes.find((t) => t.id === form.property_type_id)?.name;
   const filterCityName = cities.find((c) => c.id === filterCityId)?.name;
   const filterMmName = microMarkets.find((m) => m.id === filterMmId)?.name;
 
@@ -482,7 +485,11 @@ export default function PropertyNamesPage() {
                   onValueChange={(v) => setForm({ ...form, property_type_id: v ?? '' })}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select Apartment, SCO, Plot…" />
+                    {selectedPropertyTypeName ? (
+                      <span>{selectedPropertyTypeName}</span>
+                    ) : (
+                      <SelectValue placeholder="Select Apartment, SCO, Plot…" />
+                    )}
                   </SelectTrigger>
                   <SelectContent>
                     {uniqueTypes.length === 0 ? (

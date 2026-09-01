@@ -27,6 +27,8 @@ import {
   type CreateFormSchema,
 } from '@/services/listings.service';
 import { Loader2 } from 'lucide-react';
+import { useAuthStore } from '@/store/use-auth-store';
+import type { StaffAssignee } from '@/services/listings.service';
 
 const SKIP_DETAIL_KEYS = new Set([
   'category',
@@ -73,6 +75,7 @@ function filterRenderableFields(fields: CreateFormField[]) {
 
 export function CreateVerifiedListingPanel() {
   const router = useRouter();
+  const authUser = useAuthStore((s) => s.user);
 
   const [categories, setCategories] = useState<CreateFormOption[]>([]);
   const [buildingTypes, setBuildingTypes] = useState<CreateFormOption[]>([]);
@@ -93,7 +96,15 @@ export function CreateVerifiedListingPanel() {
   const [price, setPrice] = useState('');
   const [priceOnRequest, setPriceOnRequest] = useState(false);
   const [details, setDetails] = useState<Record<string, string>>({});
+  const [floorPricing, setFloorPricing] = useState<
+    Array<{ floor_number: string; price: string; is_sold: boolean }>
+  >([{ floor_number: '1', price: '', is_sold: false }]);
   const [propertySearch, setPropertySearch] = useState('');
+  const [leadContactName, setLeadContactName] = useState('');
+  const [leadContactPhone, setLeadContactPhone] = useState('');
+  const [connectedStaffUserId, setConnectedStaffUserId] = useState('');
+  const [staffAssignees, setStaffAssignees] = useState<StaffAssignee[]>([]);
+  const [loadingStaff, setLoadingStaff] = useState(true);
 
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [loadingBuildingTypes, setLoadingBuildingTypes] = useState(false);
@@ -104,6 +115,35 @@ export function CreateVerifiedListingPanel() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    void listingsService
+      .getStaffAssignees()
+      .then((rows) => {
+        if (cancelled) return;
+        setStaffAssignees(rows);
+        if (authUser?.id && rows.some((r) => r.id === authUser.id)) {
+          setConnectedStaffUserId(authUser.id);
+        } else if (rows.length === 1) {
+          setConnectedStaffUserId(rows[0].id);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setStaffAssignees([]);
+          setError(
+            listingCreateApiError(err, 'Failed to load admin panel users for assignment.'),
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingStaff(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -179,9 +219,20 @@ export function CreateVerifiedListingPanel() {
     let cancelled = false;
     setLoadingPropertyTypes(true);
     void listingsService
-      .getCreatePropertyTypes(buildingTypeId)
+      .getCreatePropertyTypes(buildingTypeId, categoryId)
       .then((rows) => {
-        if (!cancelled) setPropertyTypes(rows.filter((r) => r.is_active !== false));
+        if (!cancelled) {
+          const active = rows.filter((r) => r.is_active !== false);
+          setPropertyTypes(active);
+          const cat = categories.find((c) => c.id === categoryId);
+          const isDbf = cat?.name?.toLowerCase().includes('direct builder');
+          const builderOnly = active.find((r) =>
+            r.name.toLowerCase().includes('builder floor'),
+          );
+          if (isDbf && builderOnly) {
+            setPropertyTypeId(builderOnly.id);
+          }
+        }
       })
       .catch((err) => {
         if (!cancelled) {
@@ -195,7 +246,7 @@ export function CreateVerifiedListingPanel() {
     return () => {
       cancelled = true;
     };
-  }, [buildingTypeId]);
+  }, [buildingTypeId, categoryId, categories]);
 
   useEffect(() => {
     if (!categoryId || !buildingTypeId || !propertyTypeId) {
@@ -315,7 +366,12 @@ export function CreateVerifiedListingPanel() {
   const detailFieldsCount = detailModules.reduce((sum, mod) => sum + mod.fields.length, 0);
 
   const selectedCategory = categories.find((c) => c.id === categoryId);
+  const isDirectBuilderFloor = useMemo(() => {
+    const name = selectedCategory?.name?.toLowerCase() || '';
+    return name.includes('direct builder');
+  }, [selectedCategory?.name]);
   const selectedBuildingType = buildingTypes.find((b) => b.id === buildingTypeId);
+  const selectedStaffUser = staffAssignees.find((s) => s.id === connectedStaffUserId);
   const selectedPropertyType = propertyTypes.find((p) => p.id === propertyTypeId);
   const selectedProperty = properties.find((p) => p.id === propertyNameId);
   const selectedLocation =
@@ -331,6 +387,9 @@ export function CreateVerifiedListingPanel() {
     !!propertyNameId &&
     !!locationId &&
     !!microMarketId &&
+    leadContactName.trim().length >= 2 &&
+    /^\d{10}$/.test(leadContactPhone.trim()) &&
+    !!connectedStaffUserId &&
     (priceOnRequest || !!price.trim()) &&
     !submitting;
 
@@ -433,11 +492,23 @@ export function CreateVerifiedListingPanel() {
         micro_market_id: microMarketId,
         price_on_request: priceOnRequest,
         price: priceOnRequest ? null : Number(price),
+        lead_contact_name: leadContactName.trim(),
+        lead_contact_phone: leadContactPhone.trim(),
+        connected_staff_user_id: connectedStaffUserId,
         details: detailsPayload,
+        floor_pricing: isDirectBuilderFloor
+          ? floorPricing
+              .filter((row) => row.floor_number.trim())
+              .map((row) => ({
+                floor_number: Number(row.floor_number),
+                price: row.price.trim() ? Number(row.price) : null,
+                is_sold: row.is_sold,
+              }))
+          : undefined,
       });
 
-      setSuccess('Verified listing created. It will appear under Approved Listings.');
-      setTimeout(() => router.push('/moderation'), 800);
+      setSuccess('Verified listing created. It will appear under My Listings.');
+      setTimeout(() => router.push('/my-listings'), 800);
     } catch (err) {
       setError(listingCreateApiError(err, 'Failed to create verified listing.'));
     } finally {
@@ -685,6 +756,79 @@ export function CreateVerifiedListingPanel() {
             </>
           ) : null}
 
+          <div className="space-y-4 border-t border-gray-100 pt-4">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">Lead contact (internal)</h2>
+              <p className="text-xs text-gray-500">
+                For admin-panel reference only. App users will not see this contact on reveal.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Lead name <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  value={leadContactName}
+                  onChange={(e) => setLeadContactName(e.target.value)}
+                  placeholder="Lead / owner name"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Lead phone <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  value={leadContactPhone}
+                  onChange={(e) => setLeadContactPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  placeholder="10-digit mobile"
+                  inputMode="numeric"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                Connect admin panel user <span className="text-red-500">*</span>
+              </label>
+              <p className="text-xs text-gray-500">
+                This user will see the listing in My Listings and their contact will show on app
+                reveal.
+              </p>
+              {loadingStaff ? (
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading staff users…
+                </div>
+              ) : staffAssignees.length === 0 ? (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  No admin panel users found. Add staff under RBAC → Staff Users with a contact
+                  number.
+                </p>
+              ) : (
+                <Select
+                  value={connectedStaffUserId}
+                  onValueChange={(v) => setConnectedStaffUserId(v ?? '')}
+                >
+                  <SelectTrigger>
+                    {selectedStaffUser ? (
+                      <span>
+                        {selectedStaffUser.name} ({selectedStaffUser.contact})
+                      </span>
+                    ) : (
+                      <SelectValue placeholder="Select admin panel user" />
+                    )}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {staffAssignees.map((staff) => (
+                      <SelectItem key={staff.id} value={staff.id}>
+                        {staff.name} ({staff.contact})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          </div>
+
           <div className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2">
             <div>
               <p className="text-sm font-medium text-gray-700">Price on request</p>
@@ -737,6 +881,74 @@ export function CreateVerifiedListingPanel() {
               property type. Check Listings Config.
             </p>
           )}
+
+          {isDirectBuilderFloor ? (
+            <div className="space-y-3 border-t border-gray-100 pt-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-gray-900">Floor-wise details</h2>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setFloorPricing((rows) => [
+                      ...rows,
+                      {
+                        floor_number: String(rows.length + 1),
+                        price: '',
+                        is_sold: false,
+                      },
+                    ])
+                  }
+                >
+                  Add floor
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {floorPricing.map((row, index) => (
+                  <div key={`floor-${index}`} className="grid gap-2 sm:grid-cols-4">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={row.floor_number}
+                      onChange={(e) =>
+                        setFloorPricing((rows) =>
+                          rows.map((r, i) =>
+                            i === index ? { ...r, floor_number: e.target.value } : r,
+                          ),
+                        )
+                      }
+                      placeholder="Floor #"
+                    />
+                    <Input
+                      type="number"
+                      min={0}
+                      value={row.price}
+                      onChange={(e) =>
+                        setFloorPricing((rows) =>
+                          rows.map((r, i) => (i === index ? { ...r, price: e.target.value } : r)),
+                        )
+                      }
+                      placeholder="Price ₹"
+                    />
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                      <Switch
+                        checked={row.is_sold}
+                        onCheckedChange={(checked) =>
+                          setFloorPricing((rows) =>
+                            rows.map((r, i) =>
+                              i === index ? { ...r, is_sold: checked } : r,
+                            ),
+                          )
+                        }
+                      />
+                      Sold
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" onClick={() => router.push('/moderation')} disabled={submitting}>

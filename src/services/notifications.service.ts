@@ -291,7 +291,14 @@ export type InboxMessageListResult = {
 
 export const INBOX_LEAD_EVENTS = ['listing.interest', 'listing.contacted'] as const;
 
-export type InAppPopupStatus = 'draft' | 'active' | 'expired' | 'inactive';
+export type PopupTimerDisplay = 'none' | 'progress_bar' | 'countdown' | 'both';
+
+export const DEFAULT_POPUP_TIMER_DISPLAYS: BroadcastKeyLabel[] = [
+  { key: 'none', label: 'No indicator' },
+  { key: 'progress_bar', label: 'Progress bar (stories style)' },
+  { key: 'countdown', label: 'Countdown timer' },
+  { key: 'both', label: 'Progress bar + countdown' },
+];
 
 export type PopupAudience =
   | 'all'
@@ -313,6 +320,11 @@ export type InAppPopup = {
   body: string;
   bodyFormat: BroadcastBodyFormat;
   imageUrl?: string | null;
+  backgroundColor: string;
+  textColor: string;
+  ctaColor: string;
+  displayDurationSec: number;
+  timerDisplay: PopupTimerDisplay;
   ctaLabel: string;
   stateIds: string[];
   stateNames: string[];
@@ -340,6 +352,7 @@ export type InAppPopupOptions = {
   pageKeys: BroadcastKeyLabel[];
   bodyFormats: BroadcastKeyLabel[];
   audiences: PopupAudienceOption[];
+  timerDisplays: BroadcastKeyLabel[];
 };
 
 export type InAppPopupListResult = {
@@ -356,6 +369,12 @@ export type CreateInAppPopupPayload = {
   body: string;
   bodyFormat?: BroadcastBodyFormat;
   imageUrl?: string;
+  backgroundColor?: string;
+  textColor?: string;
+  ctaColor?: string;
+  displayDurationSec?: number;
+  timerDisplay?: PopupTimerDisplay;
+  showProgressBar?: boolean;
   ctaLabel?: string;
   stateIds?: string[];
   cityIds?: string[];
@@ -371,6 +390,12 @@ export type UpdateInAppPopupPayload = {
   body?: string;
   bodyFormat?: BroadcastBodyFormat;
   imageUrl?: string | null;
+  backgroundColor?: string;
+  textColor?: string;
+  ctaColor?: string;
+  displayDurationSec?: number;
+  timerDisplay?: PopupTimerDisplay;
+  showProgressBar?: boolean;
   ctaLabel?: string;
   stateIds?: string[];
   cityIds?: string[];
@@ -1020,6 +1045,14 @@ export function normalizeInAppPopup(raw: unknown): InAppPopup {
       ? 'markdown'
       : 'plain') as BroadcastBodyFormat,
     imageUrl: str(n.imageUrl || n.image_url) || null,
+    backgroundColor: str(n.backgroundColor || n.background_color) || '#0F172A',
+    textColor: str(n.textColor || n.text_color) || '#FFFFFF',
+    ctaColor: str(n.ctaColor || n.cta_color) || '#E11D48',
+    displayDurationSec: Number(n.displayDurationSec ?? n.display_duration_sec ?? 8) || 8,
+    timerDisplay: normalizePopupTimerDisplay(
+      n.timerDisplay ?? n.timer_display,
+      n.showProgressBar ?? n.show_progress_bar,
+    ),
     ctaLabel: str(n.ctaLabel || n.cta_label) || 'View',
     stateIds,
     stateNames,
@@ -1090,12 +1123,26 @@ export function normalizePopupOptions(raw: unknown): InAppPopupOptions {
   const pageKeys = asKeyLabelList(nested.pageKeys || nested.page_keys || nested.pages);
   const bodyFormats = asKeyLabelList(nested.bodyFormats || nested.body_formats);
   const audiences = asPopupAudienceOptions(nested.audiences);
+  const timerDisplays = asKeyLabelList(nested.timerDisplays || nested.timer_displays);
   return {
     linkTypes: linkTypes.length ? linkTypes : DEFAULT_BROADCAST_LINK_TYPES,
     pageKeys,
     bodyFormats,
     audiences,
+    timerDisplays: timerDisplays.length ? timerDisplays : DEFAULT_POPUP_TIMER_DISPLAYS,
   };
+}
+
+export function normalizePopupTimerDisplay(
+  value: unknown,
+  legacyShowProgressBar?: unknown,
+): PopupTimerDisplay {
+  const raw = str(value).toLowerCase();
+  if (raw === 'none' || raw === 'progress_bar' || raw === 'countdown' || raw === 'both') {
+    return raw;
+  }
+  if (legacyShowProgressBar === false) return 'none';
+  return 'progress_bar';
 }
 
 function asListResult(data: unknown, page: number, limit: number): NotificationListResult {

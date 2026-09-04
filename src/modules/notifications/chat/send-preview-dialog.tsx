@@ -55,8 +55,8 @@ export function SendPreviewDialog({
 
   const card: BubbleMessage = {
     id: "preview",
-    title: draft.cardTitle.trim() || draft.title.trim(),
-    body: draft.cardBody.trim() || draft.body.trim(),
+    title: draft.title.trim(),
+    body: draft.body.trim(),
     bodyFormat: draft.bodyFormat,
     media: draft.media,
     linkLabel,
@@ -100,6 +100,7 @@ export function SendPreviewDialog({
                 progressMax={draft.progressMax}
                 progress={draft.progress}
                 progressIndeterminate={draft.progressIndeterminate}
+                linkCta={draft.ctaLabel.trim() || linkLabel}
               />
             )}
             <p className="text-[11px] text-gray-400">

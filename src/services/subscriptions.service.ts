@@ -26,6 +26,7 @@ export type SubscriptionPlanItem = {
   displayName: string;
   sortOrder: number;
   isActive: boolean;
+  showOnApp: boolean;
   trialDays: number | null;
   pricePaise: number | null;
   billingPeriod: string | null;
@@ -55,6 +56,8 @@ export type UserEntitlements = {
   currentPeriodEnd: string | null;
   subscriptionStatus: string;
   badge: string | null;
+  pendingPlanCode?: string | null;
+  pendingPlanDisplayName?: string | null;
   limits: PlanLimits;
   flags: PlanFlags;
   usage: {
@@ -78,6 +81,7 @@ export type UpdatePlanPayload = {
   displayName?: string;
   sortOrder?: number;
   isActive?: boolean;
+  showOnApp?: boolean;
   trialDays?: number | null;
   pricePaise?: number | null;
   billingPeriod?: string | null;
@@ -243,6 +247,7 @@ export function normalizePlan(raw: unknown): SubscriptionPlanItem | null {
     displayName: pickString(row.displayName, row.display_name) || code,
     sortOrder: asNum(row.sortOrder ?? row.sort_order),
     isActive: asBool(row.isActive ?? row.is_active, true),
+    showOnApp: asBool(row.showOnApp ?? row.show_on_app, true),
     trialDays: asNumOrNull(row.trialDays ?? row.trial_days),
     pricePaise: asNumOrNull(row.pricePaise ?? row.price_paise),
     billingPeriod: pickString(row.billingPeriod, row.billing_period) || null,
@@ -287,6 +292,8 @@ export function normalizeUserEntitlements(raw: unknown): UserEntitlements | null
     currentPeriodEnd: pickString(row.currentPeriodEnd) || null,
     subscriptionStatus: pickString(row.subscriptionStatus),
     badge: pickString(row.badge) || null,
+    pendingPlanCode: pickString(row.pendingPlanCode) || null,
+    pendingPlanDisplayName: pickString(row.pendingPlanDisplayName) || null,
     limits,
     flags: normalizeFlags(row.flags),
     usage: {

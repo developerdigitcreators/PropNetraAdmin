@@ -105,21 +105,27 @@ function EmptyState({ icon: Icon, text }: { icon: typeof Eye; text: string }) {
   );
 }
 
-function ChannelChips({ channels }: { channels: string[] }) {
+function ChannelLogos({ channels }: { channels: string[] }) {
   if (!channels.length) return null;
   return (
-    <div className="mt-1 flex flex-wrap gap-1">
-      {channels.includes('call') && (
-        <Badge variant="secondary" className="bg-sky-50 text-sky-700">
-          Call
-        </Badge>
-      )}
-      {channels.includes('whatsapp') && (
-        <Badge variant="secondary" className="bg-emerald-50 text-emerald-700">
-          WhatsApp
-        </Badge>
-      )}
-    </div>
+    <span className="inline-flex shrink-0 items-center gap-1">
+      {channels.includes('call') ? (
+        <span
+          className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-sky-50 text-sky-700"
+          title="Call"
+        >
+          <Phone className="h-3 w-3" />
+        </span>
+      ) : null}
+      {channels.includes('whatsapp') ? (
+        <span
+          className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-emerald-700"
+          title="WhatsApp"
+        >
+          <MessageSquare className="h-3 w-3" />
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -153,9 +159,13 @@ function PeopleTable({
             <tr key={row.id} className="border-b border-gray-50 last:border-0">
               <td className="px-4 py-3">
                 <span className="font-medium text-gray-900">{dash(row.name)}</span>
-                {showChannels ? <ChannelChips channels={row.channels} /> : null}
               </td>
-              <td className="px-4 py-3 text-gray-600">{dash(row.contact)}</td>
+              <td className="px-4 py-3 text-gray-600">
+                <span className="inline-flex items-center gap-1.5">
+                  {showChannels ? <ChannelLogos channels={row.channels} /> : null}
+                  <span>{dash(row.contact)}</span>
+                </span>
+              </td>
               <td className="px-4 py-3 text-gray-900">{dash(row.project)}</td>
               <td className="px-4 py-3 text-gray-600">{dash(row.city)}</td>
               <td className="px-4 py-3 text-gray-600">{dash(row.location)}</td>

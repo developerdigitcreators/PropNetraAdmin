@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { AdminUserSchema, AdminUserFormData } from '@/validators/rbac.schema';
@@ -30,6 +30,33 @@ interface UserFormModalProps {
   roles?: any[];
   onSuccess: () => void;
   hidePassword?: boolean;
+  showEditLogs?: boolean;
+}
+
+function formatLogTime(value?: string) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function digitsOnly(value: string, max = 10) {
+  return value.replace(/\D/g, '').slice(0, max);
+}
+
+function apiFieldError(err: unknown): { field?: string; message: string } {
+  const data = (err as { response?: { data?: { error?: { field?: string; message?: string } } } })
+    ?.response?.data?.error;
+  return {
+    field: data?.field || undefined,
+    message: data?.message || 'Failed to save user.',
+  };
 }
 
 export function UserFormModal({
@@ -39,18 +66,23 @@ export function UserFormModal({
   roles = [],
   onSuccess,
   hidePassword = false,
+  showEditLogs = false,
 }: UserFormModalProps) {
   const isEdit = !!user;
 
+  const [formError, setFormError] = useState('');
   const {
     register,
     handleSubmit,
     reset,
     setValue,
+    setError,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<AdminUserFormData>({
     resolver: zodResolver(AdminUserSchema),
+    mode: 'onBlur',
+    reValidateMode: 'onChange',
     defaultValues: {
       name: '',
       email: '',
@@ -61,9 +93,13 @@ export function UserFormModal({
   });
 
   const selectedRoleId = watch('role_id');
+  const nameReg = register('name');
+  const emailReg = register('email');
+  const contactReg = register('contact');
 
   useEffect(() => {
     if (open) {
+      setFormError('');
       if (isEdit && user) {
         reset({
           name: user.name || '',
@@ -85,59 +121,102 @@ export function UserFormModal({
   }, [open, isEdit, user, reset]);
 
   const onSubmit = async (data: AdminUserFormData) => {
+    setFormError('');
     try {
       if (isEdit) {
         const updateData = { ...data };
         if (hidePassword || !updateData.password) {
           delete updateData.password;
         }
-        await adminUsersService.updateUser(user.id, updateData);
+        await adminUsersService.updateUser(user.id, {
+          ...updateData,
+          name: data.name.trim(),
+          email: data.email.trim().toLowerCase(),
+          contact: data.contact.trim(),
+        });
       } else {
-        await adminUsersService.createUser(data);
+        await adminUsersService.createUser({
+          ...data,
+          name: data.name.trim(),
+          email: data.email.trim().toLowerCase(),
+          contact: data.contact.trim(),
+        });
       }
       onSuccess();
       onOpenChange(false);
     } catch (error) {
-      console.error('Failed to save user', error);
+      const { field, message } = apiFieldError(error);
+      if (field === 'email' || field === 'contact' || field === 'name' || field === 'role_id') {
+        setError(field, { message });
+      } else {
+        setFormError(message);
+      }
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit Admin User' : 'Create Admin User'}</DialogTitle>
+          <DialogTitle>
+            {isEdit
+              ? showEditLogs
+                ? 'Edit User'
+                : 'Edit Admin User'
+              : 'Create Admin User'}
+          </DialogTitle>
           <DialogDescription>
-            {isEdit ? 'Update details for this user.' : 'Add a new administrative user to the system.'}
+            {isEdit
+              ? showEditLogs
+                ? 'Update details for this app user. Previous edits are listed below.'
+                : 'Update details for this user.'
+              : 'Add a new administrative user to the system.'}
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-4">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-4" noValidate>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Full Name</label>
+            <label className="text-sm font-medium text-gray-700">Full Name *</label>
             <Input
               placeholder="John Doe"
-              {...register('name')}
+              autoComplete="name"
+              {...nameReg}
+              onBlur={(e) => {
+                e.target.value = e.target.value.trim();
+                void nameReg.onBlur(e);
+              }}
               className={errors.name ? 'border-red-500' : ''}
             />
             {errors.name && <p className="text-red-500 text-xs">{errors.name.message}</p>}
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Email Address</label>
+            <label className="text-sm font-medium text-gray-700">Email Address *</label>
             <Input
               type="email"
               placeholder="john@propnetra.com"
-              {...register('email')}
+              autoComplete="email"
+              {...emailReg}
+              onBlur={(e) => {
+                e.target.value = e.target.value.trim();
+                void emailReg.onBlur(e);
+              }}
               className={errors.email ? 'border-red-500' : ''}
             />
             {errors.email && <p className="text-red-500 text-xs">{errors.email.message}</p>}
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Contact Number</label>
+            <label className="text-sm font-medium text-gray-700">Contact Number *</label>
             <Input
               placeholder="9876543210"
-              {...register('contact')}
+              inputMode="numeric"
+              autoComplete="tel"
+              maxLength={10}
+              {...contactReg}
+              onChange={(e) => {
+                e.target.value = digitsOnly(e.target.value);
+                void contactReg.onChange(e);
+              }}
               className={errors.contact ? 'border-red-500' : ''}
             />
             {errors.contact && <p className="text-red-500 text-xs">{errors.contact.message}</p>}
@@ -177,6 +256,8 @@ export function UserFormModal({
             </div>
           )}
 
+          {formError && <p className="text-red-500 text-xs">{formError}</p>}
+
           <div className="pt-4 flex justify-end gap-3">
             <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>
               Cancel
@@ -189,6 +270,45 @@ export function UserFormModal({
             </Button>
           </div>
         </form>
+
+        {isEdit && showEditLogs && (
+          <div className="border-t border-gray-100 pt-4 space-y-2">
+            <p className="text-xs font-bold uppercase tracking-wide text-gray-900 bg-gray-100 border-l-4 border-primary px-2 py-1.5 rounded-r">
+              Edit logs ({Array.isArray(user?.editLogs) ? user.editLogs.length : 0})
+            </p>
+            {!Array.isArray(user?.editLogs) || user.editLogs.length === 0 ? (
+              <p className="text-xs text-gray-500 px-1">No edits yet.</p>
+            ) : (
+              <ul className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {user.editLogs.map((log: any) => (
+                  <li
+                    key={log.id}
+                    className="rounded-xl border border-gray-100 bg-gray-50/80 px-3 py-2.5 text-sm"
+                  >
+                    <p className="text-[10px] text-gray-500 mb-1.5">
+                      {log.createdByName || 'Admin'} · {formatLogTime(log.createdAt)}
+                    </p>
+                    <ul className="space-y-1">
+                      {(log.changes || []).map(
+                        (
+                          change: { field: string; from: string; to: string },
+                          i: number,
+                        ) => (
+                          <li key={`${log.id}-${change.field}-${i}`} className="text-xs text-gray-800">
+                            <span className="font-medium">{change.field}:</span>{' '}
+                            <span className="text-gray-500">{change.from}</span>
+                            {' → '}
+                            <span>{change.to}</span>
+                          </li>
+                        ),
+                      )}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

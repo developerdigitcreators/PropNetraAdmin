@@ -3,14 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/common/searchable-select";
 import {
   MAX_BROADCAST_CITIES,
@@ -20,7 +13,13 @@ import {
 import { AttachUrlDialog } from "./attach-url-dialog";
 import { LinkPickerDialog, LinkTypeToggle } from "./link-picker";
 import { FormattedTextField } from "./formatted-text-field";
-import { type BroadcastDraft, draftErrors, draftImageUrl, draftPushLayout, isHttpsUrl } from "./draft";
+import {
+  type BroadcastDraft,
+  draftErrors,
+  draftImageUrl,
+  draftPushLayout,
+  isHttpsUrl,
+} from "./draft";
 import {
   PushLayoutComposer,
   type PushLayoutDraft,
@@ -76,7 +75,6 @@ export function MessageComposer({
   const [attachKind, setAttachKind] = useState<BroadcastKeyLabel | null>(null);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkPickerType, setLinkPickerType] = useState<"post" | "page">("post");
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [expandedOverride, setExpandedOverride] = useState<boolean | null>(null);
   const [cityPicker, setCityPicker] = useState("");
   const [touched, setTouched] = useState(false);
@@ -91,13 +89,11 @@ export function MessageComposer({
   if (mode !== modeSnapshot) {
     setModeSnapshot(mode);
     setExpandedOverride(null);
-    setAdvancedOpen(false);
   }
   if (isEmpty !== emptySnapshot) {
     setEmptySnapshot(isEmpty);
     if (isEmpty && !isEdit) {
       setExpandedOverride(null);
-      setAdvancedOpen(false);
     }
   }
 
@@ -163,6 +159,15 @@ export function MessageComposer({
     }
     setAttachKind(null);
   };
+
+  const clearLink = () =>
+    patch({
+      linkType: "none",
+      listingId: "",
+      listingLabel: "",
+      pageKey: "",
+      ctaLabel: "",
+    });
 
   const submit = () => {
     setTouched(true);
@@ -250,331 +255,263 @@ export function MessageComposer({
               Hide composer
             </button>
           </div>
-      <div className="flex flex-wrap items-center gap-1.5 px-4 pt-3">
-        <span className="text-xs font-medium text-gray-500">To</span>
-        {selectedCities.map((city) => (
-          <span
-            key={city.id}
-            className="inline-flex items-center gap-1 rounded-full bg-primary-light px-2.5 py-1 text-xs font-medium text-primary"
-          >
-            {city.name}
-            {!isEdit && (
-              <button
-                type="button"
-                onClick={() =>
-                  patch({
-                    cityIds: draft.cityIds.filter((id) => id !== city.id),
-                  })
-                }
-                className="rounded-full p-0.5 hover:bg-white/60"
-                aria-label={`Remove ${city.name}`}
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </span>
-        ))}
-        {!isEdit && draft.cityIds.length < MAX_BROADCAST_CITIES && (
-          <div className="w-44">
-            <SearchableSelect
-              options={cityOptions}
-              value={cityPicker}
-              onValueChange={addCity}
-              loading={citiesLoading}
-              placeholder="Add city"
-              searchPlaceholder="Search city…"
-              emptyText="No more cities."
-            />
-          </div>
-        )}
-      </div>
-
-      {(draft.media.length > 0 || draft.linkType !== "none") && (
-        <div className="flex flex-wrap gap-2 px-4 pt-2">
-          {draft.media.map((item, index) => {
-            const Icon = KIND_ICONS[item.kind] || Paperclip;
-            const invalid = !isHttpsUrl(item.url);
-            return (
+          <div className="flex flex-wrap items-center gap-1.5 px-4 pt-3">
+            <span className="text-xs font-medium text-gray-500">To</span>
+            {selectedCities.map((city) => (
               <span
-                key={`${item.kind}-${item.url}-${index}`}
-                className={cn(
-                  "inline-flex max-w-64 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs",
-                  invalid
-                    ? "border-red-200 bg-red-50 text-red-700"
-                    : "border-gray-200 bg-gray-50 text-gray-700",
-                )}
+                key={city.id}
+                className="inline-flex items-center gap-1 rounded-full bg-primary-light px-2.5 py-1 text-xs font-medium text-primary"
               >
-                <Icon className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate font-medium capitalize">
-                  {item.kind}
-                </span>
-                <span className="truncate text-gray-400">{item.url}</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    patch({
-                      media: draft.media.filter((_, i) => i !== index),
-                    })
-                  }
-                  className="rounded-full p-0.5 hover:bg-black/5"
-                  aria-label={`Remove ${item.kind}`}
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            );
-          })}
-
-          {draft.linkType !== "none" && (
-            <span className="inline-flex max-w-64 items-center gap-1.5 rounded-lg border border-primary/20 bg-primary-light px-2 py-1.5 text-xs text-primary">
-              <Link2 className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate font-medium">{linkLabel}</span>
-              <button
-                type="button"
-                onClick={() =>
-                  patch({
-                    linkType: "none",
-                    listingId: "",
-                    listingLabel: "",
-                    pageKey: "",
-                  })
-                }
-                className="rounded-full p-0.5 hover:bg-white/60"
-                aria-label="Remove link"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          )}
-        </div>
-      )}
-
-      <div className="px-4 pt-2">
-        <FormattedTextField
-          label="Notification title"
-          value={draft.title}
-          onChange={(v) => patch({ title: v })}
-          placeholder="Notification title"
-          ariaLabel="Notification title"
-          editorClassName="font-medium"
-        />
-      </div>
-
-      <div className="flex items-end gap-2 px-4 py-3">
-        <div className="relative" ref={attachRef}>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={() => setAttachOpen((o) => !o)}
-            aria-label="Add attachment"
-            className="rounded-full text-gray-500"
-          >
-            <Plus
-              className={cn(
-                "w-5 h-5 transition-transform",
-                attachOpen && "rotate-45",
-              )}
-            />
-          </Button>
-
-          {attachOpen && (
-            <div className="absolute bottom-12 left-0 z-50 w-52 overflow-hidden rounded-xl border border-gray-100 bg-white p-1 shadow-lg">
-              {mediaKinds.map((kind) => {
-                const Icon = KIND_ICONS[kind.key] || Paperclip;
-                const atLimit = draft.media.length >= 5;
-                const alreadyHasNonImage =
-                  kind.key !== "image" &&
-                  draft.media.some((m) => m.kind === kind.key);
-                return (
+                {city.name}
+                {!isEdit && (
                   <button
-                    key={kind.key}
                     type="button"
-                    disabled={atLimit || alreadyHasNonImage}
-                    onClick={() => {
-                      setAttachKind(kind);
-                      setAttachOpen(false);
-                    }}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                    onClick={() =>
+                      patch({
+                        cityIds: draft.cityIds.filter((id) => id !== city.id),
+                      })
+                    }
+                    className="rounded-full p-0.5 hover:bg-white/60"
+                    aria-label={`Remove ${city.name}`}
                   >
-                    <Icon className="w-4 h-4 text-gray-400" />
-                    {kind.key === "image" ? "Image" : kind.label}
+                    <X className="w-3 h-3" />
                   </button>
+                )}
+              </span>
+            ))}
+            {!isEdit && draft.cityIds.length < MAX_BROADCAST_CITIES && (
+              <div className="w-44">
+                <SearchableSelect
+                  options={cityOptions}
+                  value={cityPicker}
+                  onValueChange={addCity}
+                  loading={citiesLoading}
+                  placeholder="Add city"
+                  searchPlaceholder="Search city…"
+                  emptyText="No more cities."
+                />
+              </div>
+            )}
+          </div>
+
+          {(draft.media.length > 0 || draft.linkType !== "none") && (
+            <div className="flex flex-wrap gap-2 px-4 pt-2">
+              {draft.media.map((item, index) => {
+                const Icon = KIND_ICONS[item.kind] || Paperclip;
+                const invalid = !isHttpsUrl(item.url);
+                return (
+                  <span
+                    key={`${item.kind}-${item.url}-${index}`}
+                    className={cn(
+                      "inline-flex max-w-64 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs",
+                      invalid
+                        ? "border-red-200 bg-red-50 text-red-700"
+                        : "border-gray-200 bg-gray-50 text-gray-700",
+                    )}
+                  >
+                    <Icon className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate font-medium capitalize">
+                      {item.kind}
+                    </span>
+                    <span className="truncate text-gray-400">{item.url}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        patch({
+                          media: draft.media.filter((_, i) => i !== index),
+                        })
+                      }
+                      className="rounded-full p-0.5 hover:bg-black/5"
+                      aria-label={`Remove ${item.kind}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
                 );
               })}
-              <button
-                type="button"
-                onClick={() => {
-                  setLinkPickerType(
-                    draft.linkType === "page" ? "page" : "post",
-                  );
-                  setLinkOpen(true);
-                  setAttachOpen(false);
-                }}
-                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <Link2 className="w-4 h-4 text-gray-400" />
-                Link to post or page
-              </button>
-            </div>
-          )}
-        </div>
 
-        <FormattedTextField
-          label="Message"
-          value={draft.body}
-          onChange={(v) => patch({ body: v })}
-          onFormatApplied={() => patch({ bodyFormat: "markdown" })}
-          onEnterSubmit={submit}
-          placeholder="Type a message"
-          ariaLabel="Message"
-          className="min-w-0 flex-1"
-        />
-
-        <Button
-          type="button"
-          onClick={submit}
-          disabled={!canSubmit}
-          aria-label={isEdit ? "Save changes" : "Preview and send"}
-          className="size-10 shrink-0 rounded-full bg-primary p-0 text-white hover:bg-primary/90"
-        >
-          <Send className="w-4 h-4" />
-        </Button>
-      </div>
-
-      <div className="flex items-center justify-between gap-3 px-4 pb-3">
-        <button
-          type="button"
-          onClick={() => setAdvancedOpen(true)}
-          className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
-        >
-          In-app card options
-          {(draft.cardTitle.trim() ||
-            draft.cardBody.trim() ||
-            draft.linkType !== "none") && (
-            <span className="rounded-full bg-primary-light px-1.5 py-0.5 text-[10px] font-medium text-primary">
-              Custom
-            </span>
-          )}
-        </button>
-        {touched && errors.length > 0 && (
-          <p className="text-xs text-red-600">{errors[0]}</p>
-        )}
-      </div>
-
-      <Dialog
-        open={advancedOpen}
-        onOpenChange={(next) => setAdvancedOpen(!!next)}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>In-app card options</DialogTitle>
-            <DialogDescription>
-              The card shown inside Groups. Leave these empty to reuse the title
-              and message above.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3 py-1">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-700">
-                Card title
-              </label>
-              <FormattedTextField
-                value={draft.cardTitle}
-                onChange={(v) => patch({ cardTitle: v })}
-                placeholder="Optional"
-                ariaLabel="Card title"
-                fieldClassName="bg-white"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-700">
-                Card message
-              </label>
-              <FormattedTextField
-                value={draft.cardBody}
-                onChange={(v) => patch({ cardBody: v })}
-                onFormatApplied={() => patch({ bodyFormat: "markdown" })}
-                placeholder="Optional"
-                ariaLabel="Card message"
-                fieldClassName="bg-white"
-              />
-            </div>
-            <p className="text-xs text-gray-500">
-              The app renders formatting in the card message only. Titles and
-              the phone notification are drawn as plain text there, so bold or
-              italic in a title will reach users as literal characters.
-            </p>
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-gray-700">
-                Opens on tap
-              </p>
-              <LinkTypeToggle
-                active={
-                  draft.linkType === "page"
-                    ? "page"
-                    : draft.linkType === "post"
-                      ? "post"
-                      : "none"
-                }
-                onSelect={(type) => {
-                  setLinkPickerType(type);
-                  setLinkOpen(true);
-                }}
-              />
-              {draft.linkType !== "none" && linkLabel ? (
-                <p className="text-xs text-gray-500">{linkLabel}</p>
-              ) : (
-                <p className="text-xs text-gray-400">
-                  Choose listing or internal page. A picker opens next.
-                </p>
+              {draft.linkType !== "none" && (
+                <span className="inline-flex max-w-72 items-center gap-1.5 rounded-lg border border-primary/20 bg-primary-light px-2 py-1.5 text-xs text-primary">
+                  <Link2 className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate font-medium">
+                    {draft.linkType === "post" ? "Post linked" : "Page linked"}
+                    {linkLabel ? ` · ${linkLabel}` : ""}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearLink}
+                    className="rounded-full p-0.5 hover:bg-white/60"
+                    aria-label="Remove link"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
               )}
             </div>
+          )}
+
+          <div className="space-y-2 px-4 pt-2">
+            <FormattedTextField
+              label="Card title"
+              value={draft.title}
+              onChange={(v) => patch({ title: v })}
+              placeholder="Card title"
+              ariaLabel="Card title"
+              editorClassName="font-medium"
+            />
+            <FormattedTextField
+              label="Card message (optional)"
+              value={draft.body}
+              onChange={(v) => patch({ body: v })}
+              onFormatApplied={() => patch({ bodyFormat: "markdown" })}
+              placeholder="Optional message"
+              ariaLabel="Card message"
+            />
           </div>
 
-          <DialogFooter>
+          <div className="space-y-2 px-4 pt-3">
+            <p className="text-xs font-medium text-gray-700">Link</p>
+            <LinkTypeToggle
+              allowNone
+              active={
+                draft.linkType === "page"
+                  ? "page"
+                  : draft.linkType === "post"
+                    ? "post"
+                    : "none"
+              }
+              onSelect={(type) => {
+                if (type === "none") {
+                  clearLink();
+                  return;
+                }
+                setLinkPickerType(type);
+                setLinkOpen(true);
+              }}
+            />
+            {draft.linkType !== "none" ? (
+              <div className="space-y-2">
+                <p className="text-xs text-gray-500">
+                  {linkLabel ||
+                    (draft.linkType === "post"
+                      ? "Choose a listing…"
+                      : "Choose a page…")}
+                </p>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-700">
+                    Button label (optional)
+                  </label>
+                  <Input
+                    value={draft.ctaLabel}
+                    onChange={(e) => patch({ ctaLabel: e.target.value })}
+                    placeholder="e.g. View listing"
+                    maxLength={40}
+                  />
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400">
+                Normal sends with no deep link. Post / Page opens a picker.
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-end gap-2 px-4 py-3">
+            <div className="relative" ref={attachRef}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setAttachOpen((o) => !o)}
+                aria-label="Add attachment"
+                className="rounded-full text-gray-500"
+              >
+                <Plus
+                  className={cn(
+                    "w-5 h-5 transition-transform",
+                    attachOpen && "rotate-45",
+                  )}
+                />
+              </Button>
+
+              {attachOpen && (
+                <div className="absolute bottom-12 left-0 z-50 w-52 overflow-hidden rounded-xl border border-gray-100 bg-white p-1 shadow-lg">
+                  {mediaKinds.map((kind) => {
+                    const Icon = KIND_ICONS[kind.key] || Paperclip;
+                    const atLimit = draft.media.length >= 5;
+                    const alreadyHasNonImage =
+                      kind.key !== "image" &&
+                      draft.media.some((m) => m.kind === kind.key);
+                    return (
+                      <button
+                        key={kind.key}
+                        type="button"
+                        disabled={atLimit || alreadyHasNonImage}
+                        onClick={() => {
+                          setAttachKind(kind);
+                          setAttachOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                      >
+                        <Icon className="w-4 h-4 text-gray-400" />
+                        {kind.key === "image" ? "Image" : kind.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="min-w-0 flex-1 text-xs text-gray-400">
+              Attachments optional. Same title/message go to the feed card and
+              phone push.
+            </div>
+
             <Button
               type="button"
-              onClick={() => setAdvancedOpen(false)}
-              className="bg-primary text-white hover:bg-primary/90"
+              onClick={submit}
+              disabled={!canSubmit}
+              aria-label={isEdit ? "Save changes" : "Preview and send"}
+              className="size-10 shrink-0 rounded-full bg-primary p-0 text-white hover:bg-primary/90"
             >
-              Done
+              <Send className="w-4 h-4" />
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
 
-      <AttachUrlDialog
-        open={!!attachKind}
-        kind={attachKind?.key || ""}
-        kindLabel={attachKind?.label || ""}
-        initialUrl={
-          attachKind?.key === "image"
-            ? ""
-            : draft.media.find((m) => m.kind === attachKind?.key)?.url || ""
-        }
-        onClose={() => setAttachKind(null)}
-        onSave={saveAttachment}
-      />
+          {touched && errors.length > 0 && (
+            <p className="px-4 pb-3 text-xs text-red-600">{errors[0]}</p>
+          )}
 
-      <LinkPickerDialog
-        open={linkOpen}
-        pages={pages}
-        cityId={draft.cityIds[0]}
-        preferredType={linkPickerType}
-        value={{
-          linkType: draft.linkType,
-          listingId: draft.listingId,
-          listingLabel: draft.listingLabel,
-          pageKey: draft.pageKey,
-        }}
-        onClose={() => setLinkOpen(false)}
-        onSave={(next) => {
-          patch(next);
-          setLinkOpen(false);
-        }}
-      />
+          <AttachUrlDialog
+            open={!!attachKind}
+            kind={attachKind?.key || ""}
+            kindLabel={attachKind?.label || ""}
+            initialUrl={
+              attachKind?.key === "image"
+                ? ""
+                : draft.media.find((m) => m.kind === attachKind?.key)?.url || ""
+            }
+            onClose={() => setAttachKind(null)}
+            onSave={saveAttachment}
+          />
+
+          <LinkPickerDialog
+            open={linkOpen}
+            pages={pages}
+            cityId={draft.cityIds[0]}
+            preferredType={linkPickerType}
+            value={{
+              linkType: draft.linkType,
+              listingId: draft.listingId,
+              listingLabel: draft.listingLabel,
+              pageKey: draft.pageKey,
+            }}
+            onClose={() => setLinkOpen(false)}
+            onSave={(next) => {
+              patch({ ...next, ctaLabel: draft.ctaLabel });
+              setLinkOpen(false);
+            }}
+          />
         </>
       )}
     </div>

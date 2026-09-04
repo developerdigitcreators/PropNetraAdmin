@@ -37,6 +37,8 @@ export default function AppUsersLayout({ children }: { children: ReactNode }) {
 
   if (!page) return <>{children}</>;
 
+  const fillViewport = pathname.startsWith('/app-users/otp-verified');
+
   return (
     <PermissionGuard
       permission={APP_USERS_ANY_READ}
@@ -54,20 +56,44 @@ export default function AppUsersLayout({ children }: { children: ReactNode }) {
           </div>
         }
       >
-        <div className="space-y-6 pb-12">
-          <Breadcrumb
-            items={[
-              { label: 'App Users', href: parentHref },
-              { label: page.label },
-            ]}
-          />
-
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900">{page.label}</h1>
-            <p className="text-gray-500 mt-1">{page.description}</p>
-          </div>
-
-          {children}
+        <div
+          className={
+            fillViewport
+              ? 'flex min-h-0 flex-1 flex-col gap-4'
+              : 'space-y-6 pb-12'
+          }
+        >
+          {fillViewport ? (
+            <>
+              <div className="shrink-0 space-y-4">
+                <Breadcrumb
+                  items={[
+                    { label: 'App Users', href: parentHref },
+                    { label: page.label },
+                  ]}
+                />
+                <div>
+                  <h1 className="text-2xl font-bold tracking-tight text-gray-900">{page.label}</h1>
+                  <p className="text-gray-500 mt-1">{page.description}</p>
+                </div>
+              </div>
+              <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+            </>
+          ) : (
+            <>
+              <Breadcrumb
+                items={[
+                  { label: 'App Users', href: parentHref },
+                  { label: page.label },
+                ]}
+              />
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-gray-900">{page.label}</h1>
+                <p className="text-gray-500 mt-1">{page.description}</p>
+              </div>
+              {children}
+            </>
+          )}
         </div>
       </PermissionGuard>
     </PermissionGuard>

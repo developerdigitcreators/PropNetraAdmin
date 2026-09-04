@@ -21,6 +21,7 @@ import {
   type AccountDeletionStatus,
 } from '@/services/account-deletions.service';
 import { Eye, Loader2, Search, UserRound, UserX } from 'lucide-react';
+import { newFirstCellClass, NewTag } from '@/components/common/new-row-marker';
 
 function formatDateTime(value?: string | null) {
   if (!value) return '—';
@@ -234,13 +235,14 @@ export function AccountDeletionsPanel() {
                 <tbody>
                   {items.map((row) => (
                     <tr key={row.id} className="border-b border-gray-50 last:border-0">
-                      <td className="px-5 py-4">
+                      <td className={newFirstCellClass(row.isNew, 'px-5 py-4')}>
                         <div className="flex items-center gap-3">
                           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-gray-400">
                             <UserRound className="h-4 w-4" />
                           </span>
                           <div className="min-w-0">
-                            <p className="truncate font-medium text-gray-900">
+                            <p className="flex items-center gap-1.5 truncate font-medium text-gray-900">
+                              <NewTag show={row.isNew} />
                               {row.user?.name || 'Unknown user'}
                             </p>
                             <p className="truncate text-xs text-gray-500">

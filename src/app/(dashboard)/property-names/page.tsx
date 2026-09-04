@@ -15,6 +15,7 @@ import { Breadcrumb } from '@/components/common/breadcrumb';
 import { withCount } from '@/lib/filter-label';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 import { ImageUrlOrUpload } from '@/components/image-url-or-upload';
+import { MultiSelect } from '@/components/common/multi-select';
 
 function pickStr(...values: unknown[]): string {
   for (const value of values) {
@@ -34,12 +35,34 @@ function asList(data: unknown): any[] {
 }
 
 function normalizePropertyName(raw: any) {
-  const propertyType = raw?.property_type || raw?.propertyType || null;
-  const propertyTypeId = pickStr(raw?.property_type_id, raw?.propertyTypeId, propertyType?.id);
+  const typesRaw = Array.isArray(raw?.property_types)
+    ? raw.property_types
+    : Array.isArray(raw?.propertyTypes)
+      ? raw.propertyTypes
+      : raw?.property_type || raw?.propertyType
+        ? [raw.property_type || raw.propertyType]
+        : [];
+  const propertyTypes = typesRaw.filter((t: any) => t && (t.id || t.name));
+  const propertyTypeIds = (
+    Array.isArray(raw?.propertyTypeIds) && raw.propertyTypeIds.length
+      ? raw.propertyTypeIds
+      : propertyTypes.map((t: any) => t.id)
+  )
+    .map((id: unknown) => pickStr(id))
+    .filter(Boolean);
+  const propertyType = propertyTypes[0] || raw?.property_type || raw?.propertyType || null;
+  const propertyTypeId = pickStr(
+    propertyTypeIds[0],
+    raw?.property_type_id,
+    raw?.propertyTypeId,
+    propertyType?.id,
+  );
   return {
     ...raw,
     property_type: propertyType,
     property_type_id: propertyTypeId,
+    property_types: propertyTypes,
+    propertyTypeIds,
     image_url: pickStr(raw?.image_url, raw?.imageUrl),
   };
 }
@@ -130,17 +153,31 @@ export default function PropertyNamesPage() {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
   const [form, setForm] = useState({
     name: '',
     state_id: '',
     city_id: '',
     micro_market_id: '',
-    property_type_id: '',
+    property_type_ids: [] as string[],
     image_url: '',
     location_ids: [] as string[],
   });
   const [propertyTypes, setPropertyTypes] = useState<any[]>([]);
   const uniqueTypes = uniquePropertyTypes(propertyTypes);
+
+  const propertyNameApiError = (err: unknown, fallback: string) => {
+    const e = err as {
+      response?: { data?: { message?: unknown; error?: { message?: unknown } } };
+      message?: string;
+    };
+    const nested = e?.response?.data;
+    const fromError = nested?.error?.message;
+    const msg = fromError ?? nested?.message;
+    if (Array.isArray(msg)) return msg.filter(Boolean).join(', ');
+    if (typeof msg === 'string' && msg.trim()) return msg;
+    return e?.message || fallback;
+  };
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
@@ -190,6 +227,7 @@ export default function PropertyNamesPage() {
 
   const open = (item: any = null) => {
     setEditing(item);
+    setFormError('');
     if (item) {
       const cityId = item.city_id || item.city?.id || '';
       setForm({
@@ -197,10 +235,17 @@ export default function PropertyNamesPage() {
         state_id: resolveStateId(cityId),
         city_id: cityId,
         micro_market_id: item.micro_market_id || item.micro_market?.id || '',
-        property_type_id: canonicalPropertyTypeId(
-          propertyTypes,
-          pickStr(item.property_type_id, item.property_type?.id, item.propertyType?.id),
-          item.property_type?.name || item.propertyType?.name,
+        property_type_ids: Array.from(
+          new Set(
+            (item.propertyTypeIds?.length
+              ? item.propertyTypeIds
+              : [pickStr(item.property_type_id, item.property_type?.id, item.propertyType?.id)]
+            )
+              .map((id: string) =>
+                canonicalPropertyTypeId(propertyTypes, id, item.property_type?.name || item.propertyType?.name),
+              )
+              .filter(Boolean),
+          ),
         ),
         image_url: pickStr(item.image_url, item.imageUrl),
         location_ids: (item.locations || []).map((l: any) => l.id),
@@ -212,7 +257,7 @@ export default function PropertyNamesPage() {
         state_id: cityId ? resolveStateId(cityId) : '',
         city_id: cityId,
         micro_market_id: filterMmId,
-        property_type_id: '',
+        property_type_ids: [],
         image_url: '',
         location_ids: [],
       });
@@ -230,14 +275,16 @@ export default function PropertyNamesPage() {
   };
 
   const save = async () => {
-    if (!form.name || !form.city_id || !form.micro_market_id || !form.property_type_id || !form.image_url.trim()) return;
+    if (!form.name || !form.city_id || !form.micro_market_id || !form.property_type_ids.length || !form.image_url.trim()) return;
     setIsSubmitting(true);
+    setFormError('');
     try {
       const payload = {
-        name: form.name,
+        name: form.name.trim(),
         city_id: form.city_id,
         micro_market_id: form.micro_market_id,
-        property_type_id: form.property_type_id,
+        property_type_id: form.property_type_ids[0],
+        propertyTypeIds: form.property_type_ids,
         image_url: form.image_url.trim(),
         location_ids: form.location_ids,
       };
@@ -246,7 +293,9 @@ export default function PropertyNamesPage() {
       setIsModalOpen(false);
       fetchAll();
     } catch (e) {
-      console.error(e);
+      setFormError(
+        propertyNameApiError(e, 'Failed to save. This property name may already exist.'),
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -294,9 +343,6 @@ export default function PropertyNamesPage() {
   const selectedStateName = states.find((s) => s.id === form.state_id)?.name;
   const selectedCityName = cities.find((c) => c.id === form.city_id)?.name;
   const selectedMmName = microMarkets.find((m) => m.id === form.micro_market_id)?.name;
-  const selectedPropertyTypeName =
-    uniqueTypes.find((t) => t.id === form.property_type_id)?.name
-    ?? propertyTypes.find((t) => t.id === form.property_type_id)?.name;
   const filterCityName = cities.find((c) => c.id === filterCityId)?.name;
   const filterMmName = microMarkets.find((m) => m.id === filterMmId)?.name;
 
@@ -398,7 +444,19 @@ export default function PropertyNamesPage() {
                 filtered.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50/50">
                     <td className="px-6 py-4 font-medium text-gray-900">{item.name}</td>
-                    <td className="px-6 py-4 text-gray-500">{item.property_type?.name || '—'}</td>
+                    <td className="px-6 py-4 text-gray-500">
+                      {(item.property_types || []).length ? (
+                        <div className="flex flex-wrap gap-1">
+                          {(item.property_types as any[]).map((t) => (
+                            <Badge key={t.id || t.name} variant="outline" className="text-xs">
+                              {t.name}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        item.property_type?.name || '—'
+                      )}
+                    </td>
                     <td className="px-6 py-4">
                       {item.image_url ? (
                         <img src={item.image_url} alt="" className="h-10 w-16 object-cover rounded border bg-gray-50" />
@@ -472,39 +530,28 @@ export default function PropertyNamesPage() {
                 <label className="text-sm font-medium">Project / Property Name</label>
                 <Input
                   value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  onChange={(e) => {
+                    setFormError('');
+                    setForm({ ...form, name: e.target.value });
+                  }}
                   placeholder="e.g. DLF The Camellias"
+                  className={formError ? 'border-red-500 focus-visible:ring-red-500' : undefined}
                 />
+                {formError ? (
+                  <p className="text-sm text-red-600">{formError}</p>
+                ) : null}
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  Property type <span className="text-red-500">*</span>
+                  Property types <span className="text-red-500">*</span>
                 </label>
-                <Select
-                  value={form.property_type_id}
-                  onValueChange={(v) => setForm({ ...form, property_type_id: v ?? '' })}
-                >
-                  <SelectTrigger>
-                    {selectedPropertyTypeName ? (
-                      <span>{selectedPropertyTypeName}</span>
-                    ) : (
-                      <SelectValue placeholder="Select Apartment, SCO, Plot…" />
-                    )}
-                  </SelectTrigger>
-                  <SelectContent>
-                    {uniqueTypes.length === 0 ? (
-                      <div className="px-3 py-2 text-sm text-gray-500">
-                        Add property types under Agent Listing Attributes first.
-                      </div>
-                    ) : (
-                      uniqueTypes.map((t) => (
-                        <SelectItem key={t.id} value={t.id}>
-                          {t.name}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
+                <MultiSelect
+                  options={uniqueTypes.map((t) => ({ value: t.id, label: t.name }))}
+                  values={form.property_type_ids}
+                  onChange={(ids) => setForm((f) => ({ ...f, property_type_ids: ids }))}
+                  placeholder="Select Apartment, SCO, Plot…"
+                  emptyText="Add property types under Agent Listing Attributes first."
+                />
               </div>
               <ImageUrlOrUpload
                 label="Share / WhatsApp image URL"
@@ -626,7 +673,7 @@ export default function PropertyNamesPage() {
                   !form.name ||
                   !form.city_id ||
                   !form.micro_market_id ||
-                  !form.property_type_id ||
+                  !form.property_type_ids.length ||
                   !form.image_url.trim()
                 }
               >

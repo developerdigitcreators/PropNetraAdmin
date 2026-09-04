@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Clapperboard,
   CircleHelp,
+  Search,
   MessageSquare,
   Headset,
   BarChart3,
@@ -28,23 +29,28 @@ import {
 } from "lucide-react";
 import { PermissionGuard } from "@/components/common/permission-guard";
 import { useAuthStore } from "@/store/use-auth-store";
-import { listingsService } from "@/services/listings.service";
 import {
   APP_USERS_ANY_READ,
   APP_USER_TAB_ACCESS,
   defaultAppUsersPath,
   readPermissionsForTab,
 } from "@/modules/app-users/app-users-access";
+import { dashboardService, type AdminDashboardSummary } from "@/services/dashboard.service";
 
-type MenuChild = { name: string; path: string; permission?: string | string[] };
+type MenuChild = {
+  name: string;
+  path: string;
+  permission?: string | string[];
+  badgeKey?: keyof AdminDashboardSummary;
+};
 type MenuItem = {
   name: string;
   path: string;
   icon: typeof LayoutDashboard;
-  permission: string | string[];
+  permission?: string | string[];
   children?: MenuChild[];
   defaultChildPath?: string;
-  badgeKey?: 'my_listings';
+  badgeKey?: keyof AdminDashboardSummary;
 };
 
 const MENU_ITEMS: MenuItem[] = [
@@ -52,7 +58,6 @@ const MENU_ITEMS: MenuItem[] = [
     name: "Dashboard",
     path: "/",
     icon: LayoutDashboard,
-    permission: "dashboard:read",
   },
   {
     name: "User Profile",
@@ -83,13 +88,14 @@ const MENU_ITEMS: MenuItem[] = [
     path: "/moderation",
     icon: MapPin,
     permission: "locations:read",
+    badgeKey: "reviewPending",
   },
   {
     name: "My Listings",
     path: "/my-listings",
     icon: ClipboardList,
     permission: "admin_my_listings:read",
-    badgeKey: "my_listings",
+    badgeKey: "myListingsActionable",
   },
   {
     name: "Add Post",
@@ -122,6 +128,12 @@ const MENU_ITEMS: MenuItem[] = [
     permission: "netra_reels:read",
   },
   {
+    name: "Search Suggestions",
+    path: "/search-suggestions",
+    icon: Search,
+    permission: "search_suggestions:read",
+  },
+  {
     name: "Notifications",
     path: "/notifications",
     icon: Bell,
@@ -138,6 +150,12 @@ const MENU_ITEMS: MenuItem[] = [
     path: "/subscription-plans",
     icon: CreditCard,
     permission: "subscriptions:read",
+  },
+  {
+    name: "Subscribe now tracking",
+    path: "/subscribe-now-tracking",
+    icon: ClipboardList,
+    permission: "subscribe_now_tracking:read",
   },
   {
     name: "Subscription Add-ons",
@@ -162,18 +180,21 @@ const MENU_ITEMS: MenuItem[] = [
     path: "/feedbacks",
     icon: MessageSquare,
     permission: "feedbacks:read",
+    badgeKey: "feedbacks",
   },
   {
     name: "Support Tickets",
     path: "/support-tickets",
     icon: Headset,
     permission: "support_tickets:read",
+    badgeKey: "supportTickets",
   },
   {
     name: "Account Deletion Requests",
     path: "/account-deletions",
     icon: UserX,
     permission: "account_deletions:read",
+    badgeKey: "accountDeletions",
   },
   {
     name: "RBAC Roles",
@@ -203,9 +224,26 @@ const MENU_ITEMS: MenuItem[] = [
       name: tab.name,
       path: tab.path,
       permission: readPermissionsForTab(tab.module),
+      badgeKey:
+        tab.path.includes("otp-issued")
+          ? "otpIssued"
+          : tab.path.includes("otp-verified")
+            ? "otpVerified"
+            : tab.path.includes("master-data")
+              ? "documentsPending"
+              : undefined,
     })),
   },
 ];
+
+function SidebarBadge({ count }: { count: number }) {
+  if (!count || count <= 0) return null;
+  return (
+    <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-xs font-semibold text-white">
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -213,25 +251,26 @@ export function Sidebar() {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     "/app-users": pathname.startsWith("/app-users") || pathname.startsWith("/rbac/app-users"),
   });
-  const [myListingsBadge, setMyListingsBadge] = useState(0);
+  const [summary, setSummary] = useState<AdminDashboardSummary>({});
 
   useEffect(() => {
-    if (!hasPermission("admin_my_listings", "read")) return;
     let cancelled = false;
-    void listingsService
-      .getMyListingsSummary()
-      .then((summary) => {
-        if (!cancelled) setMyListingsBadge(summary.totalActionable);
+    void dashboardService
+      .getSummary()
+      .then((data) => {
+        if (!cancelled) setSummary(data || {});
       })
       .catch(() => {
-        if (!cancelled) setMyListingsBadge(0);
+        if (!cancelled) setSummary({});
       });
     return () => {
       cancelled = true;
     };
-  }, [hasPermission, pathname]);
+  }, [pathname]);
 
   const appUsersDefaultPath = defaultAppUsersPath(hasPermission);
+  const badgeCount = (key?: keyof AdminDashboardSummary) =>
+    key && typeof summary[key] === "number" ? Number(summary[key]) : 0;
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col hidden md:flex">
@@ -247,101 +286,107 @@ export function Sidebar() {
             (c) => pathname === c.path || pathname.startsWith(`${c.path}/`),
           );
           const isActive =
-            pathname === item.path ||
-            pathname.startsWith(`${item.path}/`) ||
-            !!childActive ||
-            (item.path === "/app-users" && pathname.startsWith("/rbac/app-users"));
+            item.path === "/"
+              ? pathname === "/"
+              : pathname === item.path ||
+                pathname.startsWith(`${item.path}/`) ||
+                !!childActive ||
+                (item.path === "/app-users" && pathname.startsWith("/rbac/app-users"));
           const expanded = openGroups[item.path] ?? isActive;
+          const linkBody = (
+            <div>
+              {hasChildren ? (
+                <>
+                  <div className="flex items-center gap-0.5">
+                    <Link
+                      href={
+                        item.path === "/app-users"
+                          ? appUsersDefaultPath
+                          : item.defaultChildPath || item.path
+                      }
+                      className={`flex-1 flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                        isActive
+                          ? "bg-primary-light text-primary"
+                          : "text-gray-700 hover:bg-gray-100"
+                      }`}
+                    >
+                      <Icon
+                        className={`w-5 h-5 mr-3 ${isActive ? "text-primary" : "text-gray-400"}`}
+                      />
+                      {item.name}
+                    </Link>
+                    <button
+                      type="button"
+                      aria-label={`Toggle ${item.name}`}
+                      onClick={() =>
+                        setOpenGroups((prev) => ({
+                          ...prev,
+                          [item.path]: !expanded,
+                        }))
+                      }
+                      className="p-2 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                    >
+                      <ChevronDown
+                        className={`w-4 h-4 transition-transform ${expanded ? "rotate-180" : ""}`}
+                      />
+                    </button>
+                  </div>
+                  {expanded && (
+                    <div className="ml-4 mt-0.5 space-y-0.5 border-l border-gray-100 pl-2">
+                      {item.children!.map((child) => {
+                        const childIsActive =
+                          pathname === child.path || pathname.startsWith(`${child.path}/`);
+                        const link = (
+                          <Link
+                            key={child.path}
+                            href={child.path}
+                            className={`flex items-center px-3 py-2 rounded-lg text-sm transition-colors ${
+                              childIsActive
+                                ? "bg-primary-light/70 text-primary font-medium"
+                                : "text-gray-600 hover:bg-gray-50"
+                            }`}
+                          >
+                            <span className="flex-1">{child.name}</span>
+                            <SidebarBadge count={badgeCount(child.badgeKey)} />
+                          </Link>
+                        );
+                        return child.permission ? (
+                          <PermissionGuard key={child.path} permission={child.permission}>
+                            {link}
+                          </PermissionGuard>
+                        ) : (
+                          <div key={child.path}>{link}</div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <Link
+                  href={item.path}
+                  className={`flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-primary-light text-primary"
+                      : "text-gray-700 hover:bg-gray-100"
+                  }`}
+                >
+                  <Icon
+                    className={`w-5 h-5 mr-3 ${isActive ? "text-primary" : "text-gray-400"}`}
+                  />
+                  <span className="flex-1">{item.name}</span>
+                  <SidebarBadge count={badgeCount(item.badgeKey)} />
+                </Link>
+              )}
+            </div>
+          );
+
+          if (!item.permission) {
+            return <div key={item.path}>{linkBody}</div>;
+          }
 
           return (
             <PermissionGuard key={item.path} permission={item.permission}>
-              <div>
-                {hasChildren ? (
-                  <>
-                    <div className="flex items-center gap-0.5">
-                      <Link
-                        href={
-                          item.path === "/app-users"
-                            ? appUsersDefaultPath
-                            : item.defaultChildPath || item.path
-                        }
-                        className={`flex-1 flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                          isActive
-                            ? "bg-primary-light text-primary"
-                            : "text-gray-700 hover:bg-gray-100"
-                        }`}
-                      >
-                        <Icon
-                          className={`w-5 h-5 mr-3 ${isActive ? "text-primary" : "text-gray-400"}`}
-                        />
-                        {item.name}
-                      </Link>
-                      <button
-                        type="button"
-                        aria-label={`Toggle ${item.name}`}
-                        onClick={() =>
-                          setOpenGroups((prev) => ({
-                            ...prev,
-                            [item.path]: !expanded,
-                          }))
-                        }
-                        className="p-2 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-                      >
-                        <ChevronDown
-                          className={`w-4 h-4 transition-transform ${expanded ? "rotate-180" : ""}`}
-                        />
-                      </button>
-                    </div>
-                    {expanded && (
-                      <div className="ml-4 mt-0.5 space-y-0.5 border-l border-gray-100 pl-2">
-                        {item.children!.map((child) => {
-                          const childIsActive =
-                            pathname === child.path || pathname.startsWith(`${child.path}/`);
-                          const link = (
-                            <Link
-                              key={child.path}
-                              href={child.path}
-                              className={`block px-3 py-2 rounded-lg text-sm transition-colors ${
-                                childIsActive
-                                  ? "bg-primary-light/70 text-primary font-medium"
-                                  : "text-gray-600 hover:bg-gray-50"
-                              }`}
-                            >
-                              {child.name}
-                            </Link>
-                          );
-                          return child.permission ? (
-                            <PermissionGuard key={child.path} permission={child.permission}>
-                              {link}
-                            </PermissionGuard>
-                          ) : (
-                            link
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <Link
-                    href={item.path}
-                    className={`flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                      isActive
-                        ? "bg-primary-light text-primary"
-                        : "text-gray-700 hover:bg-gray-100"
-                    }`}
-                  >
-                    <Icon
-                      className={`w-5 h-5 mr-3 ${isActive ? "text-primary" : "text-gray-400"}`}
-                    />
-                    <span className="flex-1">{item.name}</span>
-                    {item.badgeKey === "my_listings" && myListingsBadge > 0 ? (
-                      <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-xs font-semibold text-white">
-                        {myListingsBadge}
-                      </span>
-                    ) : null}
-                  </Link>
-                )}
-              </div>
+              {linkBody}
             </PermissionGuard>
           );
         })}

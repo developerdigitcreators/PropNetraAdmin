@@ -21,6 +21,7 @@ export type FeedbackItem = {
   message: string;
   createdAt: string | null;
   remarksCount: number;
+  isNew?: boolean;
   user: FeedbackUser;
   remarks?: FeedbackRemark[];
 };
@@ -91,6 +92,7 @@ function normalizeFeedback(raw: unknown): FeedbackItem | null {
     message,
     createdAt: pickString(row.createdAt, row.created_at) || null,
     remarksCount: Number(row.remarksCount ?? row.remarks_count ?? remarks?.length ?? 0) || 0,
+    isNew: row.isNew === true,
     user: normalizeUser(row.user),
     remarks,
   };

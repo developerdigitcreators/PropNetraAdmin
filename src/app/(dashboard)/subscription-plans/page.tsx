@@ -71,9 +71,14 @@ function PlanCard({
           <h2 className="text-lg font-semibold text-gray-900">{plan.displayName}</h2>
           <p className="mt-0.5 font-mono text-xs text-gray-400">{plan.code}</p>
         </div>
-        <Badge variant={plan.isActive ? 'default' : 'outline'}>
-          {plan.isActive ? 'Active' : 'Inactive'}
-        </Badge>
+        <div className="flex flex-col items-end gap-1">
+          <Badge variant={plan.isActive ? 'default' : 'outline'}>
+            {plan.isActive ? 'Active' : 'Inactive'}
+          </Badge>
+          <Badge variant={plan.showOnApp ? 'secondary' : 'outline'}>
+            {plan.showOnApp ? 'Show on app' : 'Hidden on app'}
+          </Badge>
+        </div>
       </div>
 
       <div className="mt-4 rounded-lg bg-gray-50 px-4 py-3">

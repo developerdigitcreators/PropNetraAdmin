@@ -61,7 +61,11 @@ export type ListingReviewItem = {
       microMarket?: string;
     } | null;
   } | null;
+  /** Last Save-to-DB seed — prefills Save / Reject suggestion fields only. */
   catalogSave?: ListingCatalogSave | null;
+  /** Pencil-edit picks applied to the post (table display + approve remap). */
+  reviewPick?: ListingCatalogSave | null;
+  isNew?: boolean;
   actions?: {
     canToggleForSaleTitle?: boolean;
     canSavePropertyName?: boolean;
@@ -94,6 +98,12 @@ export type ListingReviewItem = {
   created_at?: string;
   user?: { name?: string; email?: string } | null;
   submittedBy?: { name?: string; email?: string } | null;
+  reviewLogs?: Array<{
+    action?: string;
+    adminUserId?: string;
+    adminName?: string;
+    at?: string;
+  }>;
   [key: string]: unknown;
 };
 
@@ -124,10 +134,14 @@ export type SaveListingCatalogPayload = {
   propertyName?: string;
   propertyNameId?: string;
   propertyTypeId?: string;
+  propertyTypeIds?: string[];
   propertyNameImageUrl?: string;
   locationName?: string;
   locationId?: string;
+  locationIds?: string[];
+  locationNames?: string[];
   saveMicroMarket?: boolean;
+  applyToListing?: boolean;
   microMarketId?: string;
   microMarketName?: string;
 };
@@ -368,6 +382,7 @@ export type MyListingItem = {
   actions: { canRenew: boolean; canToggleActive: boolean };
   createdAt: string;
   updatedAt: string;
+  isNew?: boolean;
 };
 
 export type MyListingDetail = MyListingItem & {
@@ -1236,6 +1251,27 @@ export function getCatalogOriginalName(
   field: 'propertyName' | 'location' | 'microMarket',
 ): string {
   return item.catalogSave?.[field]?.originalName || '';
+}
+
+export function getReviewPickName(
+  item: ListingReviewItem,
+  field: 'propertyName' | 'location' | 'microMarket',
+): string {
+  return item.reviewPick?.[field]?.savedName || '';
+}
+
+export function getReviewPickId(
+  item: ListingReviewItem,
+  field: 'propertyName' | 'location' | 'microMarket',
+): string {
+  return item.reviewPick?.[field]?.savedId || '';
+}
+
+export function getReviewPickOriginalName(
+  item: ListingReviewItem,
+  field: 'propertyName' | 'location' | 'microMarket',
+): string {
+  return item.reviewPick?.[field]?.originalName || '';
 }
 
 export function getResubmissionPreviousName(

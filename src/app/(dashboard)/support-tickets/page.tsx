@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
+import { newFirstCellClass, NewTag } from '@/components/common/new-row-marker';
 import {
   supportTicketsService,
   ticketApiError,
@@ -340,8 +341,11 @@ export default function SupportTicketsPage() {
                 <tbody>
                   {items.map((row) => (
                     <tr key={row.id} className="border-b border-gray-50 last:border-0">
-                      <td className="whitespace-nowrap px-5 py-4 font-medium text-orange-600">
-                        #{row.ticketNo}
+                      <td className={newFirstCellClass(row.isNew, 'whitespace-nowrap px-5 py-4 font-medium text-orange-600')}>
+                        <span className="inline-flex items-center gap-1.5">
+                          <NewTag show={row.isNew} />
+                          #{row.ticketNo}
+                        </span>
                       </td>
                       <td className="px-5 py-4">
                         <p className="font-medium text-gray-900">{row.user.name || '—'}</p>

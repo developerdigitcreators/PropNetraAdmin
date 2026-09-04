@@ -75,15 +75,16 @@ export function popupDraftErrors(draft: PopupDraft): string[] {
   if (draft.imageUrl.trim() && !isHttpsUrl(draft.imageUrl.trim())) {
     errors.push('Image must be a valid HTTPS link.');
   }
-  if (!/^#[0-9A-Fa-f]{6}$/.test(draft.backgroundColor.trim())) {
-    errors.push('Pick a valid background color.');
-  }
-  if (!/^#[0-9A-Fa-f]{6}$/.test(draft.textColor.trim())) {
-    errors.push('Pick a valid text color.');
-  }
-  if (!/^#[0-9A-Fa-f]{6}$/.test(draft.ctaColor.trim())) {
-    errors.push('Pick a valid button color.');
-  }
+  // Color pickers hidden from admin for now.
+  // if (!/^#[0-9A-Fa-f]{6}$/.test(draft.backgroundColor.trim())) {
+  //   errors.push('Pick a valid background color.');
+  // }
+  // if (!/^#[0-9A-Fa-f]{6}$/.test(draft.textColor.trim())) {
+  //   errors.push('Pick a valid text color.');
+  // }
+  // if (!/^#[0-9A-Fa-f]{6}$/.test(draft.ctaColor.trim())) {
+  //   errors.push('Pick a valid button color.');
+  // }
   if (draft.displayDurationSec < 0 || draft.displayDurationSec > 60) {
     errors.push('Display duration must be between 0 and 60 seconds.');
   }
@@ -119,9 +120,10 @@ export function popupDraftToCreatePayload(draft: PopupDraft): CreateInAppPopupPa
     body: draft.body.trim(),
     bodyFormat: draft.bodyFormat,
     ...(imageUrl ? { imageUrl } : {}),
-    backgroundColor: draft.backgroundColor.trim().toUpperCase(),
-    textColor: draft.textColor.trim().toUpperCase(),
-    ctaColor: draft.ctaColor.trim().toUpperCase(),
+    // Color pickers hidden from admin for now.
+    // backgroundColor: draft.backgroundColor.trim().toUpperCase(),
+    // textColor: draft.textColor.trim().toUpperCase(),
+    // ctaColor: draft.ctaColor.trim().toUpperCase(),
     displayDurationSec: draft.displayDurationSec,
     timerDisplay: draft.displayDurationSec > 0 ? draft.timerDisplay : 'none',
     ctaLabel: draft.ctaLabel.trim() || 'View',
@@ -142,9 +144,10 @@ export function popupDraftToUpdatePayload(draft: PopupDraft): UpdateInAppPopupPa
     body: draft.body.trim(),
     bodyFormat: draft.bodyFormat,
     imageUrl: imageUrl || null,
-    backgroundColor: draft.backgroundColor.trim().toUpperCase(),
-    textColor: draft.textColor.trim().toUpperCase(),
-    ctaColor: draft.ctaColor.trim().toUpperCase(),
+    // Color pickers hidden from admin for now.
+    // backgroundColor: draft.backgroundColor.trim().toUpperCase(),
+    // textColor: draft.textColor.trim().toUpperCase(),
+    // ctaColor: draft.ctaColor.trim().toUpperCase(),
     displayDurationSec: draft.displayDurationSec,
     timerDisplay: draft.displayDurationSec > 0 ? draft.timerDisplay : 'none',
     ctaLabel: draft.ctaLabel.trim() || 'View',

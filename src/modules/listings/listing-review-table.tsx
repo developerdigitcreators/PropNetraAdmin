@@ -1,14 +1,15 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { locationService } from "@/services/location.service";
 import { listingConfigService } from "@/services/listing-config.service";
 import {
   canToggleForSaleTitle,
-  getCatalogOriginalName,
-  getResubmissionPreviousName,
   getCatalogSavedId,
   getCatalogSavedName,
+  getReviewPickId,
+  getReviewPickName,
+  getReviewPickOriginalName,
   getHighlightedLocationName,
   getHighlightedPropertyName,
   getHighlightedMicroMarketId,
@@ -34,6 +35,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SearchableSelect } from "@/components/common/searchable-select";
+import { MultiSelect } from "@/components/common/multi-select";
 import { ImageUrlOrUpload } from "@/components/image-url-or-upload";
 import {
   Select,
@@ -57,6 +59,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { newFirstCellClass, NewTag } from "@/components/common/new-row-marker";
+import { cn } from "@/lib/utils";
 import {
   Check,
   CheckCircle2,
@@ -109,6 +113,7 @@ type CatalogOption = {
   name: string;
   status?: string | null;
   propertyTypeId?: string;
+  propertyTypeIds?: string[];
   propertyTypeName?: string;
   imageUrl?: string;
   microMarketId?: string;
@@ -192,13 +197,22 @@ function canonicalPropertyTypeId(
   return "";
 }
 
+type SaveLocationChip = {
+  id: string;
+  name: string;
+  locked: boolean;
+};
+
 type SaveDraft = {
   forSale: boolean;
   propertyName: CatalogPick;
   location: CatalogPick;
+  locations: SaveLocationChip[];
+  locationDraft: CatalogPick;
   microMarket: CatalogPick;
-  propertyTypeId: string;
+  propertyTypeIds: string[];
   imageUrl: string;
+  mmLocked: boolean;
 };
 
 function isApprovedCatalogStatus(status?: string | null) {
@@ -231,6 +245,17 @@ function asCatalogOptions(raw: unknown): CatalogOption[] {
         status: typeof x.status === "string" ? x.status : null,
         propertyTypeId:
           pickStr(x.property_type_id, x.propertyTypeId, pt?.id) || undefined,
+        propertyTypeIds: Array.isArray(x.propertyTypeIds)
+          ? (x.propertyTypeIds as unknown[]).map((id) => pickStr(id)).filter(Boolean)
+          : Array.isArray(x.property_types)
+            ? (x.property_types as unknown[])
+                .map((row) =>
+                  row && typeof row === "object"
+                    ? pickStr((row as Record<string, unknown>).id)
+                    : pickStr(row),
+                )
+                .filter(Boolean)
+            : undefined,
         propertyTypeName: pickStr(pt?.name, x.propertyTypeName) || undefined,
         imageUrl: pickStr(x.image_url, x.imageUrl) || undefined,
         microMarketId:
@@ -277,7 +302,25 @@ function getFieldOriginal(
   };
 }
 
-function pickFromCatalog(
+function catalogFieldStatus(
+  item: ListingReviewItem,
+  field: CatalogField,
+): string | null | undefined {
+  if (field === "propertyName") return item.property_name?.status;
+  if (field === "location") return item.location?.status;
+  return typeof item.highlights?.newMicroMarket === "object"
+    ? item.highlights?.newMicroMarket?.status
+    : null;
+}
+
+/** Listing field is already a real catalog row (not pending/custom). Empty ≠ approved. */
+function isExplicitCatalogField(status: string | null | undefined): boolean {
+  const s = String(status || "").toLowerCase();
+  return s === "approved" || s === "admin_added";
+}
+
+/** Prefill Save / Reject right side from last catalog seed — never form pending text. */
+function pickSeedFromCatalog(
   item: ListingReviewItem,
   field: CatalogField,
   originalName: string,
@@ -286,23 +329,36 @@ function pickFromCatalog(
   const savedId = getCatalogSavedId(item, field);
   const savedName = getCatalogSavedName(item, field);
   if (savedId || savedName) {
-    return { id: savedId, name: savedName || originalName };
+    return { id: savedId, name: savedName };
   }
-  const status =
-    field === "propertyName"
-      ? item.property_name?.status
-      : field === "location"
-        ? item.location?.status
-        : typeof item.highlights?.newMicroMarket === "object"
-          ? item.highlights?.newMicroMarket?.status
-          : null;
-  const inCatalog =
-    String(status || "").toLowerCase() === "approved" ||
-    String(status || "").toLowerCase() === "admin_added";
-  if (!inCatalog) {
-    return { id: "", name: "" };
+  // If admin only pencil-edited the post, still preselect that pick in Reject/Save.
+  const pickId = getReviewPickId(item, field);
+  const pickName = getReviewPickName(item, field);
+  if (pickId || pickName) {
+    return { id: pickId, name: pickName };
   }
-  return { id: originalId, name: originalName };
+  if (isExplicitCatalogField(catalogFieldStatus(item, field))) {
+    return { id: originalId, name: originalName };
+  }
+  return { id: "", name: "" };
+}
+
+/** Prefill pencil edit from review_pick applied to the post — not Save-to-DB seed. */
+function pickReviewFromCatalog(
+  item: ListingReviewItem,
+  field: CatalogField,
+  originalName: string,
+  originalId: string,
+): CatalogPick {
+  const pickId = getReviewPickId(item, field);
+  const pickName = getReviewPickName(item, field);
+  if (pickId || pickName) {
+    return { id: pickId, name: pickName };
+  }
+  if (isExplicitCatalogField(catalogFieldStatus(item, field))) {
+    return { id: originalId, name: originalName };
+  }
+  return { id: "", name: "" };
 }
 
 function listingPropertyTypeIds(
@@ -338,7 +394,11 @@ function catalogLinkedToPropertyType(
     return { propertyNames, locations, microMarkets };
   }
   const linkedNames = propertyNames.filter((row) => {
-    if (row.propertyTypeId && typeIds.has(row.propertyTypeId)) return true;
+    const ids = [
+      ...(row.propertyTypeIds || []),
+      ...(row.propertyTypeId ? [row.propertyTypeId] : []),
+    ];
+    if (ids.some((id) => typeIds.has(id))) return true;
     return !!typeName && typeName !== "—" && typeNameKey(row.propertyTypeName) === typeName;
   });
   const locationIds = new Set(
@@ -401,19 +461,53 @@ type FieldOverride = {
   earlier: string;
 };
 
+function isAppliedFromCatalog(
+  item: ListingReviewItem,
+  field: CatalogField,
+  fieldOverrides: Record<string, Partial<Record<CatalogField, FieldOverride>>>,
+): boolean {
+  return !!(
+    getReviewPickId(item, field) ||
+    getReviewPickName(item, field) ||
+    fieldOverrides[item.id]?.[field]?.name
+  );
+}
+
+/** Fields still eligible for Reject (pending custom, not pencil-corrected). */
+function hasPendingRejectTargets(
+  item: ListingReviewItem,
+  forSale: boolean,
+  fieldOverrides: Record<string, Partial<Record<CatalogField, FieldOverride>>>,
+): boolean {
+  const showPn =
+    !forSale &&
+    isPropertyNamePending(item) &&
+    !isAppliedFromCatalog(item, "propertyName", fieldOverrides);
+  const showLoc =
+    isLocationPending(item) &&
+    !isAppliedFromCatalog(item, "location", fieldOverrides);
+  const showMm =
+    isMicroMarketPending(item) &&
+    !isAppliedFromCatalog(item, "microMarket", fieldOverrides);
+  return showPn || showLoc || showMm;
+}
+
 function resolveCatalogCell(
   item: ListingReviewItem,
   field: CatalogField,
   override?: FieldOverride,
 ): { value: string; pending: boolean; earlier: string } {
   const original = getFieldOriginal(item, field).name;
-  const savedName = override?.name || getCatalogSavedName(item, field);
-  const previous = getResubmissionPreviousName(item, field);
-  const earlierRaw =
-    override?.earlier ||
-    getCatalogOriginalName(item, field) ||
-    previous ||
-    (savedName ? original : "");
+  // Table shows pencil review_pick only — Save-to-DB seed must not change the post cell.
+  const savedName = override?.name || getReviewPickName(item, field);
+  const hasAdminApply =
+    !!override?.name ||
+    !!getReviewPickId(item, field) ||
+    !!getReviewPickName(item, field);
+  // Earlier only after admin pencil apply — never user resubmit / catalog_save seed.
+  const earlierRaw = hasAdminApply
+    ? override?.earlier || getReviewPickOriginalName(item, field) || ""
+    : "";
   const value = savedName || original || "—";
   const earlier =
     earlierRaw && earlierRaw !== value ? earlierRaw : "";
@@ -453,10 +547,10 @@ function CatalogValueCell({
           className={
             rejected
               ? "inline-flex rounded-md bg-red-50 border border-red-200 px-2 py-1 text-sm font-semibold text-red-900"
-              : earlier
-                ? "inline-flex rounded-md bg-green-50 border border-green-200 px-2 py-1 text-sm font-semibold text-green-900"
-                : pending
-                  ? "inline-flex rounded-md bg-amber-50 border border-amber-200 px-2 py-1 text-sm font-semibold text-amber-900"
+              : pending
+                ? "inline-flex rounded-md bg-amber-50 border border-amber-200 px-2 py-1 text-sm font-semibold text-amber-900"
+                : earlier
+                  ? "inline-flex rounded-md bg-green-50 border border-green-200 px-2 py-1 text-sm font-semibold text-green-900"
                   : "text-sm text-gray-800"
           }
         >
@@ -497,6 +591,7 @@ function CatalogPickSelect({
   emptyText = "No options found.",
   allowCreate = true,
   onChange,
+  onAdd,
 }: {
   options: CatalogOption[];
   value: CatalogPick;
@@ -506,6 +601,7 @@ function CatalogPickSelect({
   emptyText?: string;
   allowCreate?: boolean;
   onChange?: (next: CatalogPick) => void;
+  onAdd?: (name: string) => void;
 }) {
   const selectOptions = toSelectOptions(options);
   const known = !!value.id && options.some((o) => o.id === value.id);
@@ -516,7 +612,7 @@ function CatalogPickSelect({
     <SearchableSelect
       options={selectOptions}
       value={selectValue}
-      selectedLabel={known ? value.name : undefined}
+      selectedLabel={value.name || undefined}
       disabled={disabled}
       loading={loading}
       allowCreate={canCreate}
@@ -531,7 +627,14 @@ function CatalogPickSelect({
       onInputChange={
         canCreate ? (name) => onChange?.({ id: "", name }) : undefined
       }
-      onCreate={canCreate ? (name) => onChange?.({ id: "", name }) : undefined}
+      onCreate={
+        canCreate
+          ? (name) => {
+              if (onAdd) onAdd(name);
+              else onChange?.({ id: "", name });
+            }
+          : undefined
+      }
     />
   );
 }
@@ -541,32 +644,119 @@ function buildRowDraft(item: ListingReviewItem): RowDraft {
 }
 
 function buildSaveDraft(item: ListingReviewItem, forSale: boolean): SaveDraft {
+  const location = pickSeedFromCatalog(
+    item,
+    "location",
+    getHighlightedLocationName(item),
+    typeof item.location?.id === "string" ? item.location.id : "",
+  );
+  const propertyName = pickSeedFromCatalog(
+    item,
+    "propertyName",
+    getHighlightedPropertyName(item),
+    typeof item.property_name?.id === "string" ? item.property_name.id : "",
+  );
+  const microMarket = pickSeedFromCatalog(
+    item,
+    "microMarket",
+    getHighlightedMicroMarketName(item),
+    getHighlightedMicroMarketId(item),
+  );
   return {
     forSale,
-    propertyName: pickFromCatalog(
-      item,
-      "propertyName",
-      getHighlightedPropertyName(item),
-      typeof item.property_name?.id === "string" ? item.property_name.id : "",
-    ),
-    location: pickFromCatalog(
-      item,
-      "location",
-      getHighlightedLocationName(item),
-      typeof item.location?.id === "string" ? item.location.id : "",
-    ),
-    microMarket: pickFromCatalog(
-      item,
-      "microMarket",
-      getHighlightedMicroMarketName(item),
-      getHighlightedMicroMarketId(item),
-    ),
-    propertyTypeId: pickStr(
-      item.property_name?.property_type_id,
-      item.property_type?.id,
-    ),
+    propertyName,
+    location,
+    microMarket,
+    propertyTypeIds: [
+      pickStr(item.property_name?.property_type_id, item.property_type?.id),
+    ].filter(Boolean),
     imageUrl: pickStr(item.property_name?.image_url),
+    locations:
+      location.id || location.name
+        ? [{ id: location.id, name: location.name, locked: false }]
+        : [],
+    locationDraft: { id: "", name: "" },
+    mmLocked: false,
   };
+}
+
+function linkedMicroMarket(
+  opt: CatalogOption | undefined,
+  mmOptions: CatalogOption[],
+): CatalogPick | null {
+  if (!opt?.microMarketId && !opt?.microMarketName) return null;
+  const mm = opt.microMarketId
+    ? mmOptions.find((row) => row.id === opt.microMarketId)
+    : mmOptions.find(
+        (row) =>
+          row.name.toLowerCase() === (opt.microMarketName || "").toLowerCase(),
+      );
+  if (mm) return { id: mm.id, name: mm.name };
+  if (opt.microMarketId) {
+    return { id: opt.microMarketId, name: opt.microMarketName || "" };
+  }
+  return null;
+}
+
+function chipsFromPropertyName(
+  opt: CatalogOption | undefined,
+  locationOptions: CatalogOption[],
+): SaveLocationChip[] {
+  if (!opt?.locationIds?.length) return [];
+  return opt.locationIds.map((id) => {
+    const loc = locationOptions.find((row) => row.id === id);
+    return { id, name: loc?.name || id, locked: true };
+  });
+}
+
+function primaryLocation(chips: SaveLocationChip[]): CatalogPick {
+  const first = chips[0];
+  return first ? { id: first.id, name: first.name } : { id: "", name: "" };
+}
+
+function addLocationChip(
+  prev: SaveDraft,
+  next: CatalogPick,
+  locationOptions: CatalogOption[],
+  mmOptions: CatalogOption[],
+): SaveDraft {
+  const name = next.name.trim();
+  if (!next.id && !name) return prev;
+  const loc = locationOptions.find((row) => row.id === next.id);
+  const already = prev.locations.some(
+    (chip) =>
+      (next.id && chip.id === next.id) ||
+      (!next.id && chip.name.toLowerCase() === name.toLowerCase()),
+  );
+  if (already) return { ...prev, locationDraft: { id: "", name: "" } };
+  const chips: SaveLocationChip[] = [
+    ...prev.locations,
+    { id: next.id, name: loc?.name || name, locked: false },
+  ];
+  let microMarket = prev.microMarket;
+  let mmLocked = prev.mmLocked;
+  if (loc?.microMarketId) {
+    const mm = mmOptions.find((row) => row.id === loc.microMarketId);
+    if (mm) {
+      microMarket = { id: mm.id, name: mm.name };
+      mmLocked = true;
+    }
+  }
+  return {
+    ...prev,
+    locations: chips,
+    location: primaryLocation(chips),
+    locationDraft: { id: "", name: "" },
+    microMarket,
+    mmLocked,
+  };
+}
+
+function formatReviewLogAt(at?: string) {
+  if (!at) return "";
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return at;
+  return d.toLocaleString();
 }
 
 export function ListingReviewTable({
@@ -614,7 +804,7 @@ export function ListingReviewTable({
   });
   const isGrabbingRef = useRef(false);
 
-  const colCount = mode === "unverified" || mode === "verified" ? 9 : 7;
+  const colCount = mode === "unverified" ? 9 : mode === "verified" ? 8 : 7;
 
   const toggleExpanded = (id: string) => {
     setExpandedIds((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -642,7 +832,7 @@ export function ListingReviewTable({
 
   const openFieldEdit = (item: ListingReviewItem, field: CatalogField) => {
     const original = getFieldOriginal(item, field);
-    setFieldEditPick(pickFromCatalog(item, field, original.name, original.id));
+    setFieldEditPick(pickReviewFromCatalog(item, field, original.name, original.id));
     setFieldEdit({ id: item.id, field });
   };
 
@@ -672,39 +862,34 @@ export function ListingReviewTable({
   const catalogDialogOpen =
     !!saveOpen || confirm?.action === "reject" || !!fieldEdit;
 
+  const reloadCatalog = useCallback(async () => {
+    setCatalogLoading(true);
+    try {
+      const [mm, locs, pns, pts] = await Promise.all([
+        locationService.getMicroMarkets(),
+        locationService.getLocations(),
+        locationService.getPropertyNames(),
+        listingConfigService.getPropertyTypes().catch(() => []),
+      ]);
+      setMicroMarkets(asCatalogOptions(mm));
+      setLocations(asCatalogOptions(locs));
+      setPropertyNames(asCatalogOptions(pns));
+      setPropertyTypes(asList(pts));
+    } catch (err) {
+      console.error(err);
+      setMicroMarkets([]);
+      setLocations([]);
+      setPropertyNames([]);
+      setPropertyTypes([]);
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!catalogDialogOpen) return;
-    let cancelled = false;
-    const load = async () => {
-      setCatalogLoading(true);
-      try {
-        const [mm, locs, pns, pts] = await Promise.all([
-          locationService.getMicroMarkets(),
-          locationService.getLocations(),
-          locationService.getPropertyNames(),
-          listingConfigService.getPropertyTypes().catch(() => []),
-        ]);
-        if (cancelled) return;
-        setMicroMarkets(asCatalogOptions(mm));
-        setLocations(asCatalogOptions(locs));
-        setPropertyNames(asCatalogOptions(pns));
-        setPropertyTypes(asList(pts));
-      } catch (err) {
-        console.error(err);
-        if (cancelled) return;
-        setMicroMarkets([]);
-        setLocations([]);
-        setPropertyNames([]);
-        setPropertyTypes([]);
-      } finally {
-        if (!cancelled) setCatalogLoading(false);
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [catalogDialogOpen]);
+    void reloadCatalog();
+  }, [catalogDialogOpen, reloadCatalog]);
 
   useEffect(() => {
     if (!saveOpen) return;
@@ -714,20 +899,52 @@ export function ListingReviewTable({
       const opt = propertyNames.find(
         (o) => o.id && o.id === prev.propertyName.id,
       );
-      const nextType =
-        canonicalPropertyTypeId(
-          propertyTypes,
-          prev.propertyTypeId || opt?.propertyTypeId || item?.property_type?.id,
-          item?.property_type?.name,
-        ) || prev.propertyTypeId;
+      const fromOpt = [
+        ...(opt?.propertyTypeIds || []),
+        ...(opt?.propertyTypeId ? [opt.propertyTypeId] : []),
+      ];
+      const nextTypes = (
+        fromOpt.length ? fromOpt : prev.propertyTypeIds.length
+          ? prev.propertyTypeIds
+          : [item?.property_type?.id || ""]
+      )
+        .map((id) =>
+          canonicalPropertyTypeId(propertyTypes, id, item?.property_type?.name),
+        )
+        .filter(Boolean);
+      const uniqueTypes = [...new Set(nextTypes.length ? nextTypes : prev.propertyTypeIds)];
       const nextImage =
         prev.imageUrl || opt?.imageUrl || pickStr(item?.property_name?.image_url);
-      if (nextType === prev.propertyTypeId && nextImage === prev.imageUrl) {
+      const locked = chipsFromPropertyName(opt, locations);
+      const extra = prev.locations.filter(
+        (chip) => !chip.locked && !locked.some((row) => row.id && row.id === chip.id),
+      );
+      const nextLocations = locked.length ? [...locked, ...extra] : prev.locations;
+      const mm = linkedMicroMarket(opt, microMarkets);
+      const sameTypes =
+        uniqueTypes.length === prev.propertyTypeIds.length &&
+        uniqueTypes.every((id) => prev.propertyTypeIds.includes(id));
+      const nextMmLocked = opt ? !!mm : prev.mmLocked;
+      if (
+        sameTypes &&
+        nextImage === prev.imageUrl &&
+        nextLocations === prev.locations &&
+        (!mm || mm.id === prev.microMarket.id) &&
+        nextMmLocked === prev.mmLocked
+      ) {
         return prev;
       }
-      return { ...prev, propertyTypeId: nextType, imageUrl: nextImage };
+      return {
+        ...prev,
+        propertyTypeIds: uniqueTypes.length ? uniqueTypes : prev.propertyTypeIds,
+        imageUrl: nextImage,
+        locations: nextLocations,
+        location: primaryLocation(nextLocations),
+        microMarket: mm || prev.microMarket,
+        mmLocked: nextMmLocked,
+      };
     });
-  }, [propertyTypes, propertyNames, saveOpen?.id, items, saveOpen]);
+  }, [propertyTypes, propertyNames, locations, microMarkets, saveOpen?.id, items, saveOpen]);
 
   const handleToggleForSale = async (
     item: ListingReviewItem,
@@ -861,9 +1078,9 @@ export function ListingReviewTable({
   const handleSaveToDb = async () => {
     if (!saveOpen || !saveDraft) return;
 
-    const locReady = !!(
-      saveDraft.location.id || saveDraft.location.name.trim()
-    );
+    const locReady =
+      saveDraft.locations.some((chip) => chip.id || chip.name.trim()) ||
+      !!saveDraft.locationDraft.name.trim();
     const mmReady = !!(
       saveDraft.microMarket.id || saveDraft.microMarket.name.trim()
     );
@@ -880,7 +1097,7 @@ export function ListingReviewTable({
       alert("Property name and location are required.");
       return;
     }
-    if (!saveDraft.forSale && (!saveDraft.propertyTypeId || !saveDraft.imageUrl.trim())) {
+    if (!saveDraft.forSale && (!saveDraft.propertyTypeIds.length || !saveDraft.imageUrl.trim())) {
       alert("Property type and image URL are required when saving a property name.");
       return;
     }
@@ -891,15 +1108,33 @@ export function ListingReviewTable({
 
     setBusyId(saveOpen.id);
     try {
+      const merged =
+        saveDraft.locationDraft.name.trim()
+          ? addLocationChip(
+              saveDraft,
+              saveDraft.locationDraft,
+              locations,
+              microMarkets,
+            )
+          : saveDraft;
+      const locationIds = merged.locations
+        .map((chip) => chip.id)
+        .filter(Boolean);
+      const locationNames = merged.locations
+        .filter((chip) => !chip.id && chip.name.trim())
+        .map((chip) => chip.name.trim());
+      const primary = merged.locations[0];
       const payload: SaveListingCatalogPayload = saveDraft.forSale
         ? {
             savePropertyName: false,
             saveLocation: true,
             saveMicroMarket: true,
-            locationId: saveDraft.location.id || undefined,
-            locationName: saveDraft.location.name.trim() || undefined,
-            microMarketId: saveDraft.microMarket.id || undefined,
-            microMarketName: saveDraft.microMarket.name.trim() || undefined,
+            locationId: primary?.id || undefined,
+            locationName: primary?.name.trim() || undefined,
+            locationIds,
+            locationNames,
+            microMarketId: merged.microMarket.id || undefined,
+            microMarketName: merged.microMarket.name.trim() || undefined,
           }
         : {
             savePropertyName: true,
@@ -907,37 +1142,18 @@ export function ListingReviewTable({
             saveMicroMarket: true,
             propertyNameId: saveDraft.propertyName.id || undefined,
             propertyName: saveDraft.propertyName.name.trim() || undefined,
-            propertyTypeId: saveDraft.propertyTypeId || undefined,
+            propertyTypeId: saveDraft.propertyTypeIds[0] || undefined,
+            propertyTypeIds: saveDraft.propertyTypeIds,
             propertyNameImageUrl: saveDraft.imageUrl.trim() || undefined,
-            locationId: saveDraft.location.id || undefined,
-            locationName: saveDraft.location.name.trim() || undefined,
-            microMarketId: saveDraft.microMarket.id || undefined,
-            microMarketName: saveDraft.microMarket.name.trim() || undefined,
+            locationId: primary?.id || undefined,
+            locationName: primary?.name.trim() || undefined,
+            locationIds,
+            locationNames,
+            microMarketId: merged.microMarket.id || undefined,
+            microMarketName: merged.microMarket.name.trim() || undefined,
           };
       await onSaveToDb(saveOpen.id, payload);
-      const originalItem = items.find((i) => i.id === saveOpen.id);
-      if (originalItem && saveDraft) {
-        if (!saveDraft.forSale) {
-          rememberFieldOverride(
-            saveOpen.id,
-            "propertyName",
-            saveDraft.propertyName.name.trim(),
-            getHighlightedPropertyName(originalItem),
-          );
-        }
-        rememberFieldOverride(
-          saveOpen.id,
-          "location",
-          saveDraft.location.name.trim(),
-          getHighlightedLocationName(originalItem),
-        );
-        rememberFieldOverride(
-          saveOpen.id,
-          "microMarket",
-          saveDraft.microMarket.name.trim(),
-          getHighlightedMicroMarketName(originalItem),
-        );
-      }
+      await reloadCatalog();
       setSaveOpen(null);
       setSaveDraft(null);
     } catch (err) {
@@ -951,35 +1167,66 @@ export function ListingReviewTable({
   const handleFieldEditSave = async () => {
     if (!fieldEdit || !fieldEditPick) return;
     const editItem = items.find((row) => row.id === fieldEdit.id);
-    const editCatalog = catalogLinkedToPropertyType(
-      editItem,
-      propertyTypes,
-      propertyNames,
-      locations,
-      microMarkets,
-    );
+    const editMmId = (() => {
+      if (!editItem || fieldEdit.field !== "location") return "";
+      const fromPick = getReviewPickId(editItem, "microMarket");
+      if (fromPick) return fromPick;
+      const fromSeed = getCatalogSavedId(editItem, "microMarket");
+      if (fromSeed) return fromSeed;
+      const overrideName =
+        fieldOverrides[editItem.id]?.microMarket?.name?.trim() || "";
+      if (overrideName) {
+        const match = microMarkets.find(
+          (row) => row.name.toLowerCase() === overrideName.toLowerCase(),
+        );
+        if (match?.id) return match.id;
+      }
+      return getHighlightedMicroMarketId(editItem);
+    })();
     const editOptions =
       fieldEdit.field === "propertyName"
-        ? editCatalog.propertyNames
+        ? propertyNames
         : fieldEdit.field === "location"
-          ? editCatalog.locations
-          : editCatalog.microMarkets;
+          ? editMmId
+            ? locations.filter((row) => row.microMarketId === editMmId)
+            : []
+          : microMarkets;
     if (!fieldEditPick.id || !editOptions.some((o) => o.id === fieldEditPick.id)) {
       alert(
-        `Select a ${FIELD_LABEL[fieldEdit.field].toLowerCase()} from the dropdown.`,
+        fieldEdit.field === "location" && !editMmId
+          ? "Set a micro market first, then pick a location in that market."
+          : `Select a ${FIELD_LABEL[fieldEdit.field].toLowerCase()} from the dropdown.`,
       );
       return;
     }
 
     const payload: SaveListingCatalogPayload =
       fieldEdit.field === "propertyName"
-        ? {
-            savePropertyName: true,
-            saveLocation: false,
-            saveMicroMarket: false,
-            propertyNameId: fieldEditPick.id,
-            propertyName: fieldEditPick.name.trim() || undefined,
-          }
+        ? (() => {
+            const opt = propertyNames.find((row) => row.id === fieldEditPick.id);
+            const primaryLocId = opt?.locationIds?.[0] || "";
+            const loc =
+              (primaryLocId &&
+                locations.find((row) => row.id === primaryLocId)) ||
+              null;
+            const mmId = opt?.microMarketId || loc?.microMarketId || "";
+            const mmName =
+              (mmId && microMarkets.find((row) => row.id === mmId)?.name) ||
+              opt?.microMarketName ||
+              "";
+            return {
+              savePropertyName: true,
+              saveLocation: !!loc?.id,
+              saveMicroMarket: !!mmId,
+              propertyNameId: fieldEditPick.id,
+              propertyName: fieldEditPick.name.trim() || undefined,
+              locationId: loc?.id || undefined,
+              locationName: loc?.name || undefined,
+              microMarketId: mmId || undefined,
+              microMarketName: mmName || undefined,
+              applyToListing: true,
+            } as SaveListingCatalogPayload;
+          })()
         : fieldEdit.field === "location"
           ? {
               savePropertyName: false,
@@ -987,6 +1234,7 @@ export function ListingReviewTable({
               saveMicroMarket: false,
               locationId: fieldEditPick.id,
               locationName: fieldEditPick.name.trim() || undefined,
+              applyToListing: true,
             }
           : {
               savePropertyName: false,
@@ -994,21 +1242,51 @@ export function ListingReviewTable({
               saveMicroMarket: true,
               microMarketId: fieldEditPick.id,
               microMarketName: fieldEditPick.name.trim() || undefined,
+              applyToListing: true,
             };
 
     setBusyId(fieldEdit.id);
     try {
       await onSaveToDb(fieldEdit.id, payload);
       const item = items.find((i) => i.id === fieldEdit.id);
+      const earlierFor = (field: CatalogField) =>
+        item ? getFieldOriginal(item, field).name : "";
       rememberFieldOverride(
         fieldEdit.id,
         fieldEdit.field,
         fieldEditPick.name.trim(),
-        item
-          ? getCatalogOriginalName(item, fieldEdit.field) ||
-              getFieldOriginal(item, fieldEdit.field).name
-          : "",
+        earlierFor(fieldEdit.field),
       );
+      // PN pencil pick locks linked location + micro market onto the post.
+      if (fieldEdit.field === "propertyName") {
+        const opt = propertyNames.find((row) => row.id === fieldEditPick.id);
+        const primaryLocId = opt?.locationIds?.[0] || "";
+        const loc =
+          (primaryLocId &&
+            locations.find((row) => row.id === primaryLocId)) ||
+          null;
+        const mmId = opt?.microMarketId || loc?.microMarketId || "";
+        const mmName =
+          (mmId && microMarkets.find((row) => row.id === mmId)?.name) ||
+          opt?.microMarketName ||
+          "";
+        if (loc?.id && loc.name) {
+          rememberFieldOverride(
+            fieldEdit.id,
+            "location",
+            loc.name,
+            earlierFor("location"),
+          );
+        }
+        if (mmId && mmName) {
+          rememberFieldOverride(
+            fieldEdit.id,
+            "microMarket",
+            mmName,
+            earlierFor("microMarket"),
+          );
+        }
+      }
       closeFieldEdit();
     } catch (err) {
       console.error(err);
@@ -1020,11 +1298,12 @@ export function ListingReviewTable({
 
   const saveDraftReady =
     !!saveDraft &&
-    !!(saveDraft.location.id || saveDraft.location.name.trim()) &&
+    (saveDraft.locations.some((chip) => chip.id || chip.name.trim()) ||
+      !!saveDraft.locationDraft.name.trim()) &&
     !!(saveDraft.microMarket.id || saveDraft.microMarket.name.trim()) &&
     (saveDraft.forSale ||
       (!!(saveDraft.propertyName.id || saveDraft.propertyName.name.trim()) &&
-        !!saveDraft.propertyTypeId &&
+        saveDraft.propertyTypeIds.length > 0 &&
         !!saveDraft.imageUrl.trim()));
 
   if (items.length === 0) {
@@ -1042,18 +1321,19 @@ export function ListingReviewTable({
   const originalLoc = saveItem ? getHighlightedLocationName(saveItem) : "";
   const originalMm = saveItem ? getHighlightedMicroMarketName(saveItem) : "";
   const saveTypeOptions = uniquePropertyTypes(propertyTypes);
-  const saveTypeId = saveDraft
-    ? canonicalPropertyTypeId(
-        propertyTypes,
-        saveDraft.propertyTypeId,
-        saveItem?.property_type?.name,
-      )
-    : "";
-  const saveTypeName =
-    saveTypeOptions.find((t) => t.id === saveTypeId)?.name ||
-    propertyTypes.find((t) => t.id === saveDraft?.propertyTypeId)?.name ||
-    saveItem?.property_type?.name ||
-    "";
+  const saveTypeIds = saveDraft
+    ? [...new Set(
+        saveDraft.propertyTypeIds
+          .map((id) =>
+            canonicalPropertyTypeId(
+              propertyTypes,
+              id,
+              saveItem?.property_type?.name,
+            ),
+          )
+          .filter(Boolean),
+      )]
+    : [];
   const fieldEditItem = fieldEdit
     ? items.find((i) => i.id === fieldEdit.id)
     : null;
@@ -1081,16 +1361,54 @@ export function ListingReviewTable({
     fieldEditItem && fieldEdit
       ? getFieldOriginal(fieldEditItem, fieldEdit.field).name
       : "";
+  const fieldEditMmId = (() => {
+    if (!fieldEditItem) return "";
+    const fromPick = getReviewPickId(fieldEditItem, "microMarket");
+    if (fromPick) return fromPick;
+    const fromSeed = getCatalogSavedId(fieldEditItem, "microMarket");
+    if (fromSeed) return fromSeed;
+    const overrideName =
+      fieldOverrides[fieldEditItem.id]?.microMarket?.name?.trim() || "";
+    if (overrideName) {
+      const match = microMarkets.find(
+        (row) => row.name.toLowerCase() === overrideName.toLowerCase(),
+      );
+      if (match?.id) return match.id;
+    }
+    return getHighlightedMicroMarketId(fieldEditItem);
+  })();
+  const fieldEditMmName =
+    (fieldEditMmId &&
+      microMarkets.find((row) => row.id === fieldEditMmId)?.name) ||
+    (fieldEditItem
+      ? getReviewPickName(fieldEditItem, "microMarket") ||
+        getCatalogSavedName(fieldEditItem, "microMarket") ||
+        fieldOverrides[fieldEditItem.id]?.microMarket?.name ||
+        getHighlightedMicroMarketName(fieldEditItem)
+      : "");
   const fieldEditOptions = fieldEdit
     ? fieldEdit.field === "propertyName"
-      ? linkedCatalog.propertyNames
+      ? propertyNames
       : fieldEdit.field === "location"
-        ? linkedCatalog.locations
-        : linkedCatalog.microMarkets
+        ? fieldEditMmId
+          ? locations.filter((row) => row.microMarketId === fieldEditMmId)
+          : []
+        : microMarkets
     : [];
   const fieldEditReady =
     !!fieldEditPick?.id &&
     fieldEditOptions.some((o) => o.id === fieldEditPick.id);
+  const rejectDialogItem =
+    confirm?.action === "reject"
+      ? items.find((row) => row.id === confirm.id) || null
+      : null;
+  const rejectNothingPending =
+    !!rejectDialogItem &&
+    !hasPendingRejectTargets(
+      rejectDialogItem,
+      getDraft(rejectDialogItem).forSale,
+      fieldOverrides,
+    );
 
   return (
     <>
@@ -1140,15 +1458,15 @@ export function ListingReviewTable({
             <TableHeader>
               <TableRow className="bg-gray-50/80">
                 <TableHead className="w-10" />
+                <TableHead className="min-w-35">User Details</TableHead>
                 <TableHead className="min-w-45">Listing</TableHead>
                 <TableHead className="min-w-40">Property name</TableHead>
                 <TableHead className="min-w-40">Location</TableHead>
                 <TableHead className="min-w-40">Micro market</TableHead>
                 <TableHead className="min-w-50">Title display</TableHead>
-                {mode !== "rejected" ? (
+                {mode === "unverified" ? (
                   <TableHead className="min-w-35">Save to DB</TableHead>
                 ) : null}
-                <TableHead className="min-w-35">Submitted by</TableHead>
                 {mode === "unverified" ? (
                   <TableHead className="text-right min-w-45">
                     Approve / Reject
@@ -1214,7 +1532,7 @@ export function ListingReviewTable({
                 const catalogSaved = hasCatalogSave(item);
                 const canSave =
                   pnCell.pending || locCell.pending || mmCell.pending;
-                const canEditField = mode !== "rejected";
+                const canEditField = mode === "unverified";
                 const rowBusy = busyId === item.id;
                 const expanded = !!expandedIds[item.id];
                 const detailRows = expanded ? getListingDetailRows(item) : [];
@@ -1224,7 +1542,12 @@ export function ListingReviewTable({
                     <TableRow
                       className={expanded ? "bg-gray-50/40" : undefined}
                     >
-                      <TableCell className="align-top w-10 px-2">
+                      <TableCell
+                        className={cn(
+                          "align-top w-10 px-2",
+                          newFirstCellClass(item.isNew),
+                        )}
+                      >
                         <button
                           type="button"
                           aria-label={
@@ -1242,6 +1565,22 @@ export function ListingReviewTable({
                             <ChevronRight className="w-4 h-4" />
                           )}
                         </button>
+                      </TableCell>
+
+                      <TableCell className="align-top text-sm text-gray-700">
+                        <div className="flex items-start gap-1.5">
+                          <NewTag show={item.isNew} />
+                          <div>
+                            {getSubmittedBy(item)}
+                            {(item.created_at || item.createdAt) && (
+                              <p className="text-[10px] text-gray-400 mt-1">
+                                {new Date(
+                                  item.created_at || item.createdAt!,
+                                ).toLocaleString()}
+                              </p>
+                            )}
+                          </div>
+                        </div>
                       </TableCell>
 
                       <TableCell className="align-top">
@@ -1344,7 +1683,7 @@ export function ListingReviewTable({
                         </div>
                       </TableCell>
 
-                      {mode !== "rejected" ? (
+                      {mode === "unverified" ? (
                         <TableCell className="align-top">
                           {catalogSaved ? (
                             <button
@@ -1374,45 +1713,40 @@ export function ListingReviewTable({
                         </TableCell>
                       ) : null}
 
-                      <TableCell className="align-top text-sm text-gray-700">
-                        {getSubmittedBy(item)}
-                        {(item.created_at || item.createdAt) && (
-                          <p className="text-[10px] text-gray-400 mt-1">
-                            {new Date(
-                              item.created_at || item.createdAt!,
-                            ).toLocaleString()}
-                          </p>
-                        )}
-                      </TableCell>
-
                       {mode === "unverified" ? (
                         <TableCell className="align-top text-right">
                           <div className="inline-flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-red-600 border-red-200 hover:bg-red-50"
-                              disabled={
-                                rowBusy || item.actions?.canReject === false
-                              }
-                              onClick={() => {
-                                setRejectRemarksDraft({
-                                  rejectPropertyName: false,
-                                  rejectLocation: false,
-                                  rejectMicroMarket: false,
-                                  propertyNameRemark: "",
-                                  locationRemark: "",
-                                  microMarketRemark: "",
-                                });
-                                setRejectCatalogDraft(
-                                  buildSaveDraft(item, getDraft(item).forSale),
-                                );
-                                setConfirm({ id: item.id, action: "reject" });
-                              }}
-                            >
-                              <X className="w-3.5 h-3.5 mr-1" />
-                              Reject
-                            </Button>
+                            {hasPendingRejectTargets(
+                              item,
+                              getDraft(item).forSale,
+                              fieldOverrides,
+                            ) ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-red-600 border-red-200 hover:bg-red-50"
+                                disabled={
+                                  rowBusy || item.actions?.canReject === false
+                                }
+                                onClick={() => {
+                                  setRejectRemarksDraft({
+                                    rejectPropertyName: false,
+                                    rejectLocation: false,
+                                    rejectMicroMarket: false,
+                                    propertyNameRemark: "",
+                                    locationRemark: "",
+                                    microMarketRemark: "",
+                                  });
+                                  setRejectCatalogDraft(
+                                    buildSaveDraft(item, getDraft(item).forSale),
+                                  );
+                                  setConfirm({ id: item.id, action: "reject" });
+                                }}
+                              >
+                                <X className="w-3.5 h-3.5 mr-1" />
+                                Reject
+                              </Button>
+                            ) : null}
                             <Button
                               size="sm"
                               className="bg-primary text-white hover:bg-primary/90"
@@ -1487,6 +1821,43 @@ export function ListingReviewTable({
                             <p className="mt-3 text-[11px] text-gray-400 font-mono truncate">
                               ID: {item.id}
                             </p>
+                            {(() => {
+                              const logs = Array.isArray(item.reviewLogs)
+                                ? item.reviewLogs
+                                : Array.isArray(item.review_logs)
+                                  ? item.review_logs
+                                  : [];
+                              if (!logs.length) return null;
+                              return (
+                                <div className="mt-4 border-t border-gray-100 pt-3">
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+                                    Approve / reject log
+                                  </p>
+                                  <ul className="space-y-1.5">
+                                    {logs.map((log, idx) => {
+                                      const row = log as {
+                                        action?: string;
+                                        adminName?: string;
+                                        at?: string;
+                                      };
+                                      return (
+                                        <li
+                                          key={`${row.at || idx}-${row.action || idx}`}
+                                          className="text-sm text-gray-700"
+                                        >
+                                          <span className="font-medium capitalize">
+                                            {row.action || "update"}
+                                          </span>
+                                          {" · "}
+                                          {row.adminName || "Admin"}
+                                          {row.at ? ` · ${formatReviewLogAt(row.at)}` : ""}
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                </div>
+                              );
+                            })()}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1512,11 +1883,9 @@ export function ListingReviewTable({
           <DialogHeader>
             <DialogTitle>Save to DB</DialogTitle>
             <DialogDescription>
-              Catalog only — the user post stays unchanged. Left is original,
-              right is what will be saved (editable).
-              {linkedTypeLabel
-                ? ` Dropdowns show only names linked to ${linkedTypeLabel}.`
-                : ""}
+              catalog only — the user post stays unchanged. Left is original,
+              right is what will be saved (editable). Picking a catalog property
+              name locks micro market to that name’s linked market.
             </DialogDescription>
           </DialogHeader>
 
@@ -1529,23 +1898,54 @@ export function ListingReviewTable({
                   original={originalPn}
                   right={
                     <CatalogPickSelect
-                      options={linkedCatalog.propertyNames}
+                      options={propertyNames}
                       value={saveDraft.propertyName}
                       loading={catalogLoading}
-                      emptyText={catalogEmptyText("property names")}
+                      emptyText="No property names found."
                       placeholder="Select or type property name"
                       onChange={(next) =>
                         setSaveDraft((prev) => {
                           if (!prev) return prev;
-                          const opt = linkedCatalog.propertyNames.find(
+                          const opt = propertyNames.find(
                             (o) => o.id && o.id === next.id,
                           );
+                          if (!opt) {
+                            const nextLocations = prev.locations.filter((chip) => !chip.locked);
+                            return {
+                              ...prev,
+                              propertyName: next,
+                              locations: nextLocations,
+                              location: primaryLocation(nextLocations),
+                              mmLocked: false,
+                            };
+                          }
+                          const locked = chipsFromPropertyName(opt, locations);
+                          const extra = prev.locations.filter(
+                            (chip) =>
+                              !chip.locked &&
+                              !locked.some((row) => row.id && row.id === chip.id),
+                          );
+                          const nextLocations = locked.length
+                            ? [...locked, ...extra]
+                            : prev.locations;
+                          const mm = linkedMicroMarket(opt, microMarkets);
+                          const typeIds = [
+                            ...(opt.propertyTypeIds || []),
+                            ...(opt.propertyTypeId ? [opt.propertyTypeId] : []),
+                          ]
+                            .map((id) =>
+                              canonicalPropertyTypeId(propertyTypes, id, opt.propertyTypeName),
+                            )
+                            .filter(Boolean);
                           return {
                             ...prev,
                             propertyName: next,
-                            propertyTypeId:
-                              opt?.propertyTypeId || prev.propertyTypeId,
-                            imageUrl: opt?.imageUrl || prev.imageUrl,
+                            propertyTypeIds: typeIds.length ? [...new Set(typeIds)] : prev.propertyTypeIds,
+                            imageUrl: opt.imageUrl || prev.imageUrl,
+                            microMarket: mm || prev.microMarket,
+                            locations: nextLocations,
+                            location: primaryLocation(nextLocations),
+                            mmLocked: !!mm,
                           };
                         })
                       }
@@ -1554,37 +1954,19 @@ export function ListingReviewTable({
                 />
                 <div className="space-y-2">
                   <label className="text-sm font-medium">
-                    Property type <span className="text-red-500">*</span>
+                    Property types <span className="text-red-500">*</span>
                   </label>
-                  <Select
-                    value={saveTypeId || undefined}
-                    onValueChange={(v) =>
+                  <MultiSelect
+                    options={saveTypeOptions.map((t) => ({ value: t.id, label: t.name }))}
+                    values={saveTypeIds}
+                    onChange={(ids) =>
                       setSaveDraft((prev) =>
-                        prev ? { ...prev, propertyTypeId: v ?? "" } : prev,
+                        prev ? { ...prev, propertyTypeIds: ids } : prev,
                       )
                     }
-                  >
-                    <SelectTrigger className="w-full">
-                      {saveTypeName ? (
-                        <span className="truncate">{saveTypeName}</span>
-                      ) : (
-                        <SelectValue placeholder="Select Apartment, SCO, Plot…" />
-                      )}
-                    </SelectTrigger>
-                    <SelectContent>
-                      {saveTypeOptions.length === 0 ? (
-                        <div className="px-3 py-2 text-sm text-gray-500">
-                          Add property types under Agent Listing Attributes first.
-                        </div>
-                      ) : (
-                        saveTypeOptions.map((t) => (
-                          <SelectItem key={t.id} value={t.id}>
-                            {t.name}
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
+                    placeholder="Select Apartment, SCO, Plot…"
+                    emptyText="Add property types under Agent Listing Attributes first."
+                  />
                 </div>
                 <ImageUrlOrUpload
                   label="Image URL"
@@ -1603,40 +1985,135 @@ export function ListingReviewTable({
               ) : null}
 
               <CompareField
-                label="Location"
-                original={originalLoc}
+                label="Micro market"
+                original={originalMm}
                 right={
                   <CatalogPickSelect
-                    options={linkedCatalog.locations}
-                    value={saveDraft.location}
+                    options={
+                      saveDraft.mmLocked && saveDraft.microMarket.id
+                        ? microMarkets.filter((row) => row.id === saveDraft.microMarket.id)
+                        : microMarkets
+                    }
+                    value={saveDraft.microMarket}
+                    disabled={saveDraft.mmLocked}
+                    allowCreate={!saveDraft.mmLocked}
                     loading={catalogLoading}
-                    emptyText={catalogEmptyText("locations")}
-                    placeholder="Select or type location"
+                    emptyText="No micro markets found."
+                    placeholder={
+                      saveDraft.mmLocked
+                        ? "Locked to property name"
+                        : "Select or type micro market"
+                    }
                     onChange={(next) =>
-                      setSaveDraft((prev) =>
-                        prev ? { ...prev, location: next } : prev,
-                      )
+                      setSaveDraft((prev) => {
+                        if (!prev || prev.mmLocked) return prev;
+                        const locked = prev.locations.filter((chip) => chip.locked);
+                        const extra = prev.locations.filter((chip) => {
+                          if (chip.locked) return false;
+                          if (!next.id || !chip.id) return true;
+                          const loc = locations.find((row) => row.id === chip.id);
+                          return !loc?.microMarketId || loc.microMarketId === next.id;
+                        });
+                        const nextLocations = [...locked, ...extra];
+                        return {
+                          ...prev,
+                          microMarket: next,
+                          locations: nextLocations,
+                          location: primaryLocation(nextLocations),
+                        };
+                      })
                     }
                   />
                 }
               />
 
               <CompareField
-                label="Micro market"
-                original={originalMm}
+                label="Locations"
+                original={originalLoc}
                 right={
-                  <CatalogPickSelect
-                    options={linkedCatalog.microMarkets}
-                    value={saveDraft.microMarket}
-                    loading={catalogLoading}
-                    emptyText={catalogEmptyText("micro markets")}
-                    placeholder="Select or type micro market"
-                    onChange={(next) =>
-                      setSaveDraft((prev) =>
-                        prev ? { ...prev, microMarket: next } : prev,
-                      )
-                    }
-                  />
+                  <div className="space-y-2">
+                    {saveDraft.locations.length ? (
+                      <div className="flex flex-wrap gap-1">
+                        {saveDraft.locations.map((chip, idx) => (
+                          <span
+                            key={`${chip.id || chip.name}-${idx}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-800"
+                          >
+                            {chip.name}
+                            {chip.locked ? (
+                              <span className="text-[10px] text-gray-400">locked</span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="text-gray-400 hover:text-gray-700"
+                                onClick={() =>
+                                  setSaveDraft((prev) => {
+                                    if (!prev) return prev;
+                                    const nextLocations = prev.locations.filter(
+                                      (_, i) => i !== idx,
+                                    );
+                                    return {
+                                      ...prev,
+                                      locations: nextLocations,
+                                      location: primaryLocation(nextLocations),
+                                      mmLocked:
+                                        !!prev.propertyName.id ||
+                                        (nextLocations.some((row) => {
+                                          const loc = locations.find((l) => l.id === row.id);
+                                          return !!loc?.microMarketId;
+                                        }) &&
+                                          prev.mmLocked),
+                                    };
+                                  })
+                                }
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    <CatalogPickSelect
+                      options={(saveDraft.microMarket.id
+                        ? locations.filter(
+                            (row) => row.microMarketId === saveDraft.microMarket.id,
+                          )
+                        : locations
+                      ).filter(
+                        (row) => !saveDraft.locations.some((chip) => chip.id === row.id),
+                      )}
+                      value={saveDraft.locationDraft}
+                      loading={catalogLoading}
+                      emptyText={
+                        saveDraft.microMarket.id
+                          ? "No locations in this micro market."
+                          : "No locations found."
+                      }
+                      placeholder="Select or add location"
+                      onAdd={(name) =>
+                        setSaveDraft((prev) =>
+                          prev
+                            ? addLocationChip(
+                                prev,
+                                { id: "", name },
+                                locations,
+                                microMarkets,
+                              )
+                            : prev,
+                        )
+                      }
+                      onChange={(next) =>
+                        setSaveDraft((prev) => {
+                          if (!prev) return prev;
+                          if (next.id) {
+                            return addLocationChip(prev, next, locations, microMarkets);
+                          }
+                          return { ...prev, locationDraft: next };
+                        })
+                      }
+                    />
+                  </div>
                 }
               />
             </div>
@@ -1678,10 +2155,10 @@ export function ListingReviewTable({
               Edit {fieldEdit ? FIELD_LABEL[fieldEdit.field] : ""}
             </DialogTitle>
             <DialogDescription>
-              Left is the current value. Right: pick an approved catalog name
-              {linkedTypeLabel ? ` linked to ${linkedTypeLabel}` : ""}.
-              Custom names that are not in the list stay on the left until you
-              choose one from DB or reject the listing.
+              Left is the current value. Right: pick an approved catalog name.
+              {fieldEdit?.field === "propertyName"
+                ? " Choosing a property name also overrides Location and Micro market from that name’s catalog links."
+                : " Custom names that are not in the list stay on the left until you choose one from DB or reject the listing."}
             </DialogDescription>
           </DialogHeader>
 
@@ -1698,14 +2175,29 @@ export function ListingReviewTable({
                     value={fieldEditPick}
                     loading={catalogLoading}
                     allowCreate={false}
-                    emptyText={catalogEmptyText(
-                      FIELD_LABEL[fieldEdit.field].toLowerCase() + "s",
-                    )}
+                    emptyText={
+                      fieldEdit.field === "location"
+                        ? fieldEditMmId
+                          ? `No locations in ${fieldEditMmName || "this micro market"}.`
+                          : "Set a micro market first."
+                        : "No options found."
+                    }
                     placeholder={FIELD_PLACEHOLDER[fieldEdit.field]}
                     onChange={setFieldEditPick}
                   />
                 }
               />
+              {fieldEdit.field === "location" && fieldEditMmName ? (
+                <p className="text-xs text-gray-500">
+                  Showing locations for micro market: {fieldEditMmName}
+                </p>
+              ) : null}
+              {fieldEdit.field === "location" && !fieldEditMmId ? (
+                <p className="text-xs text-amber-700">
+                  Pick / save a micro market on this listing first. Location
+                  options are limited to that market.
+                </p>
+              ) : null}
               {fieldEditOriginal &&
               !fieldEditOptions.some(
                 (o) => o.name.toLowerCase() === fieldEditOriginal.toLowerCase(),
@@ -1753,11 +2245,7 @@ export function ListingReviewTable({
             <DialogTitle>Are you sure?</DialogTitle>
             <DialogDescription>
               {confirm?.action === "reject"
-                ? `Select what to reject and add a remark for each. Listing stays off search (draft).${
-                    linkedTypeLabel
-                      ? ` Suggestion dropdowns show only catalog names linked to ${linkedTypeLabel}.`
-                      : ""
-                  }`
+                ? "Select what to reject and add a remark for each. Listing stays off search (draft). For location, pick micro market first, then search locations in that market."
                 : "Listing will go live (published). Save to DB is separate — this will not save Property Name/location to catalog."}
             </DialogDescription>
           </DialogHeader>
@@ -1769,9 +2257,19 @@ export function ListingReviewTable({
               const pnPending = item ? isPropertyNamePending(item) : false;
               const locPending = item ? isLocationPending(item) : false;
               const mmPending = item ? isMicroMarketPending(item) : false;
-              const showPn = !forSale && pnPending;
-              const showLoc = locPending;
-              const showMm = mmPending;
+              const showPn =
+                !!item &&
+                !forSale &&
+                pnPending &&
+                !isAppliedFromCatalog(item, "propertyName", fieldOverrides);
+              const showLoc =
+                !!item &&
+                locPending &&
+                !isAppliedFromCatalog(item, "location", fieldOverrides);
+              const showMm =
+                !!item &&
+                mmPending &&
+                !isAppliedFromCatalog(item, "microMarket", fieldOverrides);
 
               const anySelected =
                 !!rejectRemarksDraft.rejectPropertyName ||
@@ -1787,47 +2285,74 @@ export function ListingReviewTable({
                   !rejectRemarksDraft.microMarketRemark?.trim()) ||
                 !anySelected;
 
-              const selectedMmId =
-                rejectCatalogDraft?.microMarket.id ||
-                locations.find((row) => row.id === rejectCatalogDraft?.location.id)
-                  ?.microMarketId ||
-                "";
-              const rejectPnOptions = selectedMmId
-                ? linkedCatalog.propertyNames.filter(
-                    (row) =>
-                      !row.microMarketId || row.microMarketId === selectedMmId,
-                  )
-                : linkedCatalog.propertyNames;
+              const rejectMmId = rejectCatalogDraft?.microMarket.id || "";
+              // Full PN catalog — do not hide options behind the seeded micro market.
+              const rejectPnOptions = (() => {
+                const pick = rejectCatalogDraft?.propertyName;
+                if (
+                  pick?.id &&
+                  !propertyNames.some((row) => row.id === pick.id)
+                ) {
+                  return [
+                    { id: pick.id, name: pick.name } as CatalogOption,
+                    ...propertyNames,
+                  ];
+                }
+                return propertyNames;
+              })();
+              // Location: pick micro market first, then search locations in that market.
+              const rejectLocOptions = (() => {
+                const base = rejectMmId
+                  ? locations.filter((row) => row.microMarketId === rejectMmId)
+                  : [];
+                const pick = rejectCatalogDraft?.location;
+                if (
+                  pick?.id &&
+                  !base.some((row) => row.id === pick.id)
+                ) {
+                  return [
+                    { id: pick.id, name: pick.name } as CatalogOption,
+                    ...base,
+                  ];
+                }
+                return base;
+              })();
 
               const applyRejectPick = (field: CatalogField, next: CatalogPick) => {
                 setRejectCatalogDraft((prev) => {
                   if (!prev) return prev;
-                  if (field !== "location") {
-                    return { ...prev, [field]: next };
+                  if (field === "microMarket") {
+                    const locStillValid =
+                      !next.id ||
+                      !prev.location.id ||
+                      locations.some(
+                        (row) =>
+                          row.id === prev.location.id &&
+                          row.microMarketId === next.id,
+                      );
+                    return {
+                      ...prev,
+                      microMarket: next,
+                      location: locStillValid
+                        ? prev.location
+                        : { id: "", name: "" },
+                    };
                   }
-                  const loc = locations.find((row) => row.id === next.id);
-                  const mmId = loc?.microMarketId || "";
-                  const mm = mmId
-                    ? microMarkets.find((row) => row.id === mmId)
-                    : null;
-                  const pnStillValid =
-                    !mmId ||
-                    !prev.propertyName.id ||
-                    linkedCatalog.propertyNames.some(
-                      (pn) =>
-                        pn.id === prev.propertyName.id &&
-                        (!pn.microMarketId || pn.microMarketId === mmId),
-                    );
-                  return {
-                    ...prev,
-                    location: next,
-                    microMarket: mm
-                      ? { id: mm.id, name: mm.name }
-                      : { id: "", name: "" },
-                    propertyName: pnStillValid
-                      ? prev.propertyName
-                      : { id: "", name: "" },
-                  };
+                  if (field === "location") {
+                    const loc = locations.find((row) => row.id === next.id);
+                    const mmId = loc?.microMarketId || prev.microMarket.id || "";
+                    const mm = mmId
+                      ? microMarkets.find((row) => row.id === mmId)
+                      : null;
+                    return {
+                      ...prev,
+                      location: next,
+                      microMarket: mm
+                        ? { id: mm.id, name: mm.name }
+                        : prev.microMarket,
+                    };
+                  }
+                  return { ...prev, [field]: next };
                 });
               };
 
@@ -1838,9 +2363,11 @@ export function ListingReviewTable({
                     value={rejectCatalogDraft[field]}
                     loading={catalogLoading}
                     allowCreate={false}
-                    emptyText={catalogEmptyText(
-                      FIELD_LABEL[field].toLowerCase() + "s",
-                    )}
+                    emptyText={
+                      field === "location" && !rejectMmId
+                        ? "Select a micro market first."
+                        : "No options found."
+                    }
                     placeholder={`Select ${FIELD_LABEL[field].toLowerCase()}`}
                     onChange={(next) => applyRejectPick(field, next)}
                   />
@@ -1919,14 +2446,25 @@ export function ListingReviewTable({
                       <CompareField
                         label="Location"
                         original={getHighlightedLocationName(item)}
-                        right={rejectPick("location", linkedCatalog.locations)}
+                        right={
+                          rejectCatalogDraft ? (
+                            <div className="space-y-2">
+                              <div className="space-y-1">
+                                <p className="text-[10px] uppercase tracking-wide text-gray-500">
+                                  Micro market
+                                </p>
+                                {rejectPick("microMarket", microMarkets)}
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-[10px] uppercase tracking-wide text-gray-500">
+                                  Location
+                                </p>
+                                {rejectPick("location", rejectLocOptions)}
+                              </div>
+                            </div>
+                          ) : null
+                        }
                       />
-                      {rejectCatalogDraft?.microMarket.name ? (
-                        <p className="text-[10px] text-gray-500">
-                          Micro market from this location:{" "}
-                          {rejectCatalogDraft.microMarket.name}
-                        </p>
-                      ) : null}
                       {rejectRemarksDraft.rejectLocation &&
                         remarkInput(
                           "locationRemark",
@@ -1952,11 +2490,17 @@ export function ListingReviewTable({
                           Reject micro market
                         </span>
                       </label>
-                      <CompareField
-                        label="Micro market"
-                        original={getHighlightedMicroMarketName(item)}
-                        right={rejectPick("microMarket", linkedCatalog.microMarkets)}
-                      />
+                      {showLoc ? (
+                        <p className="text-xs text-gray-500">
+                          Micro market is selected under Reject location (above).
+                        </p>
+                      ) : (
+                        <CompareField
+                          label="Micro market"
+                          original={getHighlightedMicroMarketName(item)}
+                          right={rejectPick("microMarket", microMarkets)}
+                        />
+                      )}
                       {rejectRemarksDraft.rejectMicroMarket &&
                         remarkInput(
                           "microMarketRemark",
@@ -1989,38 +2533,40 @@ export function ListingReviewTable({
                 setRejectCatalogDraft(null);
               }}
             >
-              Cancel
+              {rejectNothingPending ? "Close" : "Cancel"}
             </Button>
-            <Button
-              className={`flex-1 ${
-                confirm?.action === "reject"
-                  ? "bg-red-600 hover:bg-red-700 text-white"
-                  : "bg-primary hover:bg-primary/90 text-white"
-              }`}
-              disabled={
-                !!busyId ||
-                (confirm?.action === "reject" &&
-                  (() => {
-                    const anySelected =
-                      !!rejectRemarksDraft.rejectPropertyName ||
-                      !!rejectRemarksDraft.rejectLocation ||
-                      !!rejectRemarksDraft.rejectMicroMarket;
-                    return (
-                      !anySelected ||
-                      (!!rejectRemarksDraft.rejectPropertyName &&
-                        !rejectRemarksDraft.propertyNameRemark?.trim()) ||
-                      (!!rejectRemarksDraft.rejectLocation &&
-                        !rejectRemarksDraft.locationRemark?.trim()) ||
-                      (!!rejectRemarksDraft.rejectMicroMarket &&
-                        !rejectRemarksDraft.microMarketRemark?.trim())
-                    );
-                  })())
-              }
-              onClick={handleConfirmAction}
-            >
-              {busyId && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {confirm?.action === "reject" ? "Reject" : "Confirm"}
-            </Button>
+            {rejectNothingPending ? null : (
+              <Button
+                className={`flex-1 ${
+                  confirm?.action === "reject"
+                    ? "bg-red-600 hover:bg-red-700 text-white"
+                    : "bg-primary hover:bg-primary/90 text-white"
+                }`}
+                disabled={
+                  !!busyId ||
+                  (confirm?.action === "reject" &&
+                    (() => {
+                      const anySelected =
+                        !!rejectRemarksDraft.rejectPropertyName ||
+                        !!rejectRemarksDraft.rejectLocation ||
+                        !!rejectRemarksDraft.rejectMicroMarket;
+                      return (
+                        !anySelected ||
+                        (!!rejectRemarksDraft.rejectPropertyName &&
+                          !rejectRemarksDraft.propertyNameRemark?.trim()) ||
+                        (!!rejectRemarksDraft.rejectLocation &&
+                          !rejectRemarksDraft.locationRemark?.trim()) ||
+                        (!!rejectRemarksDraft.rejectMicroMarket &&
+                          !rejectRemarksDraft.microMarketRemark?.trim())
+                      );
+                    })())
+                }
+                onClick={handleConfirmAction}
+              >
+                {busyId && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {confirm?.action === "reject" ? "Reject" : "Confirm"}
+              </Button>
+            )}
           </div>
         </DialogContent>
       </Dialog>

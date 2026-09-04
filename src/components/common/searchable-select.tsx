@@ -62,7 +62,6 @@ export function SearchableSelect({
   const createQuery = filterText.trim();
   const canCreate =
     allowCreate &&
-    !editable &&
     !!createQuery &&
     !options.some((o) => o.label.toLowerCase() === createQuery.toLowerCase());
 
@@ -254,7 +253,7 @@ export function SearchableSelect({
                     }}
                     className="mt-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-primary hover:bg-primary-light"
                   >
-                    Use “{createQuery}”
+                    Add “{createQuery}”
                   </button>
                 )}
               </>

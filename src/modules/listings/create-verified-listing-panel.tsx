@@ -1,21 +1,21 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { PermissionGuard } from '@/components/common/permission-guard';
-import { Breadcrumb } from '@/components/common/breadcrumb';
-import { SearchableSelect } from '@/components/common/searchable-select';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { PermissionGuard } from "@/components/common/permission-guard";
+import { Breadcrumb } from "@/components/common/breadcrumb";
+import { SearchableSelect } from "@/components/common/searchable-select";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { locationService } from '@/services/location.service';
+} from "@/components/ui/select";
+import { locationService } from "@/services/location.service";
 import {
   isCreateCategoryDisabled,
   listingCreateApiError,
@@ -25,52 +25,66 @@ import {
   type CreateFormPrefill,
   type CreateFormProperty,
   type CreateFormSchema,
-} from '@/services/listings.service';
-import { Loader2 } from 'lucide-react';
-import { useAuthStore } from '@/store/use-auth-store';
-import type { StaffAssignee } from '@/services/listings.service';
+} from "@/services/listings.service";
+import { Loader2 } from "lucide-react";
+import { useAuthStore } from "@/store/use-auth-store";
+import type { StaffAssignee } from "@/services/listings.service";
 
 const SKIP_DETAIL_KEYS = new Set([
-  'category',
-  'category_id',
-  'building_type',
-  'building_type_id',
-  'property_type',
-  'property_type_id',
-  'property_name',
-  'property_name_id',
-  'location',
-  'location_id',
-  'micro_market',
-  'micro_market_id',
-  'micromarket',
-  'price',
-  'price_on_request',
-  'owner_user_id',
-  'owner',
+  "category",
+  "category_id",
+  "building_type",
+  "building_type_id",
+  "property_type",
+  "property_type_id",
+  "property_name",
+  "property_name_id",
+  "location",
+  "location_id",
+  "micro_market",
+  "micro_market_id",
+  "micromarket",
+  "price",
+  "price_on_request",
+  "owner_user_id",
+  "owner",
 ]);
 
 function normalizeKey(key: string) {
-  return key.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return key
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
 }
 
 function isSelectType(type: string) {
   const t = type.toLowerCase();
-  return t.includes('select') || t.includes('dropdown') || t === 'enum' || t === 'radio';
+  return (
+    t.includes("select") ||
+    t.includes("dropdown") ||
+    t === "enum" ||
+    t === "radio"
+  );
 }
 
 function isBooleanType(type: string) {
   const t = type.toLowerCase();
-  return t === 'boolean' || t === 'switch' || t === 'checkbox' || t === 'toggle';
+  return (
+    t === "boolean" || t === "switch" || t === "checkbox" || t === "toggle"
+  );
 }
 
 function isNumberType(type: string) {
   const t = type.toLowerCase();
-  return t === 'number' || t === 'integer' || t === 'decimal' || t === 'currency';
+  return (
+    t === "number" || t === "integer" || t === "decimal" || t === "currency"
+  );
 }
 
 function filterRenderableFields(fields: CreateFormField[]) {
-  return fields.filter((field) => !SKIP_DETAIL_KEYS.has(normalizeKey(field.key)));
+  return fields.filter(
+    (field) => !SKIP_DETAIL_KEYS.has(normalizeKey(field.key)),
+  );
 }
 
 export function CreateVerifiedListingPanel() {
@@ -85,24 +99,24 @@ export function CreateVerifiedListingPanel() {
   const [properties, setProperties] = useState<CreateFormProperty[]>([]);
   const [prefill, setPrefill] = useState<CreateFormPrefill | null>(null);
 
-  const [categoryId, setCategoryId] = useState('');
-  const [buildingTypeId, setBuildingTypeId] = useState('');
-  const [propertyTypeId, setPropertyTypeId] = useState('');
-  const [cityId, setCityId] = useState('');
-  const [propertyNameId, setPropertyNameId] = useState('');
-  const [locationId, setLocationId] = useState('');
-  const [microMarketId, setMicroMarketId] = useState('');
-  const [microMarketName, setMicroMarketName] = useState('');
-  const [price, setPrice] = useState('');
+  const [categoryId, setCategoryId] = useState("");
+  const [buildingTypeId, setBuildingTypeId] = useState("");
+  const [propertyTypeId, setPropertyTypeId] = useState("");
+  const [cityId, setCityId] = useState("");
+  const [propertyNameId, setPropertyNameId] = useState("");
+  const [locationId, setLocationId] = useState("");
+  const [microMarketId, setMicroMarketId] = useState("");
+  const [microMarketName, setMicroMarketName] = useState("");
+  const [price, setPrice] = useState("");
   const [priceOnRequest, setPriceOnRequest] = useState(false);
   const [details, setDetails] = useState<Record<string, string>>({});
   const [floorPricing, setFloorPricing] = useState<
     Array<{ floor_number: string; price: string; is_sold: boolean }>
-  >([{ floor_number: '1', price: '', is_sold: false }]);
-  const [propertySearch, setPropertySearch] = useState('');
-  const [leadContactName, setLeadContactName] = useState('');
-  const [leadContactPhone, setLeadContactPhone] = useState('');
-  const [connectedStaffUserId, setConnectedStaffUserId] = useState('');
+  >([{ floor_number: "1", price: "", is_sold: false }]);
+  const [propertySearch, setPropertySearch] = useState("");
+  const [leadContactName, setLeadContactName] = useState("");
+  const [leadContactPhone, setLeadContactPhone] = useState("");
+  const [connectedStaffUserId, setConnectedStaffUserId] = useState("");
   const [staffAssignees, setStaffAssignees] = useState<StaffAssignee[]>([]);
   const [loadingStaff, setLoadingStaff] = useState(true);
 
@@ -113,8 +127,8 @@ export function CreateVerifiedListingPanel() {
   const [loadingProperties, setLoadingProperties] = useState(false);
   const [loadingPrefill, setLoadingPrefill] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -133,7 +147,10 @@ export function CreateVerifiedListingPanel() {
         if (!cancelled) {
           setStaffAssignees([]);
           setError(
-            listingCreateApiError(err, 'Failed to load admin panel users for assignment.'),
+            listingCreateApiError(
+              err,
+              "Failed to load admin panel users for assignment.",
+            ),
           );
         }
       })
@@ -150,12 +167,13 @@ export function CreateVerifiedListingPanel() {
     void listingsService
       .getCreateCategories()
       .then((rows) => {
-        if (!cancelled) setCategories(rows.filter((r) => r.is_active !== false));
+        if (!cancelled)
+          setCategories(rows.filter((r) => r.is_active !== false));
       })
       .catch((err) => {
         if (!cancelled) {
           setCategories([]);
-          setError(listingCreateApiError(err, 'Failed to load categories.'));
+          setError(listingCreateApiError(err, "Failed to load categories."));
         }
       })
       .finally(() => {
@@ -170,8 +188,8 @@ export function CreateVerifiedListingPanel() {
         setCities(
           rows
             .map((c: { id?: string; name?: string }) => ({
-              id: String(c.id || ''),
-              name: String(c.name || ''),
+              id: String(c.id || ""),
+              name: String(c.name || ""),
             }))
             .filter((c) => c.id && c.name),
         );
@@ -195,12 +213,15 @@ export function CreateVerifiedListingPanel() {
     void listingsService
       .getCreateBuildingTypes(categoryId)
       .then((rows) => {
-        if (!cancelled) setBuildingTypes(rows.filter((r) => r.is_active !== false));
+        if (!cancelled)
+          setBuildingTypes(rows.filter((r) => r.is_active !== false));
       })
       .catch((err) => {
         if (!cancelled) {
           setBuildingTypes([]);
-          setError(listingCreateApiError(err, 'Failed to load building types.'));
+          setError(
+            listingCreateApiError(err, "Failed to load building types."),
+          );
         }
       })
       .finally(() => {
@@ -225,9 +246,9 @@ export function CreateVerifiedListingPanel() {
           const active = rows.filter((r) => r.is_active !== false);
           setPropertyTypes(active);
           const cat = categories.find((c) => c.id === categoryId);
-          const isDbf = cat?.name?.toLowerCase().includes('direct builder');
+          const isDbf = cat?.name?.toLowerCase().includes("direct builder");
           const builderOnly = active.find((r) =>
-            r.name.toLowerCase().includes('builder floor'),
+            r.name.toLowerCase().includes("builder floor"),
           );
           if (isDbf && builderOnly) {
             setPropertyTypeId(builderOnly.id);
@@ -237,7 +258,9 @@ export function CreateVerifiedListingPanel() {
       .catch((err) => {
         if (!cancelled) {
           setPropertyTypes([]);
-          setError(listingCreateApiError(err, 'Failed to load property types.'));
+          setError(
+            listingCreateApiError(err, "Failed to load property types."),
+          );
         }
       })
       .finally(() => {
@@ -266,7 +289,7 @@ export function CreateVerifiedListingPanel() {
       .catch((err) => {
         if (!cancelled) {
           setSchema(null);
-          setError(listingCreateApiError(err, 'Failed to load form schema.'));
+          setError(listingCreateApiError(err, "Failed to load form schema."));
         }
       })
       .finally(() => {
@@ -296,7 +319,7 @@ export function CreateVerifiedListingPanel() {
       .catch((err) => {
         if (!cancelled) {
           setProperties([]);
-          setError(listingCreateApiError(err, 'Failed to search properties.'));
+          setError(listingCreateApiError(err, "Failed to search properties."));
         }
       })
       .finally(() => {
@@ -310,9 +333,9 @@ export function CreateVerifiedListingPanel() {
   useEffect(() => {
     if (!propertyNameId) {
       setPrefill(null);
-      setLocationId('');
-      setMicroMarketId('');
-      setMicroMarketName('');
+      setLocationId("");
+      setMicroMarketId("");
+      setMicroMarketName("");
       return;
     }
     let cancelled = false;
@@ -329,16 +352,18 @@ export function CreateVerifiedListingPanel() {
         } else if (next.locationId) {
           setLocationId(next.locationId);
         } else {
-          setLocationId('');
+          setLocationId("");
         }
         if (next.cityId) {
-          setCityId((prev) => prev || next.cityId || '');
+          setCityId((prev) => prev || next.cityId || "");
         }
       })
       .catch((err) => {
         if (!cancelled) {
           setPrefill(null);
-          setError(listingCreateApiError(err, 'Failed to load property prefill.'));
+          setError(
+            listingCreateApiError(err, "Failed to load property prefill."),
+          );
         }
       })
       .finally(() => {
@@ -360,19 +385,30 @@ export function CreateVerifiedListingPanel() {
         .filter((mod) => mod.fields.length > 0);
     }
     const fields = filterRenderableFields(schema.fields);
-    return fields.length > 0 ? [{ key: 'details', label: 'Listing details', fields }] : [];
+    return fields.length > 0
+      ? [{ key: "details", label: "Listing details", fields }]
+      : [];
   }, [schema]);
 
-  const detailFieldsCount = detailModules.reduce((sum, mod) => sum + mod.fields.length, 0);
+  const detailFieldsCount = detailModules.reduce(
+    (sum, mod) => sum + mod.fields.length,
+    0,
+  );
 
   const selectedCategory = categories.find((c) => c.id === categoryId);
   const isDirectBuilderFloor = useMemo(() => {
-    const name = selectedCategory?.name?.toLowerCase() || '';
-    return name.includes('direct builder');
+    const name = selectedCategory?.name?.toLowerCase() || "";
+    return name.includes("direct builder");
   }, [selectedCategory?.name]);
-  const selectedBuildingType = buildingTypes.find((b) => b.id === buildingTypeId);
-  const selectedStaffUser = staffAssignees.find((s) => s.id === connectedStaffUserId);
-  const selectedPropertyType = propertyTypes.find((p) => p.id === propertyTypeId);
+  const selectedBuildingType = buildingTypes.find(
+    (b) => b.id === buildingTypeId,
+  );
+  const selectedStaffUser = staffAssignees.find(
+    (s) => s.id === connectedStaffUserId,
+  );
+  const selectedPropertyType = propertyTypes.find(
+    (p) => p.id === propertyTypeId,
+  );
   const selectedProperty = properties.find((p) => p.id === propertyNameId);
   const selectedLocation =
     prefill?.locations.find((l) => l.id === locationId) ||
@@ -394,16 +430,16 @@ export function CreateVerifiedListingPanel() {
     !submitting;
 
   const resetDownstreamFromCategory = () => {
-    setBuildingTypeId('');
-    setPropertyTypeId('');
-    setPropertyNameId('');
-    setLocationId('');
-    setMicroMarketId('');
-    setMicroMarketName('');
+    setBuildingTypeId("");
+    setPropertyTypeId("");
+    setPropertyNameId("");
+    setLocationId("");
+    setMicroMarketId("");
+    setMicroMarketName("");
     setPrefill(null);
     setSchema(null);
     setDetails({});
-    setPrice('');
+    setPrice("");
     setPriceOnRequest(false);
   };
 
@@ -412,33 +448,47 @@ export function CreateVerifiedListingPanel() {
   };
 
   const renderField = (field: CreateFormField) => {
-    const value = details[field.key] ?? '';
+    const value = details[field.key] ?? "";
     if (isBooleanType(field.type)) {
       return (
-        <div key={field.key} className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2">
+        <div
+          key={field.key}
+          className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2"
+        >
           <label className="text-sm font-medium text-gray-700">
             {field.label}
             {field.required ? <span className="text-red-500"> *</span> : null}
           </label>
           <Switch
-            checked={value === 'true' || value === '1' || value === 'yes'}
-            onCheckedChange={(checked) => updateDetail(field.key, checked ? 'true' : 'false')}
+            checked={value === "true" || value === "1" || value === "yes"}
+            onCheckedChange={(checked) =>
+              updateDetail(field.key, checked ? "true" : "false")
+            }
           />
         </div>
       );
     }
 
     if (isSelectType(field.type) && (field.options?.length || 0) > 0) {
-      const selectedLabel = field.options?.find((o) => o.value === value)?.label;
+      const selectedLabel = field.options?.find(
+        (o) => o.value === value,
+      )?.label;
       return (
         <div key={field.key} className="space-y-2">
           <label className="text-sm font-medium text-gray-700">
             {field.label}
             {field.required ? <span className="text-red-500"> *</span> : null}
           </label>
-          <Select value={value || undefined} onValueChange={(v) => updateDetail(field.key, v ?? '')}>
+          <Select
+            value={value || undefined}
+            onValueChange={(v) => updateDetail(field.key, v ?? "")}
+          >
             <SelectTrigger className="w-full">
-              {selectedLabel ? <span>{selectedLabel}</span> : <SelectValue placeholder={`Select ${field.label}`} />}
+              {selectedLabel ? (
+                <span>{selectedLabel}</span>
+              ) : (
+                <SelectValue placeholder={`Select ${field.label}`} />
+              )}
             </SelectTrigger>
             <SelectContent>
               {field.options!.map((opt) => (
@@ -459,7 +509,7 @@ export function CreateVerifiedListingPanel() {
           {field.required ? <span className="text-red-500"> *</span> : null}
         </label>
         <Input
-          type={isNumberType(field.type) ? 'number' : 'text'}
+          type={isNumberType(field.type) ? "number" : "text"}
           value={value}
           onChange={(e) => updateDetail(field.key, e.target.value)}
           placeholder={field.placeholder || field.label}
@@ -471,15 +521,16 @@ export function CreateVerifiedListingPanel() {
   const handleSubmit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
-    setError('');
-    setSuccess('');
+    setError("");
+    setSuccess("");
     try {
       const detailsPayload: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(details)) {
-        if (value === '' || value == null) continue;
-        if (value === 'true') detailsPayload[key] = true;
-        else if (value === 'false') detailsPayload[key] = false;
-        else if (/^-?\d+(\.\d+)?$/.test(value)) detailsPayload[key] = Number(value);
+        if (value === "" || value == null) continue;
+        if (value === "true") detailsPayload[key] = true;
+        else if (value === "false") detailsPayload[key] = false;
+        else if (/^-?\d+(\.\d+)?$/.test(value))
+          detailsPayload[key] = Number(value);
         else detailsPayload[key] = value;
       }
 
@@ -507,10 +558,12 @@ export function CreateVerifiedListingPanel() {
           : undefined,
       });
 
-      setSuccess('Verified listing created. It will appear under My Listings.');
-      setTimeout(() => router.push('/my-listings'), 800);
+      setSuccess("Verified listing created. It will appear under My Listings.");
+      setTimeout(() => router.push("/my-listings"), 800);
     } catch (err) {
-      setError(listingCreateApiError(err, 'Failed to create verified listing.'));
+      setError(
+        listingCreateApiError(err, "Failed to create verified listing."),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -518,7 +571,7 @@ export function CreateVerifiedListingPanel() {
 
   return (
     <PermissionGuard
-      permission={['locations:read', 'listings:create']}
+      permission={["locations:read", "listings:create"]}
       fallback={
         <div className="p-12 text-center text-gray-500">
           You do not have permission to create verified listings.
@@ -528,22 +581,31 @@ export function CreateVerifiedListingPanel() {
       <div className="mx-auto max-w-3xl space-y-6 pb-16">
         <Breadcrumb
           items={[
-            { label: 'Review Listing', href: '/moderation' },
-            { label: 'Add Post' },
+            { label: "Review Listing", href: "/moderation" },
+            { label: "Add Post" },
           ]}
         />
 
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Add Post</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+            Add Post
+          </h1>
           <p className="mt-1 text-gray-500">
-            Create a verified listing from catalog only. It goes live as published + verified and
-            notifies property-type + Verified Listing groups.
+            Create a verified listing from catalog only. It goes live as
+            published + verified and notifies property-type + Verified Listing
+            groups.
           </p>
         </div>
 
-        {error ? <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</div> : null}
+        {error ? (
+          <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
+            {error}
+          </div>
+        ) : null}
         {success ? (
-          <div className="rounded-lg bg-green-50 p-3 text-sm text-green-700">{success}</div>
+          <div className="rounded-lg bg-green-50 p-3 text-sm text-green-700">
+            {success}
+          </div>
         ) : null}
 
         <div className="space-y-5 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
@@ -552,10 +614,10 @@ export function CreateVerifiedListingPanel() {
             <Select
               value={categoryId || undefined}
               onValueChange={(v) => {
-                const next = v ?? '';
+                const next = v ?? "";
                 const option = categories.find((c) => c.id === next);
                 if (option && isCreateCategoryDisabled(option)) return;
-                setError('');
+                setError("");
                 setCategoryId(next);
                 resetDownstreamFromCategory();
               }}
@@ -565,7 +627,11 @@ export function CreateVerifiedListingPanel() {
                 {selectedCategory ? (
                   <span>{selectedCategory.name}</span>
                 ) : (
-                  <SelectValue placeholder={loadingCategories ? 'Loading…' : 'Select category'} />
+                  <SelectValue
+                    placeholder={
+                      loadingCategories ? "Loading…" : "Select category"
+                    }
+                  />
                 )}
               </SelectTrigger>
               <SelectContent>
@@ -574,7 +640,7 @@ export function CreateVerifiedListingPanel() {
                   return (
                     <SelectItem key={c.id} value={c.id} disabled={disabled}>
                       {c.name}
-                      {disabled ? ' (coming soon)' : ''}
+                      {disabled ? " (coming soon)" : ""}
                     </SelectItem>
                   );
                 })}
@@ -587,12 +653,12 @@ export function CreateVerifiedListingPanel() {
             <Select
               value={buildingTypeId || undefined}
               onValueChange={(v) => {
-                setBuildingTypeId(v ?? '');
-                setPropertyTypeId('');
-                setPropertyNameId('');
-                setLocationId('');
-                setMicroMarketId('');
-                setMicroMarketName('');
+                setBuildingTypeId(v ?? "");
+                setPropertyTypeId("");
+                setPropertyNameId("");
+                setLocationId("");
+                setMicroMarketId("");
+                setMicroMarketName("");
                 setPrefill(null);
                 setSchema(null);
                 setDetails({});
@@ -606,10 +672,10 @@ export function CreateVerifiedListingPanel() {
                   <SelectValue
                     placeholder={
                       !categoryId
-                        ? 'Select category first'
+                        ? "Select category first"
                         : loadingBuildingTypes
-                          ? 'Loading…'
-                          : 'Select building type'
+                          ? "Loading…"
+                          : "Select building type"
                     }
                   />
                 )}
@@ -629,11 +695,11 @@ export function CreateVerifiedListingPanel() {
             <Select
               value={propertyTypeId || undefined}
               onValueChange={(v) => {
-                setPropertyTypeId(v ?? '');
-                setPropertyNameId('');
-                setLocationId('');
-                setMicroMarketId('');
-                setMicroMarketName('');
+                setPropertyTypeId(v ?? "");
+                setPropertyNameId("");
+                setLocationId("");
+                setMicroMarketId("");
+                setMicroMarketName("");
                 setPrefill(null);
                 setDetails({});
               }}
@@ -646,10 +712,10 @@ export function CreateVerifiedListingPanel() {
                   <SelectValue
                     placeholder={
                       !buildingTypeId
-                        ? 'Select building type first'
+                        ? "Select building type first"
                         : loadingPropertyTypes
-                          ? 'Loading…'
-                          : 'Select property type'
+                          ? "Loading…"
+                          : "Select property type"
                     }
                   />
                 )}
@@ -665,16 +731,18 @@ export function CreateVerifiedListingPanel() {
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">City filter (optional)</label>
+            <label className="text-sm font-medium">
+              City filter (optional)
+            </label>
             <SearchableSelect
               options={cities.map((c) => ({ value: c.id, label: c.name }))}
               value={cityId}
               onValueChange={(v) => {
                 setCityId(v);
-                setPropertyNameId('');
-                setLocationId('');
-                setMicroMarketId('');
-                setMicroMarketName('');
+                setPropertyNameId("");
+                setLocationId("");
+                setMicroMarketId("");
+                setMicroMarketName("");
                 setPrefill(null);
               }}
               disabled={!propertyTypeId}
@@ -698,7 +766,9 @@ export function CreateVerifiedListingPanel() {
               loading={loadingProperties}
               disabled={!propertyTypeId}
               placeholder={
-                !propertyTypeId ? 'Select property type first' : 'Search approved catalog only'
+                !propertyTypeId
+                  ? "Select property type first"
+                  : "Search approved catalog only"
               }
               emptyText="No catalog properties found."
               selectedLabel={
@@ -709,12 +779,15 @@ export function CreateVerifiedListingPanel() {
                   : undefined
               }
             />
-            <p className="text-xs text-gray-500">Free-text property names are not allowed.</p>
+            <p className="text-xs text-gray-500">
+              Free-text property names are not allowed.
+            </p>
           </div>
 
           {loadingPrefill ? (
             <div className="flex items-center gap-2 text-sm text-gray-500">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading location prefill…
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading location
+              prefill…
             </div>
           ) : null}
 
@@ -727,7 +800,7 @@ export function CreateVerifiedListingPanel() {
                 {prefill.locations.length > 1 ? (
                   <Select
                     value={locationId || undefined}
-                    onValueChange={(v) => setLocationId(v ?? '')}
+                    onValueChange={(v) => setLocationId(v ?? "")}
                   >
                     <SelectTrigger className="w-full">
                       {selectedLocation ? (
@@ -745,42 +818,57 @@ export function CreateVerifiedListingPanel() {
                     </SelectContent>
                   </Select>
                 ) : (
-                  <Input value={selectedLocation?.name || prefill.locationName || '—'} disabled />
+                  <Input
+                    value={
+                      selectedLocation?.name || prefill.locationName || "—"
+                    }
+                    disabled
+                  />
                 )}
               </div>
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">Micro market</label>
-                <Input value={microMarketName || prefill.microMarketName || '—'} disabled />
+                <Input
+                  value={microMarketName || prefill.microMarketName || "—"}
+                  disabled
+                />
               </div>
             </>
           ) : null}
 
           <div className="space-y-4 border-t border-gray-100 pt-4">
             <div>
-              <h2 className="text-sm font-semibold text-gray-900">Lead contact (internal)</h2>
+              <h2 className="text-sm font-semibold text-gray-900">
+                Seller contact (internal)
+              </h2>
               <p className="text-xs text-gray-500">
-                For admin-panel reference only. App users will not see this contact on reveal.
+                For admin-panel reference only. App users will not see this
+                contact on reveal.
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  Lead name <span className="text-red-500">*</span>
+                  Seller name <span className="text-red-500">*</span>
                 </label>
                 <Input
                   value={leadContactName}
                   onChange={(e) => setLeadContactName(e.target.value)}
-                  placeholder="Lead / owner name"
+                  placeholder="Seller name"
                 />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  Lead phone <span className="text-red-500">*</span>
+                  Seller phone <span className="text-red-500">*</span>
                 </label>
                 <Input
                   value={leadContactPhone}
-                  onChange={(e) => setLeadContactPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  onChange={(e) =>
+                    setLeadContactPhone(
+                      e.target.value.replace(/\D/g, "").slice(0, 10),
+                    )
+                  }
                   placeholder="10-digit mobile"
                   inputMode="numeric"
                 />
@@ -791,22 +879,23 @@ export function CreateVerifiedListingPanel() {
                 Connect admin panel user <span className="text-red-500">*</span>
               </label>
               <p className="text-xs text-gray-500">
-                This user will see the listing in My Listings and their contact will show on app
-                reveal.
+                This user will see the listing in My Listings and their contact
+                will show on app reveal.
               </p>
               {loadingStaff ? (
                 <div className="flex items-center gap-2 text-sm text-gray-500">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading staff users…
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading staff
+                  users…
                 </div>
               ) : staffAssignees.length === 0 ? (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                  No admin panel users found. Add staff under RBAC → Staff Users with a contact
-                  number.
+                  No admin panel users found. Add staff under RBAC → Staff Users
+                  with a contact number.
                 </p>
               ) : (
                 <Select
                   value={connectedStaffUserId}
-                  onValueChange={(v) => setConnectedStaffUserId(v ?? '')}
+                  onValueChange={(v) => setConnectedStaffUserId(v ?? "")}
                 >
                   <SelectTrigger>
                     {selectedStaffUser ? (
@@ -831,14 +920,18 @@ export function CreateVerifiedListingPanel() {
 
           <div className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2">
             <div>
-              <p className="text-sm font-medium text-gray-700">Price on request</p>
-              <p className="text-xs text-gray-500">If on, numeric price is not sent.</p>
+              <p className="text-sm font-medium text-gray-700">
+                Price on request
+              </p>
+              <p className="text-xs text-gray-500">
+                If on, numeric price is not sent.
+              </p>
             </div>
             <Switch
               checked={priceOnRequest}
               onCheckedChange={(checked) => {
                 setPriceOnRequest(checked);
-                if (checked) setPrice('');
+                if (checked) setPrice("");
               }}
             />
           </div>
@@ -864,28 +957,35 @@ export function CreateVerifiedListingPanel() {
             </div>
           ) : !propertyNameId ? (
             <p className="border-t border-gray-100 pt-4 text-sm text-gray-500">
-              Select a property name to load the remaining form modules for this property type.
+              Select a property name to load the remaining form modules for this
+              property type.
             </p>
           ) : detailFieldsCount > 0 ? (
             <div className="space-y-6 border-t border-gray-100 pt-4">
               {detailModules.map((mod) => (
                 <div key={mod.key} className="space-y-4">
-                  <h2 className="text-sm font-semibold text-gray-900">{mod.label}</h2>
-                  <div className="grid gap-4 sm:grid-cols-2">{mod.fields.map(renderField)}</div>
+                  <h2 className="text-sm font-semibold text-gray-900">
+                    {mod.label}
+                  </h2>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {mod.fields.map(renderField)}
+                  </div>
                 </div>
               ))}
             </div>
           ) : (
             <p className="border-t border-gray-100 pt-4 text-sm text-amber-700">
-              No form-module fields are configured as visible for this category / building type /
-              property type. Check Listings Config.
+              No form-module fields are configured as visible for this category
+              / building type / property type. Check Listings Config.
             </p>
           )}
 
           {isDirectBuilderFloor ? (
             <div className="space-y-3 border-t border-gray-100 pt-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-gray-900">Floor-wise details</h2>
+                <h2 className="text-sm font-semibold text-gray-900">
+                  Floor-wise details
+                </h2>
                 <Button
                   type="button"
                   variant="outline"
@@ -895,7 +995,7 @@ export function CreateVerifiedListingPanel() {
                       ...rows,
                       {
                         floor_number: String(rows.length + 1),
-                        price: '',
+                        price: "",
                         is_sold: false,
                       },
                     ])
@@ -906,7 +1006,10 @@ export function CreateVerifiedListingPanel() {
               </div>
               <div className="space-y-2">
                 {floorPricing.map((row, index) => (
-                  <div key={`floor-${index}`} className="grid gap-2 sm:grid-cols-4">
+                  <div
+                    key={`floor-${index}`}
+                    className="grid gap-2 sm:grid-cols-4"
+                  >
                     <Input
                       type="number"
                       min={1}
@@ -914,7 +1017,9 @@ export function CreateVerifiedListingPanel() {
                       onChange={(e) =>
                         setFloorPricing((rows) =>
                           rows.map((r, i) =>
-                            i === index ? { ...r, floor_number: e.target.value } : r,
+                            i === index
+                              ? { ...r, floor_number: e.target.value }
+                              : r,
                           ),
                         )
                       }
@@ -926,7 +1031,9 @@ export function CreateVerifiedListingPanel() {
                       value={row.price}
                       onChange={(e) =>
                         setFloorPricing((rows) =>
-                          rows.map((r, i) => (i === index ? { ...r, price: e.target.value } : r)),
+                          rows.map((r, i) =>
+                            i === index ? { ...r, price: e.target.value } : r,
+                          ),
                         )
                       }
                       placeholder="Price ₹"
@@ -951,7 +1058,11 @@ export function CreateVerifiedListingPanel() {
           ) : null}
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => router.push('/moderation')} disabled={submitting}>
+            <Button
+              variant="outline"
+              onClick={() => router.push("/moderation")}
+              disabled={submitting}
+            >
               Cancel
             </Button>
             <Button

@@ -76,6 +76,7 @@ export function PlanFormDialog({
   const [displayName, setDisplayName] = useState('');
   const [sortOrder, setSortOrder] = useState(0);
   const [isActive, setIsActive] = useState(true);
+  const [showOnApp, setShowOnApp] = useState(true);
   const [trialDays, setTrialDays] = useState('');
   const [priceRupees, setPriceRupees] = useState('');
   const [promoPriceRupees, setPromoPriceRupees] = useState('');
@@ -96,6 +97,7 @@ export function PlanFormDialog({
     setDisplayName(plan.displayName);
     setSortOrder(plan.sortOrder);
     setIsActive(plan.isActive);
+    setShowOnApp(plan.showOnApp);
     setTrialDays(plan.trialDays != null ? String(plan.trialDays) : '');
     setPriceRupees(paiseToRupeesInput(plan.pricePaise));
     setPromoPriceRupees(paiseToRupeesInput(plan.promoPricePaise));
@@ -133,6 +135,7 @@ export function PlanFormDialog({
       displayName: displayName.trim(),
       sortOrder,
       isActive,
+      showOnApp,
       trialDays: trialDays === '' ? null : Number(trialDays),
       pricePaise: showPricing ? rupeesInputToPaise(priceRupees) : null,
       promoPricePaise: showPricing ? rupeesInputToPaise(promoPriceRupees) : null,
@@ -179,6 +182,12 @@ export function PlanFormDialog({
               hint="Inactive plans cannot be purchased or assigned."
               checked={isActive}
               onChange={setIsActive}
+            />
+            <FlagRow
+              label="Show on app"
+              hint="Hide on app: still serves current subscribers; hidden from manage/upgrade/login paywall."
+              checked={showOnApp}
+              onChange={setShowOnApp}
             />
             {plan?.code === 'FREE_TRIAL' ? (
               <NumField

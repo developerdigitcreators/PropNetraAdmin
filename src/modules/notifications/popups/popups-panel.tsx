@@ -419,7 +419,7 @@ export function PopupsPanel({
                       </span>
                     </div>
                     <p className="mt-0.5 line-clamp-2 text-xs text-gray-500">
-                      {popupTargetSummary(popup)} · {popup.seenCount} seen
+                      {popupTargetSummary(popup)} · {popup.seenCount}/{popup.audienceTotal ?? 0}
                     </p>
                     {formatDateTime(popup.publishedAt || popup.createdAt) ? (
                       <p className="mt-0.5 text-[11px] text-gray-400">
@@ -513,6 +513,7 @@ export function PopupsPanel({
                       Full-screen popup with timer progress bar — like Instagram/WhatsApp stories.
                     </p>
                   </div>
+                  {/* Color pickers hidden from admin for now.
                   <div className="grid gap-3 sm:grid-cols-3">
                     <label className="space-y-1 text-xs text-gray-600">
                       Background
@@ -569,6 +570,7 @@ export function PopupsPanel({
                       </div>
                     </label>
                   </div>
+                  */}
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="space-y-1 text-xs text-gray-600">
                       Auto-close after (seconds)
@@ -919,7 +921,7 @@ export function PopupsPanel({
                           </p>
                           <p className="mt-1">
                             <span className="font-medium text-gray-900">Seen by:</span>{' '}
-                            {popup.seenCount} users
+                            {popup.seenCount}/{popup.audienceTotal ?? 0}
                           </p>
                           <div className="mt-3 flex flex-wrap gap-2">
                             {popup.status === 'draft' && canWrite && (

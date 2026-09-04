@@ -341,6 +341,7 @@ export type InAppPopup = {
   isActive: boolean;
   status: InAppPopupStatus;
   seenCount: number;
+  audienceTotal?: number;
   publishedAt?: string | null;
   expiresAt?: string | null;
   createdAt?: string | null;
@@ -1069,6 +1070,7 @@ export function normalizeInAppPopup(raw: unknown): InAppPopup {
     isActive: n.isActive === true || n.is_active === true,
     status,
     seenCount: Number(n.seenCount ?? n.seen_count ?? 0) || 0,
+    audienceTotal: Number(n.audienceTotal ?? n.audience_total ?? 0) || 0,
     publishedAt: str(n.publishedAt || n.published_at) || null,
     expiresAt: str(n.expiresAt || n.expires_at) || null,
     createdAt: str(n.createdAt || n.created_at) || null,
@@ -1605,5 +1607,38 @@ export const notificationsService = {
   deletePopup: async (id: string, remark: string) => {
     const response = await deleteWithRemark(`/admin/notifications/popups/${id}`, remark);
     return response.data as { success?: boolean };
+  },
+
+  sendPushOnly: async (payload: {
+    title: string;
+    body?: string;
+    imageUrl?: string;
+    linkType?: BroadcastLinkType;
+    listingId?: string;
+    pageKey?: string;
+    ctaLabel?: string;
+    cityIds?: string[];
+    stateIds?: string[];
+    audience?: PopupAudience;
+  }): Promise<{
+    recipientCount: number;
+    pushSuccessCount: number;
+    pushFailureCount: number;
+    cityPushKilled?: boolean;
+    pushErrors?: string[];
+  }> => {
+    const response = await axiosClient.post('/admin/notifications/push-only', payload);
+    const data = (response.data && typeof response.data === 'object'
+      ? response.data
+      : {}) as Record<string, unknown>;
+    return {
+      recipientCount: Number(data.recipientCount) || 0,
+      pushSuccessCount: Number(data.pushSuccessCount) || 0,
+      pushFailureCount: Number(data.pushFailureCount) || 0,
+      cityPushKilled: data.cityPushKilled === true,
+      pushErrors: Array.isArray(data.pushErrors)
+        ? data.pushErrors.filter((item): item is string => typeof item === 'string')
+        : undefined,
+    };
   },
 };

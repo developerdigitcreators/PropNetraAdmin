@@ -59,8 +59,6 @@ type Props = {
   onChange: (next: PushLayoutDraft) => void;
 };
 
-const DEFAULT_PEACH = "#f8d7c4";
-
 const DEFAULT_OPTIONS: LayoutOption[] = [
   { key: "COUNTDOWN", label: "Countdown" },
   { key: "MULTI_ACTION", label: "Multi-action" },
@@ -69,11 +67,12 @@ const DEFAULT_OPTIONS: LayoutOption[] = [
 
 const SPECIAL_LAYOUTS = new Set(["COUNTDOWN", "MULTI_ACTION", "PROGRESS"]);
 
-function hasColorMarkup(value?: string) {
-  return /<span style="color:|<font color=|\{#[0-9a-fA-F]{3,6}\}/i.test(
-    value || "",
-  );
-}
+// Color layout hidden from admin for now.
+// function hasColorMarkup(value?: string) {
+//   return /<span style="color:|<font color=|\{#[0-9a-fA-F]{3,6}\}/i.test(
+//     value || "",
+//   );
+// }
 
 export function inferAdminLayoutType(input: {
   selected: PushLayoutType;
@@ -82,14 +81,20 @@ export function inferAdminLayoutType(input: {
   imageUrl?: string;
   bgColor?: string;
 }): Exclude<PushLayoutType, "AUTO"> {
-  if (input.selected !== "AUTO") return input.selected;
-  if (
-    hasColorMarkup(input.titleHtml) ||
-    hasColorMarkup(input.bodyHtml) ||
-    input.bgColor
-  ) {
-    return "COLOR";
+  if (input.selected !== "AUTO" && input.selected !== "COLOR") {
+    return input.selected;
   }
+  // Color layout hidden from admin for now.
+  // if (
+  //   hasColorMarkup(input.titleHtml) ||
+  //   hasColorMarkup(input.bodyHtml) ||
+  //   input.bgColor
+  // ) {
+  //   return "COLOR";
+  // }
+  void input.titleHtml;
+  void input.bodyHtml;
+  void input.bgColor;
   if (input.imageUrl?.trim()) return "IMAGE";
   return "TEXT";
 }
@@ -108,7 +113,8 @@ export function toBroadcastPushFields(
     bgColor: draft.bgColor,
   });
   const payload: Record<string, unknown> = { layoutType };
-  if (draft.bgColor) payload.bgColor = draft.bgColor;
+  // Color layout hidden from admin for now — do not send bgColor.
+  // if (draft.bgColor) payload.bgColor = draft.bgColor;
   if (layoutType === "COUNTDOWN" && draft.countdownEndsAt) {
     const ends = new Date(draft.countdownEndsAt);
     if (!Number.isNaN(ends.getTime())) {
@@ -117,10 +123,10 @@ export function toBroadcastPushFields(
   }
   if (layoutType === "MULTI_ACTION") {
     payload.actions = (draft.actions || [])
-      .filter((row) => row.label.trim() && row.deepLink.trim())
+      .filter((row) => row.deepLink.trim())
       .slice(0, 3)
       .map((row) => ({
-        label: row.label.trim(),
+        label: row.label.trim() || "Open",
         deepLink: row.deepLink.trim(),
         ...(row.iconUrl.trim() ? { iconUrl: row.iconUrl.trim() } : {}),
       }));
@@ -209,6 +215,7 @@ export function PushLayoutComposer({
             </option>
           ))}
         </select>
+        {/* Color picker hidden from admin for now.
         <label
           className="ml-1 text-xs font-medium text-gray-500"
           htmlFor="push-bg"
@@ -230,6 +237,7 @@ export function PushLayoutComposer({
         >
           Default peach
         </button>
+        */}
       </div>
 
       {resolved === "COUNTDOWN" && (
@@ -259,7 +267,8 @@ export function PushLayoutComposer({
           <DialogHeader>
             <DialogTitle>Multi-action</DialogTitle>
             <DialogDescription>
-              Add 2–3 actions. Each needs a label and a listing or internal page.
+              Add 2–3 actions. Each needs a listing or internal page. Label is
+              optional.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-2 py-1">
@@ -352,8 +361,8 @@ export function PushLayoutComposer({
       )}
 
       <p className="text-[11px] text-gray-400">
-        Images attach from +. Color markup still uses the peach card. Countdown,
-        multi-action, and progress add extra fields here.
+        Images attach from +. Countdown, multi-action, and progress add extra
+        fields here.
       </p>
     </div>
   );
@@ -422,6 +431,7 @@ function ActionRow({
       <LinkTypeToggle
         active={isPage ? "page" : isListing ? "post" : "none"}
         onSelect={(type) => {
+          if (type === "none") return;
           setPreferredType(type);
           setLinkOpen(true);
         }}

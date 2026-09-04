@@ -29,8 +29,9 @@ import {
   emptyDraft,
   type BroadcastDraft,
 } from "@/modules/notifications/chat/draft";
-import { ArrowLeft, Inbox, Lock, MapPin, Megaphone, Smartphone, Users } from "lucide-react";
+import { ArrowLeft, Bell, Inbox, Lock, MapPin, Megaphone, Smartphone, Users } from "lucide-react";
 import { PopupsPanel } from "@/modules/notifications/popups/popups-panel";
+import { PushPanel } from "@/modules/notifications/push/push-panel";
 import { useNotificationsRealtime } from "@/modules/notifications/use-notifications-realtime";
 import { GeneralInboxPanel } from "@/modules/notifications/chat/general-inbox-panel";
 
@@ -261,6 +262,13 @@ export default function NotificationsPage() {
               In-App Popup
             </TabsTrigger>
             <TabsTrigger
+              value="push"
+              className="gap-1.5 rounded-md px-5 data-[state=active]:bg-primary-light data-[state=active]:text-primary"
+            >
+              <Bell className="w-4 h-4" />
+              Push Notification
+            </TabsTrigger>
+            <TabsTrigger
               value="general"
               className="gap-1.5 rounded-md px-5 data-[state=active]:bg-primary-light data-[state=active]:text-primary"
             >
@@ -420,6 +428,14 @@ export default function NotificationsPage() {
               canUpdate={canUpdate}
               canDelete={canDelete}
               popupsTick={popupsTick}
+              onToast={showToast}
+            />
+          </TabsContent>
+
+          <TabsContent value="push" className="mt-4">
+            <PushPanel
+              pages={pages}
+              canWrite={canWrite}
               onToast={showToast}
             />
           </TabsContent>

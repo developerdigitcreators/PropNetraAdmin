@@ -39,6 +39,7 @@ export type SupportTicketItem = {
   createdAt: string | null;
   updatedAt: string | null;
   remarksCount: number;
+  isNew?: boolean;
   user: TicketUser;
   messages?: TicketMessage[];
   remarks?: TicketRemark[];
@@ -147,6 +148,7 @@ function normalizeTicket(raw: unknown): SupportTicketItem | null {
     createdAt: pickString(row.createdAt, row.created_at) || null,
     updatedAt: pickString(row.updatedAt, row.updated_at) || null,
     remarksCount: Number(row.remarksCount ?? row.remarks_count ?? remarks?.length ?? 0) || 0,
+    isNew: row.isNew === true,
     user: normalizeUser(row.user),
     messages,
     remarks,

@@ -20,6 +20,7 @@ export type AccountDeletionRequest = {
   createdAt: string | null;
   completedAt: string | null;
   otpExpiresAt: string | null;
+  isNew?: boolean;
   user: AccountDeletionUser | null;
 };
 
@@ -127,6 +128,7 @@ export function normalizeAccountDeletion(raw: unknown): AccountDeletionRequest |
       ) || null,
     otpExpiresAt:
       pickString(row.otpExpiresAt, row.otp_expires_at, row.expiresAt, row.expires_at) || null,
+    isNew: row.isNew === true,
     user,
   };
 }

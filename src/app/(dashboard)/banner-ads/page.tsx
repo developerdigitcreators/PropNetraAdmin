@@ -240,8 +240,11 @@ export default function BannerAdsPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ top: true, general: true });
 
-  const [autoslide, setAutoslide] = useState(DEFAULT_AUTOSLIDE);
-  const [savingAutoslide, setSavingAutoslide] = useState(false);
+  const [autoslideBySection, setAutoslideBySection] = useState<Record<string, string>>({
+    top: DEFAULT_AUTOSLIDE,
+    general: DEFAULT_AUTOSLIDE,
+  });
+  const [savingAutoslideSection, setSavingAutoslideSection] = useState<string | null>(null);
 
   const [bannerToDelete, setBannerToDelete] = useState<AdBanner | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -356,7 +359,7 @@ export default function BannerAdsPage() {
   const fetchBanners = useCallback(async () => {
     if (!stateId || !cityId || !placement) {
       setSectionMap({});
-      setAutoslide(DEFAULT_AUTOSLIDE);
+      setAutoslideBySection({ top: DEFAULT_AUTOSLIDE, general: DEFAULT_AUTOSLIDE });
       return;
     }
     setIsLoading(true);
@@ -370,11 +373,17 @@ export default function BannerAdsPage() {
         if (!next[sec.key]) next[sec.key] = [];
       }
       setSectionMap(next);
-      setAutoslide(normalizeAutoslideValue(data.autoslide, DEFAULT_AUTOSLIDE));
+      setAutoslideBySection({
+        top: normalizeAutoslideValue(data.autoslideBySection?.top?.autoslide, DEFAULT_AUTOSLIDE),
+        general: normalizeAutoslideValue(
+          data.autoslideBySection?.general?.autoslide ?? data.autoslide,
+          DEFAULT_AUTOSLIDE,
+        ),
+      });
     } catch (err) {
       console.error(err);
       setSectionMap({});
-      setAutoslide(DEFAULT_AUTOSLIDE);
+      setAutoslideBySection({ top: DEFAULT_AUTOSLIDE, general: DEFAULT_AUTOSLIDE });
     } finally {
       setIsLoading(false);
     }
@@ -390,25 +399,26 @@ export default function BannerAdsPage() {
     setSectionMap({});
   };
 
-  const saveAutoslide = async (nextRaw: string) => {
+  const saveAutoslide = async (sectionKey: string, nextRaw: string) => {
     const next = normalizeAutoslideValue(nextRaw, DEFAULT_AUTOSLIDE);
-    if (!ready || !canUpdate || !next || next === autoslide) return;
-    const prev = autoslide;
-    setAutoslide(next);
-    setSavingAutoslide(true);
+    const prev = autoslideBySection[sectionKey] || DEFAULT_AUTOSLIDE;
+    if (!ready || !canUpdate || !next || next === prev) return;
+    setAutoslideBySection((current) => ({ ...current, [sectionKey]: next }));
+    setSavingAutoslideSection(sectionKey);
     try {
       await bannerAdsService.updateSettings({
         stateId,
         cityId,
         placement,
+        section: sectionKey,
         autoslide: next,
       });
     } catch (err) {
       console.error(err);
-      setAutoslide(prev);
+      setAutoslideBySection((current) => ({ ...current, [sectionKey]: prev }));
       alert('Failed to update autoslide.');
     } finally {
-      setSavingAutoslide(false);
+      setSavingAutoslideSection(null);
     }
   };
 
@@ -542,43 +552,48 @@ export default function BannerAdsPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 flex flex-wrap items-center gap-4 justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-900">Autoslide</p>
-                <p className="text-xs text-gray-500">
-                  Set hours, minutes, and seconds for how long each banner stays on {pageLabel || 'this page'}.
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <AutoslideTimePicker
-                  value={autoslide}
-                  onChange={saveAutoslide}
-                  disabled={!canUpdate || savingAutoslide}
-                />
-                {savingAutoslide && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
-              </div>
-            </div>
-
-            {displaySections.map((section) => (
-              <SectionBlock
-                key={section.key}
-                section={section}
-                banners={sectionMap[section.key] || []}
-                isLoading={isLoading}
-                open={openSections[section.key] ?? true}
-                onToggle={() =>
-                  setOpenSections((prev) => ({ ...prev, [section.key]: !(prev[section.key] ?? true) }))
-                }
-                canCreate={canCreate}
-                canUpdate={canUpdate}
-                canDelete={canDelete}
-                onReorder={(ordered) => handleReorder(section.key, ordered)}
-                onAdd={() => goAdd(section.key)}
-                onEdit={goEdit}
-                onDelete={setBannerToDelete}
-                emptyHint={`No ${section.label.toLowerCase()} banners yet.`}
-              />
-            ))}
+            {displaySections.map((section) => {
+              const savingThis = savingAutoslideSection === section.key;
+              return (
+                <div key={section.key} className="space-y-3">
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 flex flex-wrap items-center gap-4 justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">
+                        {section.key === 'top' ? 'Top Auto-Slide' : 'General Banner Auto-Slide'}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        How long each {section.label.toLowerCase()} stays on {pageLabel || 'this page'}.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <AutoslideTimePicker
+                        value={autoslideBySection[section.key] || DEFAULT_AUTOSLIDE}
+                        onChange={(next) => saveAutoslide(section.key, next)}
+                        disabled={!canUpdate || savingThis}
+                      />
+                      {savingThis && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
+                    </div>
+                  </div>
+                  <SectionBlock
+                    section={section}
+                    banners={sectionMap[section.key] || []}
+                    isLoading={isLoading}
+                    open={openSections[section.key] ?? true}
+                    onToggle={() =>
+                      setOpenSections((prev) => ({ ...prev, [section.key]: !(prev[section.key] ?? true) }))
+                    }
+                    canCreate={canCreate}
+                    canUpdate={canUpdate}
+                    canDelete={canDelete}
+                    onReorder={(ordered) => handleReorder(section.key, ordered)}
+                    onAdd={() => goAdd(section.key)}
+                    onEdit={goEdit}
+                    onDelete={setBannerToDelete}
+                    emptyHint={`No ${section.label.toLowerCase()} banners yet.`}
+                  />
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

@@ -12,7 +12,8 @@ import { Placeholder } from "@tiptap/extensions";
 import { cn } from "@/lib/utils";
 import { docToMarkers, markersToHtml } from "./whatsapp-markup";
 import { EmojiPicker } from "./emoji-picker";
-import { ColorPicker } from "./color-picker";
+// Color picker hidden from admin for now.
+// import { ColorPicker } from "./color-picker";
 import { TextColor } from "./text-color-mark";
 import {
   Bold,
@@ -240,6 +241,7 @@ function Toolbar({
         active={active?.link}
         onClick={toggleLink}
       />
+      {/* Color picker hidden from admin for now.
       <ColorPicker
         color={active?.textColor}
         onSelect={(next) =>
@@ -249,6 +251,7 @@ function Toolbar({
           })
         }
       />
+      */}
       <span className="mx-0.5 h-4 w-px bg-gray-200" />
       <EmojiPicker
         onSelect={(emoji) =>

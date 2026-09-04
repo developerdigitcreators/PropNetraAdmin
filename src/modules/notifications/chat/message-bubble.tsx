@@ -64,7 +64,7 @@ function MediaAttachment({ item }: { item: BroadcastMedia }) {
         <img
           src={item.url}
           alt=""
-          className="max-h-56 w-full rounded-lg object-cover bg-gray-100"
+          className="max-h-56 w-full rounded-2xl object-cover bg-gray-100"
         />
       </a>
     );
@@ -158,8 +158,10 @@ export function MessageBubble({
         </div>
 
         {message.linkLabel && (
-          <div className="-mx-3 mt-1 border-t border-black/5 px-3 pt-2 text-center">
-            <span className="text-sm font-medium text-primary">{message.linkLabel}</span>
+          <div className="-mx-3 mt-2 border-t border-black/5 px-3 pt-2 text-center">
+            <span className="inline-flex min-w-[160px] items-center justify-center rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white">
+              {message.linkLabel}
+            </span>
           </div>
         )}
 

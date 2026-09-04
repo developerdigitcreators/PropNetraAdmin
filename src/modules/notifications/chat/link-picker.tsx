@@ -34,12 +34,25 @@ export type LinkSelection = {
 export function LinkTypeToggle({
   active,
   onSelect,
+  allowNone = false,
 }: {
   active: 'post' | 'page' | 'none';
-  onSelect: (type: 'post' | 'page') => void;
+  onSelect: (type: 'post' | 'page' | 'none') => void;
+  allowNone?: boolean;
 }) {
   return (
-    <div className="flex gap-2">
+    <div className="flex flex-wrap gap-2">
+      {allowNone ? (
+        <Button
+          type="button"
+          size="sm"
+          variant={active === 'none' ? 'default' : 'outline'}
+          className={active === 'none' ? 'bg-primary text-white' : ''}
+          onClick={() => onSelect('none')}
+        >
+          Normal
+        </Button>
+      ) : null}
       <Button
         type="button"
         size="sm"
@@ -47,7 +60,7 @@ export function LinkTypeToggle({
         className={active === 'post' ? 'bg-primary text-white' : ''}
         onClick={() => onSelect('post')}
       >
-        Listing
+        Post
       </Button>
       <Button
         type="button"
@@ -56,7 +69,7 @@ export function LinkTypeToggle({
         className={active === 'page' ? 'bg-primary text-white' : ''}
         onClick={() => onSelect('page')}
       >
-        Internal page
+        Page
       </Button>
     </div>
   );

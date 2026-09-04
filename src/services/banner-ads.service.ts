@@ -31,12 +31,19 @@ export type BannerListParams = {
   placement: string;
 };
 
+export type BannerAutoslideBySection = {
+  autoslide?: string | null;
+  autoslideMs?: number | null;
+  autoslideSeconds?: number | null;
+};
+
 export type BannerListResponse = {
   sections: Record<string, AdBanner[]>;
   items: AdBanner[];
   autoslide?: string | null;
   autoslideMs?: number | null;
   autoslideOptions?: string[];
+  autoslideBySection?: Record<string, BannerAutoslideBySection>;
 };
 
 export type AdAutoslideOption = {
@@ -48,6 +55,7 @@ export type UpdateAdsSettingsPayload = {
   stateId: string;
   cityId: string;
   placement: string;
+  section?: BannerSectionKey;
   autoslide: string;
 };
 
@@ -246,6 +254,7 @@ function normalizeListResponse(data: unknown): BannerListResponse {
       autoslide?: string | null;
       autoslideMs?: number | null;
       autoslideOptions?: string[];
+      autoslideBySection?: Record<string, BannerAutoslideBySection>;
     };
     const sections: Record<string, AdBanner[]> = {};
     if (obj.sections && typeof obj.sections === 'object') {
@@ -261,6 +270,16 @@ function normalizeListResponse(data: unknown): BannerListResponse {
         sections[key].push(item);
       }
     }
+    const autoslideBySection: Record<string, BannerAutoslideBySection> = {};
+    if (obj.autoslideBySection && typeof obj.autoslideBySection === 'object') {
+      for (const [key, value] of Object.entries(obj.autoslideBySection)) {
+        autoslideBySection[key] = {
+          autoslide: normalizeAutoslideValue(value?.autoslide, DEFAULT_AUTOSLIDE),
+          autoslideMs: value?.autoslideMs ?? null,
+          autoslideSeconds: value?.autoslideSeconds ?? null,
+        };
+      }
+    }
     return {
       sections,
       items,
@@ -269,6 +288,7 @@ function normalizeListResponse(data: unknown): BannerListResponse {
       autoslideOptions: Array.isArray(obj.autoslideOptions)
         ? normalizeAutoslideOptions(obj.autoslideOptions)
         : undefined,
+      autoslideBySection,
     };
   }
 

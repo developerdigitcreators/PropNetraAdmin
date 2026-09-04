@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
+import { newFirstCellClass, NewTag } from '@/components/common/new-row-marker';
 import {
   feedbackApiError,
   feedbacksService,
@@ -267,10 +268,15 @@ export default function FeedbacksPage() {
                 <tbody>
                   {items.map((row) => (
                     <tr key={row.id} className="border-b border-gray-50 last:border-0">
-                      <td className="px-5 py-4">
-                        <p className="font-medium text-gray-900">{row.user.name || '—'}</p>
-                        <p className="text-xs text-gray-500 break-all">{row.user.email || '—'}</p>
-                        <p className="text-xs text-gray-400">{row.user.contact || '—'}</p>
+                      <td className={newFirstCellClass(row.isNew, 'px-5 py-4')}>
+                        <div className="flex items-start gap-1.5">
+                          <NewTag show={row.isNew} />
+                          <div>
+                            <p className="font-medium text-gray-900">{row.user.name || '—'}</p>
+                            <p className="text-xs text-gray-500 break-all">{row.user.email || '—'}</p>
+                            <p className="text-xs text-gray-400">{row.user.contact || '—'}</p>
+                          </div>
+                        </div>
                       </td>
                       <td className="max-w-[360px] px-5 py-4">
                         <p className="line-clamp-2 text-sm text-gray-700">{row.message}</p>

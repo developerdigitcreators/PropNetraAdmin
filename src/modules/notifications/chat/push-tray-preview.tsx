@@ -22,7 +22,20 @@ type PushTrayPreviewProps = {
   progressMax?: number;
   progress?: number;
   progressIndeterminate?: boolean;
+  linkCta?: string | null;
 };
+
+function LinkCta({ label }: { label?: string | null }) {
+  const text = String(label || "").trim();
+  if (!text) return null;
+  return (
+    <div className="mt-2.5 flex justify-center">
+      <span className="inline-flex min-w-[140px] items-center justify-center rounded-full bg-primary px-4 py-1.5 text-center text-xs font-semibold text-white">
+        {text}
+      </span>
+    </div>
+  );
+}
 
 function remainingHms(endsAt?: string, now = Date.now()) {
   if (!endsAt) return "00:00:00";
@@ -84,10 +97,10 @@ function ColorCard({
         <img
           src={imageUrl}
           alt=""
-          className="mt-2 max-h-36 w-full rounded-lg object-cover"
+          className="mt-2 max-h-36 w-full rounded-2xl object-cover"
         />
       ) : imageRequired ? (
-        <div className="mt-2 rounded-lg border border-dashed border-black/20 bg-white/40 px-3 py-6 text-center text-xs text-gray-500">
+        <div className="mt-2 rounded-2xl border border-dashed border-black/20 bg-white/40 px-3 py-6 text-center text-xs text-gray-500">
           Image required
         </div>
       ) : null}
@@ -114,6 +127,7 @@ export function PushTrayPreview({
   progressMax = 100,
   progress = 0,
   progressIndeterminate,
+  linkCta,
 }: PushTrayPreviewProps) {
   const colorProps = {
     title,
@@ -154,9 +168,10 @@ export function PushTrayPreview({
             <img
               src={imageUrl}
               alt=""
-              className="mt-2 max-h-24 w-full rounded-lg object-cover"
+              className="mt-2 max-h-24 w-full rounded-2xl object-cover"
             />
           ) : null}
+          <LinkCta label={linkCta} />
         </div>
       </div>
     );
@@ -218,6 +233,7 @@ export function PushTrayPreview({
         ) : (
           <ColorCard {...colorProps} />
         )}
+        {layoutType !== "MULTI_ACTION" ? <LinkCta label={linkCta} /> : null}
       </div>
     </div>
   );

@@ -20,12 +20,29 @@ export type SignupRemark = {
   phase?: 'otp_issued' | 'otp_verified' | null;
 };
 
+export type SignupAttemptChangedField = 'name' | 'email' | 'contact';
+
+export type AppUserRetryAttempt = {
+  kind: 'retry';
+  name: string;
+  email: string;
+  contact: string;
+  changedFields?: SignupAttemptChangedField[];
+  attemptedAt: string;
+  otpStatus?: 'retry';
+  callStatusEditable?: boolean;
+  remarksEditable?: boolean;
+  hideCallStatusActions?: boolean;
+};
+
 export type CallStatus =
   | 'not_contacted'
   | 'wrong_no'
   | 'not_interested'
   | 'in_discussion'
-  | 'shifted_and_verified';
+  | 'shifted_and_verified'
+  | 'not_applicable'
+  | 'added_by_admin';
 
 export const CALL_STATUS_OPTIONS: { value: CallStatus; label: string }[] = [
   { value: 'not_contacted', label: 'Not Contacted' },
@@ -33,6 +50,8 @@ export const CALL_STATUS_OPTIONS: { value: CallStatus; label: string }[] = [
   { value: 'not_interested', label: 'Not Interested' },
   { value: 'in_discussion', label: 'In-discussion' },
   { value: 'shifted_and_verified', label: 'Shifted & Verified' },
+  { value: 'not_applicable', label: 'N/A' },
+  { value: 'added_by_admin', label: 'New user added' },
 ];
 
 export type RemarksPayload = {
@@ -68,6 +87,19 @@ export const adminUsersService = {
 
   createUser: async (data: any) => {
     const response = await axiosClient.post('/admin/users', data);
+    return response.data;
+  },
+
+  createOtpVerifiedUser: async (data: {
+    name: string;
+    contact: string;
+    role_id: string;
+    email?: string;
+    companyName?: string;
+    companyContact?: string;
+    companyEmail?: string;
+  }) => {
+    const response = await axiosClient.post('/admin/users/otp-verified', data);
     return response.data;
   },
 

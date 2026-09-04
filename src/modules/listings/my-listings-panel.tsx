@@ -13,6 +13,7 @@ import {
 } from '@/services/listings.service';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { PaginationBar } from '@/components/common/pagination-bar';
+import { newFirstCellClass, NewTag } from '@/components/common/new-row-marker';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -451,12 +452,17 @@ export function MyListingsPanel() {
                         className="cursor-pointer border-b transition-colors last:border-0 hover:bg-gray-50/80"
                         onClick={() => void openListingDetail(item)}
                       >
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-900">{item.title}</div>
-                          <div className="text-xs text-gray-500">
-                            {item.expiresAt
-                              ? `Expires ${new Date(item.expiresAt).toLocaleDateString()}`
-                              : '—'}
+                        <td className={newFirstCellClass(item.isNew, 'px-4 py-3')}>
+                          <div className="flex items-start gap-1.5">
+                            <NewTag show={item.isNew} />
+                            <div>
+                              <div className="font-medium text-gray-900">{item.title}</div>
+                              <div className="text-xs text-gray-500">
+                                {item.expiresAt
+                                  ? `Expires ${new Date(item.expiresAt).toLocaleDateString()}`
+                                  : '—'}
+                              </div>
+                            </div>
                           </div>
                         </td>
                         <td className="px-4 py-3 text-gray-600">{item.categoryName || '—'}</td>

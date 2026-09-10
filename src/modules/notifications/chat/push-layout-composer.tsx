@@ -361,8 +361,8 @@ export function PushLayoutComposer({
       )}
 
       <p className="text-[11px] text-gray-400">
-        Images attach from +. Countdown, multi-action, and progress add extra
-        fields here.
+        Image / PDF / Video buttons stay at the bottom of this composer.
+        Countdown, multi-action, and progress add extra fields here.
       </p>
     </div>
   );

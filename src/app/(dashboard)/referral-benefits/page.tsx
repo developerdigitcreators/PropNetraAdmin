@@ -98,16 +98,18 @@ export default function ReferralBenefitsPage() {
         shareMessageTemplate: settings.shareMessageTemplate,
         importantInfo: settings.importantInfo,
         freeMilestoneWindowDays: Number(settings.freeMilestoneWindowDays),
-        freeStandardGraceDays: Number(settings.freeStandardGraceDays),
+        freeStandardGraceDays: 0,
         freeStandardMonthsPerReferral: Number(settings.freeStandardMonthsPerReferral),
         paidMilestoneWindowDays: Number(settings.paidMilestoneWindowDays),
         paidStandardPercent: Number(settings.paidStandardPercent),
-        paidStandardCoins:
-          settings.paidStandardCoins == null
-            ? null
-            : Math.max(0, Number(settings.paidStandardCoins)),
+        paidStandardCoins: null,
         paidMilestoneResetDays: Number(settings.paidMilestoneResetDays),
         paidPendingExpiryDays: Number(settings.paidPendingExpiryDays),
+        freeMilestonesEnabledForNewUsers:
+          settings.freeMilestonesEnabledForNewUsers !== false,
+        paidMilestonesEnabledForNewUsers:
+          settings.paidMilestonesEnabledForNewUsers !== false,
+        renewResetsMilestones: settings.renewResetsMilestones !== false,
       });
       setSettings(updated);
       setMessage('Program settings saved.');
@@ -151,7 +153,7 @@ export default function ReferralBenefitsPage() {
         requiredReferrals: nextRequired,
         rewardType: track === 'FREE_REFERRER' ? 'FREE_MONTHS' : 'NETRA_PERCENT',
         rewardValue: track === 'FREE_REFERRER' ? 1 : 15,
-        rewardCoins: track === 'PAID_REFERRER' ? 135 : null,
+        rewardCoins: null,
         sortOrder: sameTrack.length + 1,
         isActive: true,
       },
@@ -339,22 +341,24 @@ export default function ReferralBenefitsPage() {
                     settings={settings}
                     canUpdate={canUpdate}
                     onChange={setSettings}
+                    toggles={[
+                      {
+                        key: 'freeMilestonesEnabledForNewUsers',
+                        label: 'Milestone for new free users',
+                        hint: 'OFF → new free users see standard benefits only (existing users unchanged).',
+                        accent: 'sky',
+                      },
+                    ]}
                     fields={[
                       {
                         key: 'freeMilestoneWindowDays',
                         label: 'Milestone window',
-                        hint: 'Days from sign-up to hit free milestone slabs.',
-                        suffix: 'days',
-                      },
-                      {
-                        key: 'freeStandardGraceDays',
-                        label: 'Grace period',
-                        hint: 'One-time extra days if milestones are missed.',
+                        hint: 'Days from sign-up to hit free milestone slabs (when milestones enrolled).',
                         suffix: 'days',
                       },
                       {
                         key: 'freeStandardMonthsPerReferral',
-                        label: 'After milestones',
+                        label: 'After milestones / standard',
                         hint: 'Free months added per referral once in standard mode.',
                         suffix: 'months / referral',
                       },
@@ -363,11 +367,31 @@ export default function ReferralBenefitsPage() {
                   <RulesCard
                     icon={<Wallet className="h-5 w-5 text-amber-600" />}
                     title="Paid user rules"
-                    description="Applies to subscribed users earning NetraCoin rewards."
+                    description="Applies to subscribed users earning Referral NetraCoins (% of referee’s paid amount)."
                     settings={settings}
                     canUpdate={canUpdate}
                     onChange={setSettings}
+                    toggles={[
+                      {
+                        key: 'paidMilestonesEnabledForNewUsers',
+                        label: 'Milestone for new paid users',
+                        hint: 'OFF → new paid enrollments start on standard % only (existing users unchanged).',
+                        accent: 'amber',
+                      },
+                      {
+                        key: 'renewResetsMilestones',
+                        label: 'Renew resets milestones',
+                        hint: 'ON → at next subscription renew/end, milestone cycle resets to 0. Referral coins always expire on plan end.',
+                        accent: 'amber',
+                      },
+                    ]}
                     fields={[
+                      {
+                        key: 'paidStandardPercent',
+                        label: 'Standard reward %',
+                        hint: 'After milestones or if missed — % of referee’s actual paid amount.',
+                        suffix: '%',
+                      },
                       {
                         key: 'paidMilestoneWindowDays',
                         label: 'Milestone window',
@@ -376,8 +400,8 @@ export default function ReferralBenefitsPage() {
                       },
                       {
                         key: 'paidMilestoneResetDays',
-                        label: 'Yearly reset',
-                        hint: 'Paid milestone cycle resets after this many days.',
+                        label: 'Yearly reset days',
+                        hint: 'Legacy calendar reset window (also gated by Renew toggle).',
                         suffix: 'days',
                       },
                       {
@@ -385,16 +409,6 @@ export default function ReferralBenefitsPage() {
                         label: 'Pending expiry',
                         hint: 'Days to wait for referee to subscribe before reward expires.',
                         suffix: 'days',
-                      },
-                    ]}
-                    dualValueFields={[
-                      {
-                        label: 'Standard reward',
-                        hint: 'After milestones or if missed — set % and fixed NetraCoins per referral.',
-                        fields: [
-                          { key: 'paidStandardPercent', suffix: '%' },
-                          { key: 'paidStandardCoins', suffix: 'NetraCoins' },
-                        ],
                       },
                     ]}
                   />
@@ -428,8 +442,8 @@ export default function ReferralBenefitsPage() {
 
             <PaidTierSection
               title="Paid user rewards"
-              subtitle="Set the milestone % and the exact NetraCoins credited when that milestone is reached."
-              example="Example: 1 referral at 15% → 135 NetraCoins"
+              subtitle="Milestone % of the referee’s actual paid amount (intro or full). No fixed coin amounts."
+              example="Example: 1 referral at 15% of ₹899 → 135 Referral NetraCoins"
               rows={paidTiers}
               canUpdate={canUpdate}
               onAdd={() => addTier('PAID_REFERRER')}
@@ -481,6 +495,7 @@ function RulesCard({
   canUpdate,
   onChange,
   fields,
+  toggles,
   dualValueFields,
 }: {
   icon: ReactNode;
@@ -494,6 +509,12 @@ function RulesCard({
     label: string;
     hint: string;
     suffix: string;
+  }>;
+  toggles?: Array<{
+    key: keyof ReferralSettings;
+    label: string;
+    hint: string;
+    accent?: 'sky' | 'amber';
   }>;
   dualValueFields?: Array<{
     label: string;
@@ -509,6 +530,30 @@ function RulesCard({
       </div>
       <p className="mb-4 text-sm text-muted-foreground">{description}</p>
       <div className="space-y-4">
+        {toggles?.map((toggle) => (
+          <label
+            key={String(toggle.key)}
+            className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm ${
+              toggle.accent === 'amber' ? 'bg-amber-50/60' : 'bg-sky-50/60'
+            }`}
+          >
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={settings[toggle.key] !== false}
+              disabled={!canUpdate}
+              onChange={(e) =>
+                onChange({ ...settings, [toggle.key]: e.target.checked })
+              }
+            />
+            <span>
+              <span className="font-medium">{toggle.label}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {toggle.hint}
+              </span>
+            </span>
+          </label>
+        ))}
         {dualValueFields?.map((group) => (
           <div key={group.label} className="rounded-lg border bg-gray-50/40 p-3">
             <label className="block text-sm font-medium text-gray-800">{group.label}</label>
@@ -731,18 +776,9 @@ function PaidTierSection({
                   onChange={(e) => onChange(i, { rewardValue: Number(e.target.value) })}
                 />
                 <span className="text-sm font-medium text-gray-800">%</span>
-                <span className="text-sm text-gray-500">→ credit</span>
-                <Input
-                  type="number"
-                  className="w-24"
-                  disabled={!canUpdate}
-                  min={0}
-                  value={t.rewardCoins ?? 0}
-                  onChange={(e) =>
-                    onChange(i, { rewardCoins: Math.max(0, Number(e.target.value)) })
-                  }
-                />
-                <span className="text-sm font-medium text-gray-800">NetraCoins</span>
+                <span className="text-sm text-gray-500">
+                  of referee’s paid amount → Referral NetraCoins
+                </span>
 
                 <div className="ml-auto flex items-center gap-2">
                   <label className="flex items-center gap-1.5 text-xs text-gray-600">

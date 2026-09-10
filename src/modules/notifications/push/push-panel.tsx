@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -13,15 +12,17 @@ import { SearchableSelect } from "@/components/common/searchable-select";
 import { ImageUrlOrUpload } from "@/components/image-url-or-upload";
 import { FormattedTextField } from "@/modules/notifications/chat/formatted-text-field";
 import {
-  LinkPickerDialog,
-  LinkTypeToggle,
-} from "@/modules/notifications/chat/link-picker";
+  linksAreValid,
+  linksToBroadcastCtas,
+  MultiLinkCtaEditor,
+  primaryFromLinks,
+  type LinkCtaRow,
+} from "@/modules/notifications/chat/multi-link-cta-editor";
 import {
   flattenPopupAudiences,
   notificationApiError,
   notificationsService,
   type BroadcastKeyLabel,
-  type BroadcastLinkType,
   type PopupAudience,
 } from "@/services/notifications.service";
 import { locationService } from "@/services/location.service";
@@ -57,11 +58,7 @@ type PushDraft = {
   title: string;
   body: string;
   imageUrl: string;
-  linkType: BroadcastLinkType;
-  listingId: string;
-  listingLabel: string;
-  pageKey: string;
-  ctaLabel: string;
+  links: LinkCtaRow[];
   targetMode: "global" | "city";
   stateId: string;
   cityId: string;
@@ -72,11 +69,7 @@ const emptyDraft = (): PushDraft => ({
   title: "",
   body: "",
   imageUrl: "",
-  linkType: "none",
-  listingId: "",
-  listingLabel: "",
-  pageKey: "",
-  ctaLabel: "",
+  links: [],
   targetMode: "global",
   stateId: "",
   cityId: "",
@@ -96,8 +89,6 @@ export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
   const [audiences, setAudiences] = useState<BroadcastKeyLabel[]>([]);
   const [placesLoading, setPlacesLoading] = useState(true);
   const [citiesLoading, setCitiesLoading] = useState(false);
-  const [linkOpen, setLinkOpen] = useState(false);
-  const [linkPickerType, setLinkPickerType] = useState<"post" | "page">("post");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [touched, setTouched] = useState(false);
@@ -186,21 +177,11 @@ export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
   const audienceLabel =
     audiences.find((a) => a.key === draft.audience)?.label || "All users";
 
-  const linkLabel =
-    draft.linkType === "post"
-      ? draft.listingLabel || "Linked listing"
-      : draft.linkType === "page"
-        ? pages.find((p) => p.key === draft.pageKey)?.label || draft.pageKey
-        : "";
-
   const errors = (() => {
     const list: string[] = [];
     if (!draft.title.trim()) list.push("Title is required.");
-    if (draft.linkType === "post" && !draft.listingId) {
-      list.push("Choose the listing this push links to.");
-    }
-    if (draft.linkType === "page" && !draft.pageKey) {
-      list.push("Choose the page this push links to.");
+    if (!linksAreValid(draft.links)) {
+      list.push("Each link needs a listing (post) or page selected.");
     }
     if (draft.targetMode === "city" && !draft.stateId) {
       list.push("Pick a state.");
@@ -211,33 +192,29 @@ export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
     return list;
   })();
 
-  const clearLink = () =>
-    patch({
-      linkType: "none",
-      listingId: "",
-      listingLabel: "",
-      pageKey: "",
-      ctaLabel: "",
-    });
-
   const send = async () => {
     setTouched(true);
     if (errors.length || !canWrite || submitting) return;
     setSubmitting(true);
     setError("");
     try {
+      const primary = primaryFromLinks(draft.links);
+      const ctas = linksToBroadcastCtas(draft.links);
       const result = await notificationsService.sendPushOnly({
         title: draft.title.trim(),
         ...(draft.body.trim() ? { body: draft.body.trim() } : {}),
         ...(draft.imageUrl.trim() ? { imageUrl: draft.imageUrl.trim() } : {}),
-        linkType: draft.linkType,
-        ...(draft.linkType === "post" && draft.listingId
-          ? { listingId: draft.listingId }
+        linkType: primary.linkType,
+        ...(primary.linkType === "post" && primary.listingId
+          ? { listingId: primary.listingId }
           : {}),
-        ...(draft.linkType === "page" && draft.pageKey
-          ? { pageKey: draft.pageKey }
+        ...(primary.linkType === "page" && primary.pageKey
+          ? { pageKey: primary.pageKey }
           : {}),
-        ...(draft.ctaLabel.trim() ? { ctaLabel: draft.ctaLabel.trim() } : {}),
+        ...(primary.ctaLabel.trim()
+          ? { ctaLabel: primary.ctaLabel.trim() }
+          : {}),
+        ...(ctas.length ? { ctas } : {}),
         ...(draft.targetMode === "city"
           ? {
               ...(draft.stateId ? { stateIds: [draft.stateId] } : {}),
@@ -306,52 +283,13 @@ export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
           />
         </div>
 
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-gray-700">Link</p>
-          <LinkTypeToggle
-            allowNone
-            active={
-              draft.linkType === "page"
-                ? "page"
-                : draft.linkType === "post"
-                  ? "post"
-                  : "none"
-            }
-            onSelect={(type) => {
-              if (!canWrite) return;
-              if (type === "none") {
-                clearLink();
-                return;
-              }
-              setLinkPickerType(type);
-              setLinkOpen(true);
-            }}
-          />
-          {draft.linkType !== "none" ? (
-            <div className="space-y-2">
-              <p className="text-xs text-gray-500">
-                {draft.linkType === "post" ? "Post linked" : "Page linked"}
-                {linkLabel ? ` · ${linkLabel}` : ""}
-              </p>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-gray-700">
-                  Button label (optional)
-                </label>
-                <Input
-                  value={draft.ctaLabel}
-                  onChange={(e) => patch({ ctaLabel: e.target.value })}
-                  placeholder="e.g. View listing"
-                  maxLength={40}
-                  disabled={!canWrite}
-                />
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs text-gray-400">
-              Normal sends with no deep link.
-            </p>
-          )}
-        </div>
+        <MultiLinkCtaEditor
+          links={draft.links}
+          pages={pages}
+          cityId={draft.cityId || undefined}
+          disabled={!canWrite}
+          onChange={(links) => patch({ links })}
+        />
 
         <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
           <div className="space-y-2">
@@ -447,10 +385,6 @@ export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-[11px] text-gray-400">
-              Same as In-App Popup — badge, subscription, and Pro documents.
-              Only matching users with city push ON receive this.
-            </p>
           </div>
         </div>
 
@@ -461,7 +395,7 @@ export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
         <div className="flex justify-end">
           <Button
             type="button"
-            onClick={send}
+            onClick={() => void send()}
             disabled={!canWrite || submitting || (touched && errors.length > 0)}
             className="bg-primary text-white hover:bg-primary/90"
           >
@@ -474,24 +408,6 @@ export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
           </Button>
         </div>
       </div>
-
-      <LinkPickerDialog
-        open={linkOpen}
-        pages={pages}
-        cityId={draft.cityId || undefined}
-        preferredType={linkPickerType}
-        value={{
-          linkType: draft.linkType,
-          listingId: draft.listingId,
-          listingLabel: draft.listingLabel,
-          pageKey: draft.pageKey,
-        }}
-        onClose={() => setLinkOpen(false)}
-        onSave={(next) => {
-          patch({ ...next, ctaLabel: draft.ctaLabel });
-          setLinkOpen(false);
-        }}
-      />
     </div>
   );
 }

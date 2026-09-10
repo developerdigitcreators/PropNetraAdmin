@@ -13,7 +13,7 @@ import {
   type AddonCatalogItem,
   type UpdateAddonPayload,
 } from '@/services/subscriptions.service';
-import { Package, Edit2, Loader2 } from 'lucide-react';
+import { Package, Edit2, Loader2, RefreshCw } from 'lucide-react';
 
 const AUTOMATIC_ADDON_TYPES = new Set(['LISTING_PRIORITY']);
 
@@ -82,15 +82,27 @@ export default function SubscriptionAddonsPage() {
           ]}
         />
 
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold text-gray-900">
-            <Package className="h-6 w-6 text-primary" />
-            Subscription Add-ons
-          </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Configure NetraCoin packs and boost pricing. Listing priority is automatic for top
-            paid referrers (not a purchasable add-on).
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="flex items-center gap-2 text-2xl font-semibold text-gray-900">
+              <Package className="h-6 w-6 text-primary" />
+              Subscription Add-ons
+            </h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Configure NetraCoin packs and boost pricing. Listing priority is automatic for top
+              paid referrers (not a purchasable add-on).
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void fetchAddons()}
+            disabled={loading}
+          >
+            <RefreshCw className="mr-1.5 size-3.5" />
+            Refresh
+          </Button>
         </div>
 
         {error ? (

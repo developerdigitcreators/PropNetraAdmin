@@ -25,6 +25,7 @@ import {
   Edit2,
   Loader2,
   Plus,
+  RefreshCw,
   Search,
   Trash2,
 } from 'lucide-react';
@@ -257,12 +258,24 @@ export default function SearchSuggestionsPage() {
               Developer listings can be linked.
             </p>
           </div>
-          {canCreate && ready && (
-            <Button onClick={openCreate} className="bg-primary text-white hover:bg-primary/90">
-              <Plus className="mr-1.5 h-4 w-4" />
-              Add suggestion
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void fetchSuggestions()}
+              disabled={loading || !ready}
+            >
+              <RefreshCw className="mr-1.5 size-3.5" />
+              Refresh
             </Button>
-          )}
+            {canCreate && ready && (
+              <Button onClick={openCreate} className="bg-primary text-white hover:bg-primary/90">
+                <Plus className="mr-1.5 h-4 w-4" />
+                Add suggestion
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">

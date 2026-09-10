@@ -90,6 +90,8 @@ export function PlanFormDialog({
   const [localError, setLocalError] = useState('');
 
   const showPricing = plan ? isPaidSubscriptionPlan(plan.code) : false;
+  const isLifetimeFree = plan?.code === 'FREE_LIFETIME';
+  const showVisibilityToggles = !isLifetimeFree;
 
   useEffect(() => {
     if (!open || !plan) return;
@@ -134,8 +136,9 @@ export function PlanFormDialog({
     onSubmit({
       displayName: displayName.trim(),
       sortOrder,
-      isActive,
-      showOnApp,
+      // Lifetime free is system-managed — never flip visibility from this form.
+      isActive: isLifetimeFree ? Boolean(plan?.isActive) : isActive,
+      showOnApp: isLifetimeFree ? Boolean(plan?.showOnApp) : showOnApp,
       trialDays: trialDays === '' ? null : Number(trialDays),
       pricePaise: showPricing ? rupeesInputToPaise(priceRupees) : null,
       promoPricePaise: showPricing ? rupeesInputToPaise(promoPriceRupees) : null,
@@ -177,18 +180,22 @@ export function PlanFormDialog({
                 onChange={(v) => setSortOrder(Number(v) || 0)}
               />
             </div>
-            <FlagRow
-              label="Plan is active"
-              hint="Inactive plans cannot be purchased or assigned."
-              checked={isActive}
-              onChange={setIsActive}
-            />
-            <FlagRow
-              label="Show on app"
-              hint="Hide on app: still serves current subscribers; hidden from manage/upgrade/login paywall."
-              checked={showOnApp}
-              onChange={setShowOnApp}
-            />
+            {showVisibilityToggles ? (
+              <>
+                <FlagRow
+                  label="Plan is active"
+                  hint="Inactive plans cannot be purchased or assigned."
+                  checked={isActive}
+                  onChange={setIsActive}
+                />
+                <FlagRow
+                  label="Show on app"
+                  hint="Login / Unlock Benefits shows only plans with this on. Manage Plan upgrades ignore this and show higher plans only."
+                  checked={showOnApp}
+                  onChange={setShowOnApp}
+                />
+              </>
+            ) : null}
             {plan?.code === 'FREE_TRIAL' ? (
               <NumField
                 label="Free trial length (days)"

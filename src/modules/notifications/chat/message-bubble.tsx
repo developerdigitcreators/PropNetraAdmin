@@ -58,13 +58,13 @@ function MediaAttachment({ item }: { item: BroadcastMedia }) {
 
   if (kind === 'image') {
     return (
-      <a href={item.url} target="_blank" rel="noreferrer" className="block">
+      <a href={item.url} target="_blank" rel="noreferrer" className="block min-w-0">
         {/* Remote broadcast images are arbitrary hosts, so next/image config cannot cover them. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={item.url}
           alt=""
-          className="max-h-56 w-full rounded-2xl object-cover bg-gray-100"
+          className="max-h-56 w-full max-w-full rounded-2xl bg-gray-100 object-cover"
         />
       </a>
     );
@@ -78,11 +78,11 @@ function MediaAttachment({ item }: { item: BroadcastMedia }) {
       href={item.url}
       target="_blank"
       rel="noreferrer"
-      className="flex items-center gap-2 rounded-lg bg-black/5 px-2.5 py-2 text-xs text-gray-700 hover:bg-black/10"
+      className="flex min-w-0 items-center gap-2 rounded-lg bg-black/5 px-2.5 py-2 text-xs text-gray-700 hover:bg-black/10"
     >
-      <Icon className="w-4 h-4 shrink-0 text-gray-500" />
-      <span className="truncate font-medium">{label}</span>
-      <span className="truncate text-gray-400">{item.url}</span>
+      <Icon className="h-4 w-4 shrink-0 text-gray-500" />
+      <span className="shrink-0 font-medium">{label}</span>
+      <span className="min-w-0 truncate text-gray-400">{item.url}</span>
     </a>
   );
 }
@@ -111,10 +111,10 @@ export function MessageBubble({
       : [];
 
   return (
-    <div className={cn('group flex w-full', isRight ? 'justify-end' : 'justify-start')}>
+    <div className={cn('group flex w-full min-w-0', isRight ? 'justify-end' : 'justify-start')}>
       <div
         className={cn(
-          'relative max-w-[min(30rem,85%)] rounded-2xl border px-3 py-2 shadow-sm',
+          'relative min-w-0 max-w-[min(30rem,85%)] overflow-hidden rounded-2xl border px-3 py-2 shadow-sm',
           isRight
             ? 'rounded-tr-sm border-primary/15 bg-primary-light'
             : 'rounded-tl-sm border-gray-100 bg-white',
@@ -123,7 +123,7 @@ export function MessageBubble({
         {actions && (
           <div
             className={cn(
-              'absolute top-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100',
+              'absolute top-1 z-10 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100',
               isRight ? '-left-9' : '-right-9',
             )}
           >
@@ -132,13 +132,13 @@ export function MessageBubble({
         )}
 
         {message.title && (
-          <p className="text-sm font-semibold text-gray-900">
+          <p className="break-words text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]">
             <MarkdownText value={message.title} format={message.bodyFormat} />
           </p>
         )}
 
         {media.length > 0 && (
-          <div className="mt-1.5 space-y-1.5">
+          <div className="mt-1.5 min-w-0 space-y-1.5">
             {media.map((item, i) => (
               <MediaAttachment key={`${item.kind}-${i}`} item={item} />
             ))}
@@ -146,7 +146,7 @@ export function MessageBubble({
         )}
 
         {message.body && (
-          <p className="mt-1 whitespace-pre-wrap break-words text-sm text-gray-700">
+          <p className="mt-1 whitespace-pre-wrap break-words text-sm text-gray-700 [overflow-wrap:anywhere]">
             <MarkdownText value={message.body} format={message.bodyFormat} />
           </p>
         )}
@@ -159,14 +159,14 @@ export function MessageBubble({
 
         {message.linkLabel && (
           <div className="-mx-3 mt-2 border-t border-black/5 px-3 pt-2 text-center">
-            <span className="inline-flex min-w-[160px] items-center justify-center rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white">
-              {message.linkLabel}
+            <span className="inline-flex min-w-[160px] max-w-full items-center justify-center rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white">
+              <span className="truncate">{message.linkLabel}</span>
             </span>
           </div>
         )}
 
         {meta && (
-          <p className="-mx-3 mt-2 border-t border-black/5 px-3 pt-1.5 text-[11px] text-gray-400">
+          <p className="mx-3 mt-2 break-words border-t border-black/5 px-3 pt-1.5 text-[11px] text-gray-400 [overflow-wrap:anywhere]">
             {meta}
           </p>
         )}

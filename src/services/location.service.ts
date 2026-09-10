@@ -153,15 +153,63 @@ export const locationService = {
   // =====================
   // PROPERTY NAMES
   // =====================
-  getPropertyNames: async (params?: { cityId?: string; microMarketId?: string; categoryId?: string }) => {
+  getPropertyNames: async (params?: {
+    cityId?: string;
+    microMarketId?: string;
+    categoryId?: string;
+    q?: string;
+    limit?: number;
+    excludeId?: string;
+  }) => {
     let url = '/admin/property-names';
     const qs: string[] = [];
-    if (params?.cityId) qs.push(`cityId=${params.cityId}`);
-    if (params?.microMarketId) qs.push(`microMarketId=${params.microMarketId}`);
-    if (params?.categoryId) qs.push(`categoryId=${params.categoryId}`);
+    if (params?.cityId) qs.push(`cityId=${encodeURIComponent(params.cityId)}`);
+    if (params?.microMarketId) qs.push(`microMarketId=${encodeURIComponent(params.microMarketId)}`);
+    if (params?.categoryId) qs.push(`categoryId=${encodeURIComponent(params.categoryId)}`);
+    if (params?.q) qs.push(`q=${encodeURIComponent(params.q)}`);
+    if (params?.limit) qs.push(`limit=${params.limit}`);
+    if (params?.excludeId) qs.push(`excludeId=${encodeURIComponent(params.excludeId)}`);
     if (qs.length) url += '?' + qs.join('&');
     const response = await axiosClient.get(url);
     return response.data;
+  },
+
+  suggestPropertyNames: async (params: {
+    q: string;
+    excludeId?: string;
+    limit?: number;
+  }): Promise<{
+    items: Array<{
+      id: string;
+      name: string;
+      status?: string | null;
+      cityName?: string | null;
+      exactMatch?: boolean;
+    }>;
+  }> => {
+    const qs: string[] = [`q=${encodeURIComponent(params.q)}`];
+    if (params.excludeId) qs.push(`excludeId=${encodeURIComponent(params.excludeId)}`);
+    if (params.limit) qs.push(`limit=${params.limit}`);
+    const response = await axiosClient.get(`/admin/property-names/suggest?${qs.join('&')}`);
+    const body = response.data as
+      | { items?: unknown }
+      | { data?: { items?: unknown } }
+      | unknown;
+    const nested =
+      body && typeof body === 'object' && 'data' in body
+        ? (body as { data?: { items?: unknown } }).data
+        : body;
+    const items =
+      nested && typeof nested === 'object' && Array.isArray((nested as { items?: unknown }).items)
+        ? ((nested as { items: unknown[] }).items as Array<{
+            id: string;
+            name: string;
+            status?: string | null;
+            cityName?: string | null;
+            exactMatch?: boolean;
+          }>)
+        : [];
+    return { items };
   },
   createPropertyName: async (payload: {
     name: string;

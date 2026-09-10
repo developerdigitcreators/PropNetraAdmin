@@ -20,6 +20,7 @@ import {
   Edit2,
   Loader2,
   Plus,
+  RefreshCw,
   Trash2,
 } from 'lucide-react';
 
@@ -152,12 +153,24 @@ export default function FaqsPage() {
               Questions shown in the app drawer. Drag the sort handle to change the order users see.
             </p>
           </div>
-          {canCreate && (
-            <Button onClick={openCreate} className="bg-primary text-white hover:bg-primary/90">
-              <Plus className="mr-1.5 h-4 w-4" />
-              Add FAQ
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void fetchFaqs()}
+              disabled={loading}
+            >
+              <RefreshCw className="mr-1.5 size-3.5" />
+              Refresh
             </Button>
-          )}
+            {canCreate && (
+              <Button onClick={openCreate} className="bg-primary text-white hover:bg-primary/90">
+                <Plus className="mr-1.5 h-4 w-4" />
+                Add FAQ
+              </Button>
+            )}
+          </div>
         </div>
 
         {error && (

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { locationService } from '@/services/location.service';
 import { listingConfigService } from '@/services/listing-config.service';
@@ -10,12 +10,20 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Plus, Edit2, Trash2, Search } from 'lucide-react';
+import { Loader2, Plus, Edit2, Trash2, Search, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { withCount } from '@/lib/filter-label';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 import { ImageUrlOrUpload } from '@/components/image-url-or-upload';
 import { MultiSelect } from '@/components/common/multi-select';
+
+type NameSuggestion = {
+  id: string;
+  name: string;
+  status?: string | null;
+  cityName?: string | null;
+  exactMatch?: boolean;
+};
 
 function pickStr(...values: unknown[]): string {
   for (const value of values) {
@@ -154,6 +162,9 @@ export default function PropertyNamesPage() {
   const [editing, setEditing] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
+  const [nameSuggestions, setNameSuggestions] = useState<NameSuggestion[]>([]);
+  const [nameSuggestLoading, setNameSuggestLoading] = useState(false);
+  const nameSuggestSeq = useRef(0);
   const [form, setForm] = useState({
     name: '',
     state_id: '',
@@ -165,6 +176,42 @@ export default function PropertyNamesPage() {
   });
   const [propertyTypes, setPropertyTypes] = useState<any[]>([]);
   const uniqueTypes = uniquePropertyTypes(propertyTypes);
+
+  useEffect(() => {
+    if (!isModalOpen) {
+      setNameSuggestions([]);
+      setNameSuggestLoading(false);
+      return;
+    }
+    const q = form.name.trim();
+    if (q.length < 2) {
+      setNameSuggestions([]);
+      setNameSuggestLoading(false);
+      return;
+    }
+    const seq = ++nameSuggestSeq.current;
+    setNameSuggestLoading(true);
+    const timer = window.setTimeout(() => {
+      locationService
+        .suggestPropertyNames({
+          q,
+          excludeId: editing?.id || undefined,
+          limit: 8,
+        })
+        .then((res) => {
+          if (seq !== nameSuggestSeq.current) return;
+          setNameSuggestions(res.items || []);
+        })
+        .catch(() => {
+          if (seq !== nameSuggestSeq.current) return;
+          setNameSuggestions([]);
+        })
+        .finally(() => {
+          if (seq === nameSuggestSeq.current) setNameSuggestLoading(false);
+        });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [form.name, isModalOpen, editing?.id]);
 
   const propertyNameApiError = (err: unknown, fallback: string) => {
     const e = err as {
@@ -353,9 +400,21 @@ export default function PropertyNamesPage() {
     >
       <div className="space-y-6 pb-24">
         <Breadcrumb items={[{ label: 'Project Names' }]} />
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Project Names</h1>
-          <p className="text-gray-500 mt-1">Manage approved property / project names and linked locations.</p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">Project Names</h1>
+            <p className="text-gray-500 mt-1">Manage approved property / project names and linked locations.</p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void fetchAll()}
+            disabled={isLoading}
+          >
+            <RefreshCw className="mr-1.5 size-3.5" />
+            Refresh
+          </Button>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
@@ -528,18 +587,71 @@ export default function PropertyNamesPage() {
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Project / Property Name</label>
-                <Input
-                  value={form.name}
-                  onChange={(e) => {
-                    setFormError('');
-                    setForm({ ...form, name: e.target.value });
-                  }}
-                  placeholder="e.g. DLF The Camellias"
-                  className={formError ? 'border-red-500 focus-visible:ring-red-500' : undefined}
-                />
-                {formError ? (
+                <div className="relative">
+                  <Input
+                    value={form.name}
+                    onChange={(e) => {
+                      setFormError('');
+                      setForm({ ...form, name: e.target.value });
+                    }}
+                    placeholder="e.g. DLF The Camellias"
+                    autoComplete="off"
+                    className={formError ? 'border-red-500 focus-visible:ring-red-500' : undefined}
+                  />
+                  {(nameSuggestLoading || nameSuggestions.length > 0) &&
+                  form.name.trim().length >= 2 ? (
+                    <div
+                      className="absolute left-0 right-0 z-20 mt-1 overflow-hidden rounded-lg border border-amber-200 bg-amber-50 shadow-md"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <p className="border-b border-amber-200/80 px-3 py-1.5 text-[11px] font-medium text-amber-800">
+                        Existing names (for reference — not selectable)
+                      </p>
+                      {nameSuggestLoading && nameSuggestions.length === 0 ? (
+                        <div className="flex items-center gap-2 px-3 py-2.5 text-xs text-amber-700">
+                          <Loader2 className="size-3.5 animate-spin" />
+                          Checking…
+                        </div>
+                      ) : (
+                        <ul className="max-h-40 overflow-y-auto py-1">
+                          {nameSuggestions.map((item) => (
+                            <li
+                              key={item.id}
+                              className="pointer-events-none select-none px-3 py-1.5 text-sm text-amber-950"
+                            >
+                              <div className="flex items-start gap-2">
+                                {item.exactMatch ? (
+                                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-red-500" />
+                                ) : null}
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate font-medium">{item.name}</p>
+                                  <p className="truncate text-[11px] text-amber-700/80">
+                                    {[item.cityName, item.status]
+                                      .filter(Boolean)
+                                      .join(' · ') || 'Catalog'}
+                                    {item.exactMatch ? ' · exact match' : ''}
+                                  </p>
+                                </div>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+                {nameSuggestions.some((s) => s.exactMatch) ? (
+                  <p className="text-sm text-red-600">
+                    This exact name already exists. Duplicates are not allowed.
+                  </p>
+                ) : formError ? (
                   <p className="text-sm text-red-600">{formError}</p>
-                ) : null}
+                ) : (
+                  <p className="text-[11px] text-gray-400">
+                    Similar existing projects appear as you type so you can avoid duplicates.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">

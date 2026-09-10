@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { MarkdownText } from '@/modules/notifications/chat/markdown-text';
+import { primaryFromLinks } from '@/modules/notifications/chat/multi-link-cta-editor';
 import { type PopupDraft } from './popup-draft';
 import { Loader2, Send, X } from 'lucide-react';
 
@@ -123,9 +124,10 @@ export function PopupPreviewDialog({
 }: PopupPreviewDialogProps) {
   const isEdit = mode === 'edit';
   const isResend = mode === 'resend';
+  const primary = primaryFromLinks(draft.links);
   const cta =
-    draft.linkType === 'none' ? 'Dismiss' : draft.ctaLabel.trim() || 'View';
-  const showProgress =
+    primary.linkType === 'none' ? 'Dismiss' : primary.ctaLabel.trim() || 'View';
+  const extraCtas = draft.links.slice(1).map((row) => row.label.trim() || 'Open');  const showProgress =
     draft.displayDurationSec > 0 &&
     (draft.timerDisplay === 'progress_bar' || draft.timerDisplay === 'both');
   const showCountdown =
@@ -204,14 +206,27 @@ export function PopupPreviewDialog({
                 </p>
               </div>
 
-              <Button
-                type="button"
-                className="mt-auto w-full border-0 text-white"
-                style={{ backgroundColor: draft.ctaColor }}
-                disabled
-              >
-                {cta}
-              </Button>
+              <div className="mt-auto space-y-2">
+                <Button
+                  type="button"
+                  className="w-full border-0 text-white"
+                  style={{ backgroundColor: draft.ctaColor }}
+                  disabled
+                >
+                  {cta}
+                </Button>
+                {extraCtas.map((label, i) => (
+                  <Button
+                    key={`${label}-${i}`}
+                    type="button"
+                    variant="outline"
+                    className="w-full border-white/40 bg-white/10 text-white"
+                    disabled
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -226,14 +241,12 @@ export function PopupPreviewDialog({
           <span className="font-medium text-gray-900">Target</span>
           {' — '}
           {targetSummary}
-          {draft.linkType !== 'none' && (
+          {primary.linkType !== 'none' && (
             <>
               {' · '}
-              Button opens{' '}
+              Buttons:{' '}
               <span className="font-medium text-gray-900">
-                {draft.linkType === 'post'
-                  ? draft.listingLabel || 'linked listing'
-                  : draft.pageKey || 'internal page'}
+                {[cta, ...extraCtas].join(', ')}
               </span>
             </>
           )}

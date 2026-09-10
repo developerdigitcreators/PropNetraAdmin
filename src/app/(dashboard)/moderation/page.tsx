@@ -13,7 +13,7 @@ import {
 } from "@/services/listings.service";
 import { ListingReviewTable } from "@/modules/listings/listing-review-table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Inbox, Plus } from "lucide-react";
+import { Loader2, Inbox, Plus, RefreshCw } from "lucide-react";
 import { PermissionGuard } from "@/components/common/permission-guard";
 import { PaginationBar } from "@/components/common/pagination-bar";
 import {
@@ -22,6 +22,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/use-auth-store";
 import { permissionSetHas } from "@/lib/super-admin";
 
@@ -261,15 +262,27 @@ export default function ReviewListingPage() {
               other agents.
             </p>
           </div>
-          {canCreatePost && (
-            <Link
-              href="/add-post"
-              className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void refreshAll()}
+              disabled={isLoading}
             >
-              <Plus className="w-4 h-4 mr-2" />
-              Add Post
-            </Link>
-          )}
+              <RefreshCw className="mr-1.5 size-3.5" />
+              Refresh
+            </Button>
+            {canCreatePost && (
+              <Link
+                href="/add-post"
+                className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add Post
+              </Link>
+            )}
+          </div>
         </div>
 
         <Tabs

@@ -14,6 +14,13 @@ import {
   type PushLayoutDraft,
   type PushLayoutType,
 } from "./push-layout-composer";
+import {
+  linksAreValid,
+  linksFromPrimaryFields,
+  linksToBroadcastCtas,
+  primaryFromLinks,
+  type LinkCtaRow,
+} from "./multi-link-cta-editor";
 
 /** Matches the backend's MaxLength on title and cardTitle. */
 const TITLE_MAX = 200;
@@ -25,12 +32,8 @@ export type BroadcastDraft = {
   bodyFormat: BroadcastBodyFormat;
   media: BroadcastMedia[];
   cityIds: string[];
-  linkType: BroadcastLinkType;
-  listingId: string;
-  listingLabel: string;
-  pageKey: string;
-  /** Optional CTA button label when post/page is linked (card + push). */
-  ctaLabel: string;
+  /** Multiple post/page links with button labels (max 3). */
+  links: LinkCtaRow[];
   pushType: PushLayoutType;
   bgColor: string;
   countdownEndsAt: string;
@@ -47,11 +50,7 @@ export function emptyDraft(cityIds: string[] = []): BroadcastDraft {
     bodyFormat: "plain",
     media: [],
     cityIds,
-    linkType: "none",
-    listingId: "",
-    listingLabel: "",
-    pageKey: "",
-    ctaLabel: "",
+    links: [],
     pushType: "AUTO",
     bgColor: "",
     countdownEndsAt: "",
@@ -73,8 +72,6 @@ function toDatetimeLocal(value?: string | null) {
 export function draftPushLayout(draft: BroadcastDraft): PushLayoutDraft {
   return {
     layoutType: draft.pushType === "AUTO" ? undefined : draft.pushType,
-    // Color layout hidden from admin for now.
-    // ...(draft.bgColor.trim() ? { bgColor: draft.bgColor.trim() } : {}),
     ...(draft.countdownEndsAt
       ? { countdownEndsAt: draft.countdownEndsAt }
       : {}),
@@ -111,27 +108,16 @@ export function draftFormat(draft: BroadcastDraft): BroadcastFormat {
   return draftImageUrl(draft) ? "text_image" : "text";
 }
 
+export function draftPrimaryLink(draft: BroadcastDraft) {
+  return primaryFromLinks(draft.links);
+}
+
 export function draftLinkOk(draft: BroadcastDraft): boolean {
-  if (draft.linkType === "post") return !!draft.listingId;
-  if (draft.linkType === "page") return !!draft.pageKey;
-  return true;
+  return linksAreValid(draft.links);
 }
 
 export function draftCtas(draft: BroadcastDraft): BroadcastPayload["ctas"] {
-  if (draft.linkType === "none") return [];
-  const label = draft.ctaLabel.trim();
-  if (!label) return [];
-  return [
-    {
-      label,
-      ...(draft.linkType === "post" && draft.listingId
-        ? { listingId: draft.listingId }
-        : {}),
-      ...(draft.linkType === "page" && draft.pageKey
-        ? { screen: draft.pageKey }
-        : {}),
-    },
-  ];
+  return linksToBroadcastCtas(draft.links);
 }
 
 export function draftErrors(draft: BroadcastDraft): string[] {
@@ -144,11 +130,7 @@ export function draftErrors(draft: BroadcastDraft): string[] {
     errors.push("Every attachment must be a valid HTTPS link.");
   }
   if (!draftLinkOk(draft)) {
-    errors.push(
-      draft.linkType === "post"
-        ? "Choose the listing this message links to."
-        : "Choose the page this message links to.",
-    );
+    errors.push("Each link needs a listing (post) or page selected.");
   }
 
   const layout = resolvedPushLayout(draft);
@@ -198,25 +180,25 @@ export function draftToBroadcastPayload(
   const title = draft.title.trim();
   const body = draft.body.trim();
   const ctas = draftCtas(draft);
+  const primary = draftPrimaryLink(draft);
   return {
     channelId,
     cityIds: draft.cityIds,
     title,
     body,
-    // Same content for PropNetra Updates card + phone push.
     cardTitle: title,
     ...(body ? { cardBody: body } : {}),
     bodyFormat: draft.bodyFormat,
     format: draftFormat(draft),
-    linkType: draft.linkType,
+    linkType: primary.linkType,
     ...(imageUrl ? { imageUrl } : {}),
     ...(draft.media.length ? { media: draft.media } : {}),
     ...(ctas?.length ? { ctas } : {}),
-    ...(draft.linkType === "post" && draft.listingId
-      ? { listingId: draft.listingId }
+    ...(primary.linkType === "post" && primary.listingId
+      ? { listingId: primary.listingId }
       : {}),
-    ...(draft.linkType === "page" && draft.pageKey
-      ? { pageKey: draft.pageKey }
+    ...(primary.linkType === "page" && primary.pageKey
+      ? { pageKey: primary.pageKey }
       : {}),
     ...toBroadcastPushFields(draftPushLayout(draft), draft.pushType, {
       titleHtml: draft.title,
@@ -226,10 +208,6 @@ export function draftToBroadcastPayload(
   };
 }
 
-/**
- * Edit payload. Cities and channel are omitted on purpose — the backend keeps
- * them locked because feed cards are written per city.
- */
 export function draftToUpdatePayload(
   draft: BroadcastDraft,
 ): UpdateCampaignPayload {
@@ -237,6 +215,7 @@ export function draftToUpdatePayload(
   const title = draft.title.trim();
   const body = draft.body.trim();
   const ctas = draftCtas(draft);
+  const primary = draftPrimaryLink(draft);
   return {
     title,
     body,
@@ -245,14 +224,14 @@ export function draftToUpdatePayload(
     bodyFormat: draft.bodyFormat,
     format: draftFormat(draft),
     media: draft.media,
-    linkType: draft.linkType,
+    linkType: primary.linkType,
     ctas: ctas || [],
     ...(imageUrl ? { imageUrl } : {}),
-    ...(draft.linkType === "post" && draft.listingId
-      ? { listingId: draft.listingId }
+    ...(primary.linkType === "post" && primary.listingId
+      ? { listingId: primary.listingId }
       : {}),
-    ...(draft.linkType === "page" && draft.pageKey
-      ? { pageKey: draft.pageKey }
+    ...(primary.linkType === "page" && primary.pageKey
+      ? { pageKey: primary.pageKey }
       : {}),
     ...toBroadcastPushFields(draftPushLayout(draft), draft.pushType, {
       titleHtml: draft.title,
@@ -265,7 +244,6 @@ export function draftToUpdatePayload(
 export function campaignToDraft(
   campaign: NotificationCampaign,
 ): BroadcastDraft {
-  const linkType = (campaign.linkType || "none") as BroadcastLinkType;
   const media: BroadcastMedia[] = campaign.media?.length
     ? campaign.media
     : campaign.imageUrl
@@ -281,11 +259,13 @@ export function campaignToDraft(
       : "plain") as BroadcastBodyFormat,
     media,
     cityIds: campaign.cityIds || [],
-    linkType: linkType === "post" || linkType === "page" ? linkType : "none",
-    listingId: campaign.listingId || "",
-    listingLabel: campaign.listingId ? "Linked listing" : "",
-    pageKey: campaign.pageKey || "",
-    ctaLabel: campaign.ctas?.[0]?.label || "",
+    links: linksFromPrimaryFields({
+      linkType: campaign.linkType as BroadcastLinkType,
+      listingId: campaign.listingId,
+      pageKey: campaign.pageKey,
+      ctaLabel: campaign.ctas?.[0]?.label || "",
+      ctas: campaign.ctas,
+    }),
     pushType:
       campaign.layoutType === "COUNTDOWN" ||
       campaign.layoutType === "MULTI_ACTION" ||

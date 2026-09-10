@@ -156,7 +156,7 @@ export function UpdatesThread({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-gray-50 px-4 py-5">
+      <div className="min-h-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto bg-gray-50 px-4 py-5">
         {error && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}

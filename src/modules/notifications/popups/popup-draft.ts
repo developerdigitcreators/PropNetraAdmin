@@ -8,6 +8,13 @@ import {
   type UpdateInAppPopupPayload,
 } from '@/services/notifications.service';
 import { isHttpsUrl } from '../chat/draft';
+import {
+  linksAreValid,
+  linksFromPrimaryFields,
+  linksToBroadcastCtas,
+  primaryFromLinks,
+  type LinkCtaRow,
+} from '../chat/multi-link-cta-editor';
 
 const TITLE_MAX = 200;
 
@@ -23,15 +30,11 @@ export type PopupDraft = {
   ctaColor: string;
   displayDurationSec: number;
   timerDisplay: PopupTimerDisplay;
-  ctaLabel: string;
   targetMode: PopupTargetMode;
   stateId: string;
   cityId: string;
   audience: PopupAudience;
-  linkType: BroadcastLinkType;
-  listingId: string;
-  listingLabel: string;
-  pageKey: string;
+  links: LinkCtaRow[];
 };
 
 export function emptyPopupDraft(): PopupDraft {
@@ -45,22 +48,16 @@ export function emptyPopupDraft(): PopupDraft {
     ctaColor: '#E11D48',
     displayDurationSec: 8,
     timerDisplay: 'progress_bar',
-    ctaLabel: 'View',
     targetMode: 'global',
     stateId: '',
     cityId: '',
     audience: 'all',
-    linkType: 'none',
-    listingId: '',
-    listingLabel: '',
-    pageKey: '',
+    links: [],
   };
 }
 
 export function popupLinkOk(draft: PopupDraft): boolean {
-  if (draft.linkType === 'post') return !!draft.listingId;
-  if (draft.linkType === 'page') return !!draft.pageKey;
-  return true;
+  return linksAreValid(draft.links);
 }
 
 export function popupDraftErrors(draft: PopupDraft): string[] {
@@ -75,25 +72,14 @@ export function popupDraftErrors(draft: PopupDraft): string[] {
   if (draft.imageUrl.trim() && !isHttpsUrl(draft.imageUrl.trim())) {
     errors.push('Image must be a valid HTTPS link.');
   }
-  // Color pickers hidden from admin for now.
-  // if (!/^#[0-9A-Fa-f]{6}$/.test(draft.backgroundColor.trim())) {
-  //   errors.push('Pick a valid background color.');
-  // }
-  // if (!/^#[0-9A-Fa-f]{6}$/.test(draft.textColor.trim())) {
-  //   errors.push('Pick a valid text color.');
-  // }
-  // if (!/^#[0-9A-Fa-f]{6}$/.test(draft.ctaColor.trim())) {
-  //   errors.push('Pick a valid button color.');
-  // }
   if (draft.displayDurationSec < 0 || draft.displayDurationSec > 60) {
     errors.push('Display duration must be between 0 and 60 seconds.');
   }
   if (!popupLinkOk(draft)) {
-    errors.push(
-      draft.linkType === 'post'
-        ? 'Choose the listing this popup links to.'
-        : 'Choose the page this popup links to.',
-    );
+    errors.push('Each link needs a listing (post) or page selected.');
+  }
+  if (draft.links.some((row) => !row.label.trim())) {
+    errors.push('Each link needs button text.');
   }
   return errors;
 }
@@ -112,6 +98,22 @@ function draftPlacePayload(draft: PopupDraft) {
   };
 }
 
+function draftLinkPayload(draft: PopupDraft) {
+  const primary = primaryFromLinks(draft.links);
+  const ctas = linksToBroadcastCtas(draft.links);
+  return {
+    ctaLabel: primary.ctaLabel.trim() || (primary.linkType === 'none' ? 'View' : 'View'),
+    linkType: primary.linkType,
+    ...(primary.linkType === 'post' && primary.listingId
+      ? { listingId: primary.listingId }
+      : {}),
+    ...(primary.linkType === 'page' && primary.pageKey
+      ? { pageKey: primary.pageKey }
+      : {}),
+    ...(ctas.length ? { ctas } : {}),
+  };
+}
+
 export function popupDraftToCreatePayload(draft: PopupDraft): CreateInAppPopupPayload {
   const imageUrl = draft.imageUrl.trim();
   const place = draftPlacePayload(draft);
@@ -120,18 +122,11 @@ export function popupDraftToCreatePayload(draft: PopupDraft): CreateInAppPopupPa
     body: draft.body.trim(),
     bodyFormat: draft.bodyFormat,
     ...(imageUrl ? { imageUrl } : {}),
-    // Color pickers hidden from admin for now.
-    // backgroundColor: draft.backgroundColor.trim().toUpperCase(),
-    // textColor: draft.textColor.trim().toUpperCase(),
-    // ctaColor: draft.ctaColor.trim().toUpperCase(),
     displayDurationSec: draft.displayDurationSec,
     timerDisplay: draft.displayDurationSec > 0 ? draft.timerDisplay : 'none',
-    ctaLabel: draft.ctaLabel.trim() || 'View',
     ...place,
     audience: draft.audience,
-    linkType: draft.linkType,
-    ...(draft.linkType === 'post' && draft.listingId ? { listingId: draft.listingId } : {}),
-    ...(draft.linkType === 'page' && draft.pageKey ? { pageKey: draft.pageKey } : {}),
+    ...draftLinkPayload(draft),
     publish: true,
   };
 }
@@ -139,23 +134,22 @@ export function popupDraftToCreatePayload(draft: PopupDraft): CreateInAppPopupPa
 export function popupDraftToUpdatePayload(draft: PopupDraft): UpdateInAppPopupPayload {
   const imageUrl = draft.imageUrl.trim();
   const place = draftPlacePayload(draft);
+  const primary = primaryFromLinks(draft.links);
+  const ctas = linksToBroadcastCtas(draft.links);
   return {
     title: draft.title.trim(),
     body: draft.body.trim(),
     bodyFormat: draft.bodyFormat,
     imageUrl: imageUrl || null,
-    // Color pickers hidden from admin for now.
-    // backgroundColor: draft.backgroundColor.trim().toUpperCase(),
-    // textColor: draft.textColor.trim().toUpperCase(),
-    // ctaColor: draft.ctaColor.trim().toUpperCase(),
     displayDurationSec: draft.displayDurationSec,
     timerDisplay: draft.displayDurationSec > 0 ? draft.timerDisplay : 'none',
-    ctaLabel: draft.ctaLabel.trim() || 'View',
     ...place,
     audience: draft.audience,
-    linkType: draft.linkType,
-    listingId: draft.linkType === 'post' ? draft.listingId || null : null,
-    pageKey: draft.linkType === 'page' ? draft.pageKey || null : null,
+    ctaLabel: primary.ctaLabel.trim() || 'View',
+    linkType: primary.linkType,
+    listingId: primary.linkType === 'post' ? primary.listingId || null : null,
+    pageKey: primary.linkType === 'page' ? primary.pageKey || null : null,
+    ctas,
   };
 }
 
@@ -163,7 +157,6 @@ export function popupToDraft(
   popup: InAppPopup,
   cities: { id: string; stateId?: string }[] = [],
 ): PopupDraft {
-  const linkType = (popup.linkType || 'none') as BroadcastLinkType;
   const global =
     popup.placeScope === 'global' ||
     (popup.cityIds.length === 0 && (popup.stateIds?.length ?? 0) === 0);
@@ -179,15 +172,17 @@ export function popupToDraft(
     ctaColor: popup.ctaColor || '#E11D48',
     displayDurationSec: popup.displayDurationSec ?? 8,
     timerDisplay: popup.timerDisplay || 'progress_bar',
-    ctaLabel: popup.ctaLabel || 'View',
     targetMode: global ? 'global' : 'city',
     stateId: popup.stateIds?.[0] || stateFromCity,
     cityId,
     audience: popup.audience || 'all',
-    linkType: linkType === 'post' || linkType === 'page' ? linkType : 'none',
-    listingId: popup.listingId || '',
-    listingLabel: popup.listingId ? 'Linked listing' : '',
-    pageKey: popup.pageKey || '',
+    links: linksFromPrimaryFields({
+      linkType: popup.linkType as BroadcastLinkType,
+      listingId: popup.listingId,
+      pageKey: popup.pageKey,
+      ctaLabel: popup.ctaLabel,
+      ctas: popup.ctas,
+    }),
   };
 }
 

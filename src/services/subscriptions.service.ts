@@ -73,8 +73,14 @@ export type UserEntitlements = {
   addonCredits: {
     listingContactCredits: number;
     buyReqContactCredits: number;
+    builderContactCredits?: number;
   };
   walletBalance: number;
+  history?: Array<Record<string, unknown>>;
+  paymentHistory?: Array<Record<string, unknown>>;
+  creditLots?: Array<Record<string, unknown>>;
+  autopayEnabled?: boolean;
+  billingState?: string | null;
 };
 
 export type UpdatePlanPayload = {
@@ -309,8 +315,21 @@ export function normalizeUserEntitlements(raw: unknown): UserEntitlements | null
     addonCredits: {
       listingContactCredits: asNum(credits.listingContactCredits),
       buyReqContactCredits: asNum(credits.buyReqContactCredits),
+      builderContactCredits: asNum(credits.builderContactCredits),
     },
     walletBalance: asNum(row.walletBalance),
+    history: Array.isArray(row.history) ? row.history : [],
+    paymentHistory: Array.isArray(row.paymentHistory)
+      ? row.paymentHistory
+      : Array.isArray(row.history)
+        ? row.history
+        : [],
+    creditLots: Array.isArray(row.creditLots) ? row.creditLots : [],
+    autopayEnabled:
+      row.autopayEnabled == null && row.autopay_enabled == null
+        ? undefined
+        : asBool(row.autopayEnabled ?? row.autopay_enabled, false),
+    billingState: pickString(row.billingState, row.billing_state) || null,
   };
 }
 

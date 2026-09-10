@@ -14,7 +14,7 @@ import {
   type SubscriptionPlanItem,
   type UpdatePlanPayload,
 } from '@/services/subscriptions.service';
-import { Check, CreditCard, Edit2, Loader2, X } from 'lucide-react';
+import { Check, CreditCard, Edit2, Loader2, RefreshCw, X } from 'lucide-react';
 
 function LimitRow({
   label,
@@ -72,12 +72,16 @@ function PlanCard({
           <p className="mt-0.5 font-mono text-xs text-gray-400">{plan.code}</p>
         </div>
         <div className="flex flex-col items-end gap-1">
-          <Badge variant={plan.isActive ? 'default' : 'outline'}>
-            {plan.isActive ? 'Active' : 'Inactive'}
-          </Badge>
-          <Badge variant={plan.showOnApp ? 'secondary' : 'outline'}>
-            {plan.showOnApp ? 'Show on app' : 'Hidden on app'}
-          </Badge>
+          {plan.code !== 'FREE_LIFETIME' ? (
+            <>
+              <Badge variant={plan.isActive ? 'default' : 'outline'}>
+                {plan.isActive ? 'Active' : 'Inactive'}
+              </Badge>
+              <Badge variant={plan.showOnApp ? 'secondary' : 'outline'}>
+                {plan.showOnApp ? 'Show on app' : 'Hidden on app'}
+              </Badge>
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -227,15 +231,27 @@ export default function SubscriptionPlansPage() {
           ]}
         />
 
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold text-gray-900">
-            <CreditCard className="h-6 w-6 text-primary" />
-            Subscription Plans
-          </h1>
-          <p className="mt-1 max-w-3xl text-sm text-gray-500">
-            Manage what each partner plan includes — pricing in rupees, contact reveal limits,
-            active post caps, and optional features like boosts and builder packs.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="flex items-center gap-2 text-2xl font-semibold text-gray-900">
+              <CreditCard className="h-6 w-6 text-primary" />
+              Subscription Plans
+            </h1>
+            <p className="mt-1 max-w-3xl text-sm text-gray-500">
+              Manage what each partner plan includes — pricing in rupees, contact reveal limits,
+              active post caps, and optional features like boosts and builder packs.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void fetchPlans()}
+            disabled={loading}
+          >
+            <RefreshCw className="mr-1.5 size-3.5" />
+            Refresh
+          </Button>
         </div>
 
         {error ? (

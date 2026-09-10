@@ -34,6 +34,7 @@ import {
   Video,
   ChevronDown,
   ChevronRight,
+  RefreshCw,
 } from 'lucide-react';
 
 type LocItem = { id: string; name: string; state_id?: string; state?: { id: string } };
@@ -488,9 +489,21 @@ export default function BannerAdsPage() {
       <div className="space-y-6 max-w-7xl pb-16">
         <Breadcrumb items={[{ label: 'Banner Ads' }]} />
 
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Banner Ads</h1>
-          <p className="text-gray-500 mt-1">Manage banners by city, page, and section.</p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">Banner Ads</h1>
+            <p className="text-gray-500 mt-1">Manage banners by city, page, and section.</p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void fetchBanners()}
+            disabled={isLoading || !ready}
+          >
+            <RefreshCw className="mr-1.5 size-3.5" />
+            Refresh
+          </Button>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">

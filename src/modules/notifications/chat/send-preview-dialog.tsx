@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { MessageBubble, type BubbleMessage } from "./message-bubble";
-import { type BroadcastDraft, draftImageUrl, resolvedPushLayout } from "./draft";
+import { type BroadcastDraft, draftImageUrl, draftPrimaryLink, resolvedPushLayout } from "./draft";
 import { PushTrayPreview } from "./push-tray-preview";
 import type {
   BroadcastCity,
@@ -43,14 +43,15 @@ export function SendPreviewDialog({
 }: SendPreviewDialogProps) {
   const isEdit = mode === "edit";
   const trayImage = draftImageUrl(draft);
+  const primary = draftPrimaryLink(draft);
   const cityNames = draft.cityIds.map(
     (id) => cities.find((c) => c.id === id)?.name || "Unknown city",
   );
   const linkLabel =
-    draft.linkType === "post"
+    primary.linkType === "post"
       ? "Property Details"
-      : draft.linkType === "page"
-        ? pages.find((p) => p.key === draft.pageKey)?.label || "Open page"
+      : primary.linkType === "page"
+        ? pages.find((p) => p.key === primary.pageKey)?.label || "Open page"
         : null;
 
   const card: BubbleMessage = {
@@ -100,7 +101,7 @@ export function SendPreviewDialog({
                 progressMax={draft.progressMax}
                 progress={draft.progress}
                 progressIndeterminate={draft.progressIndeterminate}
-                linkCta={draft.ctaLabel.trim() || linkLabel}
+                linkCta={primary.ctaLabel.trim() || linkLabel}
               />
             )}
             <p className="text-[11px] text-gray-400">
@@ -133,10 +134,13 @@ export function SendPreviewDialog({
               {" · "}
               Tapping the card opens{" "}
               <span className="font-medium text-gray-900">
-                {draft.linkType === "post"
-                  ? draft.listingLabel || "the linked listing"
+                {primary.linkType === "post"
+                  ? primary.listingLabel || "the linked listing"
                   : linkLabel}
               </span>
+              {draft.links.length > 1
+                ? ` (+${draft.links.length - 1} more)`
+                : ""}
             </>
           )}
         </div>

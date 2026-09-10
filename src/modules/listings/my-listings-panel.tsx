@@ -32,7 +32,7 @@ import {
 } from '@/components/ui/dialog';
 import { useAuthStore } from '@/store/use-auth-store';
 import { isSuperAdmin } from '@/lib/super-admin';
-import { Inbox, Loader2, MessageSquare, Plus, Users } from 'lucide-react';
+import { Inbox, Loader2, MessageSquare, Plus, RefreshCw, Users } from 'lucide-react';
 
 function stopRowClick(event: React.MouseEvent) {
   event.stopPropagation();
@@ -274,13 +274,25 @@ export function MyListingsPanel() {
               {superAdmin ? ', plus all admin posts and app user postings.' : '.'}
             </p>
           </div>
-          <Link
-            href="/add-post"
-            className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Add Post
-          </Link>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void fetchList()}
+              disabled={loading}
+            >
+              <RefreshCw className="mr-1.5 size-3.5" />
+              Refresh
+            </Button>
+            <Link
+              href="/add-post"
+              className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Add Post
+            </Link>
+          </div>
         </div>
 
         <Tabs

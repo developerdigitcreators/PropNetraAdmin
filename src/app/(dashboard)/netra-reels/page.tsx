@@ -23,6 +23,7 @@ import {
   Loader2,
   Play,
   Plus,
+  RefreshCw,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -144,6 +145,16 @@ export default function NetraReelsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void fetchReels()}
+              disabled={loading}
+            >
+              <RefreshCw className="mr-1.5 size-3.5" />
+              Refresh
+            </Button>
             <Button
               variant="outline"
               onClick={() => openPlayer()}

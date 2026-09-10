@@ -29,7 +29,7 @@ import {
   emptyDraft,
   type BroadcastDraft,
 } from "@/modules/notifications/chat/draft";
-import { ArrowLeft, Bell, Inbox, Lock, MapPin, Megaphone, Smartphone, Users } from "lucide-react";
+import { ArrowLeft, Bell, Inbox, Lock, MapPin, Megaphone, RefreshCw, Smartphone, Users } from "lucide-react";
 import { PopupsPanel } from "@/modules/notifications/popups/popups-panel";
 import { PushPanel } from "@/modules/notifications/push/push-panel";
 import { useNotificationsRealtime } from "@/modules/notifications/use-notifications-realtime";
@@ -73,6 +73,36 @@ export default function NotificationsPage() {
   const [activeTab, setActiveTab] = useState("groups");
   const [watchUserId, setWatchUserId] = useState("");
   const onWatchUser = useCallback((userId: string) => setWatchUserId(userId), []);
+
+  const reloadMeta = useCallback(async () => {
+    setCitiesLoading(true);
+    setChannelsLoading(true);
+    setLoadError("");
+    try {
+      const [nextCities, nextChannels] = await Promise.all([
+        notificationsService
+          .getBroadcastCities()
+          .catch(() => [] as BroadcastCity[]),
+        notificationsService.getChannels(),
+      ]);
+      setCities(nextCities);
+      setCityId((current) => current || nextCities[0]?.id || "");
+      setChannels(nextChannels);
+      setActiveChannelId(
+        (current) =>
+          current ||
+          nextChannels.find((c) => c.allowAdminBroadcast)?.id ||
+          nextChannels[0]?.id ||
+          "",
+      );
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      setLoadError(notificationApiError(err, "Failed to load groups."));
+    } finally {
+      setCitiesLoading(false);
+      setChannelsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -232,7 +262,19 @@ export default function NotificationsPage() {
       }
     >
       <div className="space-y-4">
-        <Breadcrumb items={[{ label: "Notifications" }]} />
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <Breadcrumb items={[{ label: "Notifications" }]} />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void reloadMeta()}
+            disabled={citiesLoading || channelsLoading}
+          >
+            <RefreshCw className="mr-1.5 size-3.5" />
+            Refresh
+          </Button>
+        </div>
 
         {toast && (
           <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
@@ -278,7 +320,7 @@ export default function NotificationsPage() {
           </TabsList>
 
           <TabsContent value="groups" className="mt-4">
-        <div className="flex h-[calc(100vh-19rem)] min-h-[520px] overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div className="flex h-[calc(100vh-19rem)] min-h-[520px] min-w-0 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
           <GroupsRail
             channels={channels}
             loading={channelsLoading}
@@ -298,8 +340,8 @@ export default function NotificationsPage() {
           <div
             className={
               showThreadOnMobile
-                ? "flex min-w-0 flex-1 flex-col"
-                : "hidden min-w-0 flex-1 flex-col lg:flex"
+                ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+                : "hidden min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex"
             }
           >
             {!activeChannel ? (
@@ -368,7 +410,7 @@ export default function NotificationsPage() {
                 </div>
 
                 {isUpdatesChannel ? (
-                  <>
+                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                     <UpdatesThread
                       channelName={activeChannel.name}
                       pages={pages}
@@ -401,7 +443,7 @@ export default function NotificationsPage() {
                         You have read-only access to Notifications.
                       </p>
                     )}
-                  </>
+                  </div>
                 ) : cityId ? (
                   <GroupFeedThread
                     channel={activeChannel}

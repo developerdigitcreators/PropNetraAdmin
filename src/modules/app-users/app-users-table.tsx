@@ -33,7 +33,7 @@ import {
 import { withCount } from "@/lib/filter-label";
 import { newFirstCellClass, NewTag } from "@/components/common/new-row-marker";
 import { useAuthStore } from "@/store/use-auth-store";
-import { moduleForAppUsersTab } from "@/modules/app-users/app-users-access";
+import { moduleForAppUsersTab, APP_USERS_REFRESH_EVENT } from "@/modules/app-users/app-users-access";
 import {
   Loader2,
   Plus,
@@ -53,7 +53,12 @@ import { VerificationDocsSection } from "@/modules/user-analytics/verification-d
 
 export type AppUsersTab = "otp_issued" | "otp_verified" | "master";
 
-type AccountStatusFilter = "pending_approval" | "active" | "suspended" | "";
+type AccountStatusFilter =
+  | "pending_approval"
+  | "without_referral"
+  | "active"
+  | "suspended"
+  | "";
 
 const NO_CITY_FILTER = "__no_city__";
 
@@ -130,6 +135,41 @@ const DOC_STATUS_CHIP: Record<string, { label: string; className: string }> = {
   },
 };
 
+const PLAN_CHIP: Record<string, { label: string; className: string }> = {
+  free: {
+    label: "Free",
+    className: "bg-sky-50 text-sky-800 border-sky-200",
+  },
+  "free trial": {
+    label: "Free",
+    className: "bg-sky-50 text-sky-800 border-sky-200",
+  },
+  free_trial: {
+    label: "Free",
+    className: "bg-sky-50 text-sky-800 border-sky-200",
+  },
+  "lifetime free": {
+    label: "Lifetime Free",
+    className: "bg-slate-100 text-slate-800 border-slate-300",
+  },
+  lifetime_free: {
+    label: "Lifetime Free",
+    className: "bg-slate-100 text-slate-800 border-slate-300",
+  },
+  network: {
+    label: "Network",
+    className: "bg-indigo-50 text-indigo-800 border-indigo-200",
+  },
+  pro: {
+    label: "Pro",
+    className: "bg-amber-50 text-amber-900 border-amber-200",
+  },
+  elite: {
+    label: "Elite",
+    className: "bg-violet-50 text-violet-900 border-violet-200",
+  },
+};
+
 function DocumentsStatusBadge({
   status,
   label,
@@ -147,6 +187,33 @@ function DocumentsStatusBadge({
       className={chip?.className || "bg-gray-50 text-gray-700 border-gray-200"}
     >
       {chip?.label || label || status}
+    </Badge>
+  );
+}
+
+function PlanBadge({
+  label,
+  planCode,
+}: {
+  label?: string | null;
+  planCode?: string | null;
+}) {
+  const raw = String(label || planCode || "").trim();
+  if (!raw) {
+    return <span className="text-gray-400 text-xs">—</span>;
+  }
+  const key = raw.toLowerCase().replace(/_/g, " ");
+  const codeKey = String(planCode || "").toLowerCase();
+  const chip =
+    PLAN_CHIP[key] ||
+    PLAN_CHIP[codeKey] ||
+    PLAN_CHIP[codeKey.replace(/_/g, " ")];
+  return (
+    <Badge
+      variant="outline"
+      className={chip?.className || "text-gray-700 border-gray-200 bg-gray-50"}
+    >
+      {chip?.label || raw}
     </Badge>
   );
 }
@@ -444,17 +511,19 @@ function SessionCell({
 }
 
 function VerifiedCallStatusBadge({ user }: { user: any }) {
-  const value = (user.callStatus || "not_applicable") as CallStatus;
+  // Legacy OTP-verified rows stored not_contacted; treat as Not Applicable.
+  const raw = (user.callStatus || "not_applicable") as CallStatus;
+  const value = (raw === "not_contacted" ? "not_applicable" : raw) as CallStatus;
   const label =
     CALL_STATUS_OPTIONS.find((o) => o.value === value)?.label ||
     user.callStatusLabel ||
-    "N/A";
+    "Not Applicable";
   const className =
     value === "shifted_and_verified"
       ? "bg-green-50 text-green-700 border-green-200"
       : value === "added_by_admin"
         ? "bg-violet-50 text-violet-700 border-violet-200"
-        : "bg-gray-50 text-gray-600 border-gray-200";
+        : "bg-slate-50 text-slate-600 border-slate-200";
   return (
     <Badge variant="outline" className={className}>
       {label}
@@ -1024,6 +1093,14 @@ export function AppUsersTable({ tab }: Props) {
   }, [fetchUsers]);
 
   useEffect(() => {
+    const onRefresh = () => {
+      void fetchUsers();
+    };
+    window.addEventListener(APP_USERS_REFRESH_EVENT, onRefresh);
+    return () => window.removeEventListener(APP_USERS_REFRESH_EVENT, onRefresh);
+  }, [fetchUsers]);
+
+  useEffect(() => {
     if (tab !== "master" && tab !== "otp_verified") return;
     rbacService
       .getRoles("app")
@@ -1082,11 +1159,13 @@ export function AppUsersTable({ tab }: Props) {
     const counts = {
       all: users.length,
       pending_approval: 0,
+      without_referral: 0,
       active: 0,
       suspended: 0,
     };
     for (const u of users) {
       if (u.status === "pending_approval") counts.pending_approval += 1;
+      else if (u.status === "without_referral") counts.without_referral += 1;
       else if (u.status === "active") counts.active += 1;
       else if (u.status === "suspended") counts.suspended += 1;
     }
@@ -1270,6 +1349,11 @@ export function AppUsersTable({ tab }: Props) {
                         "Pending approval",
                         statusCounts.pending_approval,
                       )
+                    : statusFilter === "without_referral"
+                      ? withCount(
+                          "Without referral",
+                          statusCounts.without_referral,
+                        )
                     : statusFilter === "suspended"
                       ? withCount("Suspended", statusCounts.suspended)
                       : withCount("Active", statusCounts.active)}
@@ -1281,6 +1365,9 @@ export function AppUsersTable({ tab }: Props) {
               </SelectItem>
               <SelectItem value="pending_approval">
                 {withCount("Pending approval", statusCounts.pending_approval)}
+              </SelectItem>
+              <SelectItem value="without_referral">
+                {withCount("Without referral", statusCounts.without_referral)}
               </SelectItem>
               <SelectItem value="active">
                 {withCount("Active", statusCounts.active)}
@@ -1607,16 +1694,10 @@ export function AppUsersTable({ tab }: Props) {
                             )}
                           </td>
                           <td className="px-5 py-4">
-                            {user.subscriptionStatus || user.subscription ? (
-                              <Badge
-                                variant="outline"
-                                className="text-gray-700 border-gray-200 bg-gray-50"
-                              >
-                                {user.subscriptionStatus || user.subscription}
-                              </Badge>
-                            ) : (
-                              <span className="text-gray-400 text-xs">—</span>
-                            )}
+                            <PlanBadge
+                              label={user.subscriptionStatus || user.subscription}
+                              planCode={user.planCode || user.plan_code}
+                            />
                           </td>
                           <td className="px-5 py-4">
                             <DocumentsStatusBadge

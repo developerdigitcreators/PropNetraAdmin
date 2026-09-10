@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { ImageUrlOrUpload } from '@/components/image-url-or-upload';
 import {
   Dialog,
   DialogContent,
@@ -9,24 +12,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { isHttpsUrl } from './draft';
 
 const COPY: Record<string, { title: string; hint: string; placeholder: string }> = {
   image: {
     title: 'Attach image',
-    hint: 'Shown inside the card and on the phone tray. Add more images from + if you need several.',
+    hint: 'Upload a file or paste a public HTTPS image link. Shown on the card and phone tray.',
     placeholder: 'https://cdn.example.com/banner.jpg',
   },
   video: {
     title: 'Attach video',
-    hint: 'Opens in the browser when tapped.',
+    hint: 'Paste a publicly reachable HTTPS video link (MP4/MOV/WebM). Opens in the browser when tapped.',
     placeholder: 'https://cdn.example.com/clip.mp4',
   },
   pdf: {
     title: 'Attach PDF',
-    hint: 'Brochures and price lists. Opens in the browser when tapped.',
+    hint: 'Paste a publicly reachable HTTPS PDF link. Opens in the browser when tapped.',
     placeholder: 'https://cdn.example.com/brochure.pdf',
   },
 };
@@ -71,34 +72,39 @@ export function AttachUrlDialog({
           <DialogDescription>{copy.hint}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-2 py-2">
-          <label className="text-sm font-medium">{kindLabel} link</label>
-          <Input
-            autoFocus
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder={copy.placeholder}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && valid) {
-                e.preventDefault();
-                onSave(trimmed);
-              }
-            }}
-          />
+        <div className="space-y-3 py-2">
+          {kind === 'image' ? (
+            <ImageUrlOrUpload
+              label="Image"
+              value={url}
+              onChange={setUrl}
+              kind="banner"
+              placeholder={copy.placeholder}
+              hint="Paste HTTPS URL or upload — stored on CDN."
+              previewClassName="mt-2 max-h-40 w-full rounded-lg border border-gray-100 object-cover"
+            />
+          ) : (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{kindLabel} link</label>
+              <Input
+                autoFocus
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder={copy.placeholder}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && valid) {
+                    e.preventDefault();
+                    onSave(trimmed);
+                  }
+                }}
+              />
+              <p className="text-xs text-gray-500">
+                Host the file on CDN (or any HTTPS URL), then paste the link here.
+              </p>
+            </div>
+          )}
           {showError && (
             <p className="text-xs text-red-600">Must be a valid HTTPS link.</p>
-          )}
-          <p className="text-xs text-gray-500">
-            Files are hosted outside the admin, so paste a link that is already live.
-          </p>
-          {kind === 'image' && valid && (
-            // Arbitrary external hosts, so next/image cannot be configured for these.
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={trimmed}
-              alt=""
-              className="mt-2 max-h-40 w-full rounded-lg border border-gray-100 object-cover"
-            />
           )}
         </div>
 

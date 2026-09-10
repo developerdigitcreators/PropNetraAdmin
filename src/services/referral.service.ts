@@ -7,13 +7,18 @@ export type ReferralSettings = {
   shareMessageTemplate: string | null;
   importantInfo: Array<{ title: string; body: string }> | null;
   freeMilestoneWindowDays: number;
-  freeStandardGraceDays: number;
+  freeStandardGraceDays?: number;
   freeStandardMonthsPerReferral: number;
   paidMilestoneWindowDays: number;
   paidStandardPercent: string | number;
   paidStandardCoins?: number | null;
   paidMilestoneResetDays: number;
   paidPendingExpiryDays: number;
+  freeMilestonesEnabledForNewUsers?: boolean;
+  paidMilestonesEnabledForNewUsers?: boolean;
+  /** @deprecated Prefer free/paid specific toggles */
+  milestonesEnabledForNewUsers?: boolean;
+  renewResetsMilestones?: boolean;
 };
 
 export type ReferralTier = {
@@ -66,6 +71,9 @@ export type ReferralUserSummary = {
   planCode?: string | null;
   isPaidReferrer?: boolean;
   referrerTierLabel?: 'Paid' | 'Free';
+  referIdUsed?: string | null;
+  withoutReferral?: boolean;
+  badge?: string | null;
 };
 
 export type ReferralOverviewEvent = {
@@ -80,6 +88,27 @@ export type ReferralOverviewEvent = {
   monthsGranted: number;
   countsTowardPaidMilestone?: boolean;
   createdAt: string;
+};
+
+export type ReferralByReferrerGroup = {
+  referrer: ReferralUserSummary;
+  invitedCount: number;
+  lastActivityAt?: string;
+  items: Array<{
+    id: string;
+    status: string;
+    coinsCredited: number;
+    monthsGranted: number;
+    createdAt: string;
+    referee: ReferralUserSummary;
+  }>;
+};
+
+export type ReferralListMeta = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
 };
 
 export type ReferralOverviewChainGroup = {
@@ -142,6 +171,9 @@ export const referralService = {
     paidStandardCoins?: number | null;
     paidMilestoneResetDays?: number;
     paidPendingExpiryDays?: number;
+    freeMilestonesEnabledForNewUsers?: boolean;
+    paidMilestonesEnabledForNewUsers?: boolean;
+    renewResetsMilestones?: boolean;
   }) {
     const response = await axiosClient.patch('/admin/referral/settings', payload);
     return unwrap<ReferralSettings>(response);
@@ -170,6 +202,36 @@ export const referralService = {
       params: { limit },
     });
     return unwrap<ReferralOverview>(response);
+  },
+
+  async listByReferrer(params: { q?: string; page?: number; limit?: number } = {}) {
+    const response = await axiosClient.get('/admin/referral/by-referrer', {
+      params: {
+        page: params.page ?? 1,
+        limit: params.limit ?? 20,
+        ...(params.q ? { q: params.q } : {}),
+      },
+    });
+    return unwrap<{ items: ReferralByReferrerGroup[]; meta: ReferralListMeta }>(
+      response,
+    );
+  },
+
+  async listWithoutReferral(params: {
+    q?: string;
+    page?: number;
+    limit?: number;
+  } = {}) {
+    const response = await axiosClient.get('/admin/referral/without-referral', {
+      params: {
+        page: params.page ?? 1,
+        limit: params.limit ?? 20,
+        ...(params.q ? { q: params.q } : {}),
+      },
+    });
+    return unwrap<{ items: ReferralUserSummary[]; meta: ReferralListMeta }>(
+      response,
+    );
   },
 
   async getGraph(userId: string) {

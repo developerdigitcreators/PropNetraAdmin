@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { SearchableSelect } from '@/components/common/searchable-select';
@@ -24,6 +25,7 @@ import {
   type PersonRow,
   type UserAnalyticsDetail,
 } from '@/services/user-analytics.service';
+import { adminUsersService } from '@/services/admin-users.service';
 import {
   ticketApiError,
   supportTicketsService,
@@ -44,7 +46,9 @@ import {
   MessageSquare,
   Phone,
   Sparkles,
+  ArrowLeft,
 } from 'lucide-react';
+import { USER_PROFILE_READ_PERMISSIONS } from '@/modules/app-users/app-users-access';
 
 type ProfileTab = 'subscription' | 'refer' | 'analytics' | 'write';
 type DetailTab = 'views' | 'contacted' | 'leads';
@@ -371,6 +375,7 @@ function WriteToUsTab({ userId }: { userId: string }) {
 }
 
 export function UserAnalyticsPanel() {
+  const searchParams = useSearchParams();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [stateId, setStateId] = useState('');
@@ -391,6 +396,50 @@ export function UserAnalyticsPanel() {
   const [detail, setDetail] = useState<UserAnalyticsDetail | null>(null);
   const [profileTab, setProfileTab] = useState<ProfileTab>('analytics');
   const [analyticsTab, setAnalyticsTab] = useState<DetailTab>('views');
+
+  useEffect(() => {
+    const fromQuery = String(searchParams.get('userId') || '').trim();
+    if (!fromQuery) return;
+
+    // Open Profile deep-link: default last 30 days so the profile shell loads.
+    const today = new Date();
+    const start = new Date(today);
+    start.setDate(start.getDate() - 30);
+    const toYmd = (d: Date) => d.toISOString().slice(0, 10);
+    setFrom((prev) => prev || toYmd(start));
+    setTo((prev) => prev || toYmd(today));
+    setUserId(fromQuery);
+    setProfileTab('subscription');
+
+    let cancelled = false;
+    adminUsersService
+      .getUserById(fromQuery)
+      .then((raw) => {
+        if (cancelled) return;
+        const user = (raw?.data ?? raw?.user ?? raw) as Record<string, unknown>;
+        if (!user || typeof user !== 'object') return;
+        const id = String(user.id || fromQuery);
+        setSelectedUser({
+          id,
+          name: String(user.name || ''),
+          contact: String(user.contact || user.phone || ''),
+          email: String(user.email || ''),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSelectedUser({
+            id: fromQuery,
+            name: 'User',
+            contact: '',
+            email: '',
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
 
   const rangeReady = !!from && !!to && from <= to;
   const rangeError = !!from && !!to && from > to ? 'End date must be on or after the start date.' : '';
@@ -491,13 +540,19 @@ export function UserAnalyticsPanel() {
   useEffect(() => {
     if (!canPickUser) {
       setUsers([]);
-      setUserId('');
-      setSelectedUser(null);
-      setDetail(null);
+      // Keep deep-linked / already-selected userId — only clear list options.
+      if (!searchParams.get('userId')) {
+        // When dates are cleared by the user, drop selection.
+        if (!from || !to) {
+          setUserId('');
+          setSelectedUser(null);
+          setDetail(null);
+        }
+      }
       return;
     }
     loadUsers('');
-  }, [canPickUser, loadUsers]);
+  }, [canPickUser, loadUsers, from, to, searchParams]);
 
   useEffect(() => {
     if (!userId || !rangeReady) {
@@ -550,7 +605,7 @@ export function UserAnalyticsPanel() {
 
   return (
     <PermissionGuard
-      permission="user_analytics:read"
+      permission={[...USER_PROFILE_READ_PERMISSIONS]}
       fallback={
         <div className="p-12 text-center text-gray-500">
           You do not have permission to view User Profile.
@@ -558,15 +613,36 @@ export function UserAnalyticsPanel() {
       }
     >
       <div className="max-w-7xl space-y-6 pb-16">
-        <Breadcrumb items={[{ label: 'User Profile' }]} />
+        <Breadcrumb
+          items={
+            userId
+              ? [
+                  { label: 'User Profile', href: '/user-analytics' },
+                  { label: selectedUser?.name || 'Profile' },
+                ]
+              : [{ label: 'User Profile' }]
+          }
+        />
 
         <div>
+          {userId ? (
+            <Link
+              href="/user-analytics"
+              className="mb-2 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to list
+            </Link>
+          ) : null}
           <h1 className="text-2xl font-bold tracking-tight text-gray-900">User Profile</h1>
           <p className="mt-1 text-gray-500">
-            Search any user by name, phone, or email. Date range is required; state and city are optional.
+            {userId
+              ? 'Subscription, referral, analytics, and support for this user.'
+              : 'Search any user by name, phone, or email. Date range is required; state and city are optional.'}
           </p>
         </div>
 
+        {!userId ? (
         <div className="relative z-20 overflow-visible rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
             <label className="block">
@@ -675,6 +751,7 @@ export function UserAnalyticsPanel() {
           </div>
           {rangeError && <p className="mt-3 text-sm text-red-600">{rangeError}</p>}
         </div>
+        ) : null}
 
         {error && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</div>}
 
@@ -693,6 +770,14 @@ export function UserAnalyticsPanel() {
                 <h2 className="mt-1 truncate text-lg font-semibold text-gray-900">
                   {selectedUser?.name || detail?.user.name || 'User'}
                 </h2>
+                {(selectedUser as { status?: string } | null)?.status ===
+                  'without_referral' ||
+                (detail?.user as { status?: string } | undefined)?.status ===
+                  'without_referral' ? (
+                  <span className="mt-2 inline-flex rounded-full bg-orange-50 px-2.5 py-0.5 text-xs font-medium text-orange-800">
+                    Without referral
+                  </span>
+                ) : null}
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500">
                   {(selectedUser?.contact || detail?.user.contact) && (
                     <span className="inline-flex items-center gap-1.5">

@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, type ReactNode } from 'react';
+import { cn } from '@/lib/utils';
 
 const MARKER_HINT =
   /(\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~|\{#[0-9a-fA-F]{3,6}\}[^\n]*\{\/#\}|\[[^\]\n]+\]\(https:[^)\s]+\)|^\s*-\s+|^\s*\d+\.\s+)/m;
@@ -108,10 +109,11 @@ export function MarkdownText({ value, format, className }: MarkdownTextProps) {
   const text = value || '';
   const useMarkers = shouldRenderMarkers(text, format);
   const lines = text.split('\n');
+  const wrapClass = cn('break-words [overflow-wrap:anywhere]', className);
 
   if (!useMarkers) {
     return (
-      <span className={className}>
+      <span className={wrapClass}>
         {lines.map((line, i) => (
           <Fragment key={i}>
             {i > 0 && <br />}
@@ -123,7 +125,7 @@ export function MarkdownText({ value, format, className }: MarkdownTextProps) {
   }
 
   return (
-    <span className={className}>
+    <span className={wrapClass}>
       {lines.map((line, i) => {
         const bullet = /^\s*-\s+(.*)$/.exec(line);
         const numbered = /^\s*(\d+)\.\s+(.*)$/.exec(line);

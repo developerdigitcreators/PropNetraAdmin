@@ -1,11 +1,6 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import { AppUsersTable } from '@/modules/app-users/app-users-table';
-
+/** Master Data moved to User Profile. */
 export default function MasterDataPage() {
-  return (
-    <div className="space-y-4">
-      <AppUsersTable tab="master" />
-    </div>
-  );
+  redirect('/user-analytics');
 }

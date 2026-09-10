@@ -224,7 +224,11 @@ export function ReferralTab({ userId }: { userId: string }) {
             ) : null}
           </p>
         ) : (
-          <p className="text-sm text-muted-foreground">No referrer</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex rounded-full bg-orange-50 px-2.5 py-0.5 text-xs font-medium text-orange-800">
+              Without referral
+            </span>
+          </div>
         )}
       </section>
 

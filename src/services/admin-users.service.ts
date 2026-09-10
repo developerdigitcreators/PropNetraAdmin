@@ -2,12 +2,20 @@ import { axiosClient } from '@/lib/axios-client';
 import { deleteWithRemark } from '@/lib/delete-with-remark';
 
 export type AppUserAudience = 'admin_panel' | 'app';
-export type AppUserBucket = 'otp_issued' | 'otp_verified' | 'master';
+export type AppUserBucket = 'otp_issued' | 'otp_verified' | 'master' | 'rejected';
+export type AppUserFilterType = 'plan' | 'role' | 'documents' | 'status';
 
 export type GetUsersParams = {
   audience?: AppUserAudience;
   includeInProgress?: boolean;
   bucket?: AppUserBucket;
+  q?: string;
+  stateId?: string;
+  cityId?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  filterType?: AppUserFilterType;
+  filterValue?: string;
 };
 
 export type SignupRemark = {
@@ -50,7 +58,7 @@ export const CALL_STATUS_OPTIONS: { value: CallStatus; label: string }[] = [
   { value: 'not_interested', label: 'Not Interested' },
   { value: 'in_discussion', label: 'In-discussion' },
   { value: 'shifted_and_verified', label: 'Shifted & Verified' },
-  { value: 'not_applicable', label: 'N/A' },
+  { value: 'not_applicable', label: 'Not Applicable' },
   { value: 'added_by_admin', label: 'New user added' },
 ];
 
@@ -64,20 +72,41 @@ export type RemarksPayload = {
   callStatusEditable?: boolean;
 };
 
+export type WithoutReferralApprovalSetting = {
+  required: boolean;
+};
+
+function buildListParams(audienceOrParams?: AppUserAudience | GetUsersParams) {
+  const params: Record<string, string | boolean> = {};
+  if (typeof audienceOrParams === 'string') {
+    params.audience = audienceOrParams;
+    return params;
+  }
+  if (!audienceOrParams) return params;
+  if (audienceOrParams.audience) params.audience = audienceOrParams.audience;
+  if (audienceOrParams.includeInProgress !== undefined) {
+    params.includeInProgress = audienceOrParams.includeInProgress;
+  }
+  if (audienceOrParams.bucket) params.bucket = audienceOrParams.bucket;
+  if (audienceOrParams.q?.trim()) params.q = audienceOrParams.q.trim();
+  if (audienceOrParams.stateId) params.stateId = audienceOrParams.stateId;
+  if (audienceOrParams.cityId) params.cityId = audienceOrParams.cityId;
+  if (audienceOrParams.createdFrom) params.createdFrom = audienceOrParams.createdFrom;
+  if (audienceOrParams.createdTo) params.createdTo = audienceOrParams.createdTo;
+  if (audienceOrParams.filterType) params.filterType = audienceOrParams.filterType;
+  if (audienceOrParams.filterValue) params.filterValue = audienceOrParams.filterValue;
+  return params;
+}
+
 export const adminUsersService = {
-  getUsers: async (audienceOrParams?: AppUserAudience | GetUsersParams) => {
-    const params: Record<string, string | boolean> = {};
-    if (typeof audienceOrParams === 'string') {
-      params.audience = audienceOrParams;
-    } else if (audienceOrParams) {
-      if (audienceOrParams.audience) params.audience = audienceOrParams.audience;
-      if (audienceOrParams.includeInProgress !== undefined) {
-        params.includeInProgress = audienceOrParams.includeInProgress;
-      }
-      if (audienceOrParams.bucket) params.bucket = audienceOrParams.bucket;
-    }
+  list: async (audienceOrParams?: AppUserAudience | GetUsersParams) => {
+    const params = buildListParams(audienceOrParams);
     const response = await axiosClient.get('/admin/users', { params });
     return response.data;
+  },
+
+  getUsers: async (audienceOrParams?: AppUserAudience | GetUsersParams) => {
+    return adminUsersService.list(audienceOrParams);
   },
 
   getUserById: async (id: string) => {
@@ -109,8 +138,34 @@ export const adminUsersService = {
   },
 
   approveUser: async (id: string) => {
-    const response = await axiosClient.put(`/admin/users/${id}`, { status: 'active' });
+    const response = await axiosClient.post(`/admin/users/${id}/approve`);
     return response.data;
+  },
+
+  rejectUser: async (id: string, remark: string) => {
+    const response = await axiosClient.post(`/admin/users/${id}/reject`, { remark });
+    return response.data;
+  },
+
+  revokeRejection: async (id: string) => {
+    const response = await axiosClient.post(`/admin/users/${id}/revoke-rejection`);
+    return response.data;
+  },
+
+  getWithoutReferralApproval: async (): Promise<WithoutReferralApprovalSetting> => {
+    const response = await axiosClient.get('/admin/settings/without-referral-approval');
+    const raw = response.data || {};
+    return { required: Boolean(raw.required) };
+  },
+
+  setWithoutReferralApproval: async (
+    required: boolean,
+  ): Promise<WithoutReferralApprovalSetting> => {
+    const response = await axiosClient.put('/admin/settings/without-referral-approval', {
+      required,
+    });
+    const raw = response.data || {};
+    return { required: Boolean(raw.required ?? required) };
   },
 
   setUserActive: async (id: string, active: boolean) => {

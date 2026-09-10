@@ -1,8 +1,13 @@
 import { cn } from '@/lib/utils';
 
-/** Left vertical bar on unread dashboard rows — no row background tint. */
+/**
+ * Unread dashboard rows: short left primary bar (not full cell height)
+ * so adjacent rows stay visually separated.
+ */
 export function newRowClass(isNew?: boolean) {
-  return isNew ? 'border-l-4 border-l-primary' : '';
+  return isNew
+    ? 'relative pl-3 before:pointer-events-none before:absolute before:left-0 before:top-1/2 before:h-[55%] before:min-h-[1.25rem] before:w-1 before:-translate-y-1/2 before:rounded-full before:bg-primary before:content-[\'\']'
+    : '';
 }
 
 export function NewTag({ show }: { show?: boolean }) {

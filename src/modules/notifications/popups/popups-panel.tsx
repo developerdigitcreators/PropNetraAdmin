@@ -20,12 +20,12 @@ import {
   flattenPopupAudiences,
   type BroadcastCity,
   type BroadcastKeyLabel,
-  type BroadcastListing,
   type InAppPopup,
   type PopupAudience,
 } from '@/services/notifications.service';
 import { locationService } from '@/services/location.service';
 import { FormattedTextField } from '@/modules/notifications/chat/formatted-text-field';
+import { MultiLinkCtaEditor } from '@/modules/notifications/chat/multi-link-cta-editor';
 import { ImageUrlOrUpload } from '@/components/image-url-or-upload';
 import { PopupPreviewDialog } from './popup-preview-dialog';
 import { formatDateTime } from '@/modules/notifications/chat/message-bubble';
@@ -125,9 +125,6 @@ export function PopupsPanel({
   const [states, setStates] = useState<NamedPlace[]>([]);
   const [allCities, setAllCities] = useState<NamedPlace[]>([]);
   const [placesLoading, setPlacesLoading] = useState(true);
-  const [listings, setListings] = useState<BroadcastListing[]>([]);
-  const [listingsLoading, setListingsLoading] = useState(false);
-  const [listingSearch, setListingSearch] = useState('');
 
   const [draft, setDraft] = useState<PopupDraft>(emptyPopupDraft());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -201,29 +198,6 @@ export function PopupsPanel({
   }, []);
 
   useEffect(() => {
-    if (draft.linkType !== 'post') return;
-    let cancelled = false;
-    setListingsLoading(true);
-    const timer = window.setTimeout(() => {
-      notificationsService
-        .getPublishedListings({ cityId: draft.cityId || undefined, search: listingSearch })
-        .then((items) => {
-          if (!cancelled) setListings(items);
-        })
-        .catch(() => {
-          if (!cancelled) setListings([]);
-        })
-        .finally(() => {
-          if (!cancelled) setListingsLoading(false);
-        });
-    }, 250);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [draft.linkType, draft.cityId, listingSearch]);
-
-  useEffect(() => {
     if (!draft.cityId || draft.stateId || allCities.length === 0) return;
     const inferred = allCities.find((c) => c.id === draft.cityId)?.stateId;
     if (!inferred) return;
@@ -239,7 +213,6 @@ export function PopupsPanel({
     setFormMode('create');
     setTouched(false);
     setSubmitError('');
-    setListingSearch('');
   };
 
   const startEdit = (popup: InAppPopup) => {
@@ -249,7 +222,6 @@ export function PopupsPanel({
     setFormMode('edit');
     setTouched(false);
     setSubmitError('');
-    setListingSearch('');
   };
 
   const startResend = (popup: InAppPopup) => {
@@ -260,7 +232,6 @@ export function PopupsPanel({
     setFormMode('resend');
     setTouched(false);
     setSubmitError('');
-    setListingSearch('');
     setPreviewOpen(true);
   };
 
@@ -279,11 +250,6 @@ export function PopupsPanel({
     [citiesInState],
   );
 
-  const listingOptions = useMemo(
-    () => listings.map((l) => ({ value: l.id, label: l.title })),
-    [listings],
-  );
-
   const audienceLabel =
     audiences.find((a) => a.key === draft.audience)?.label || 'All users';
 
@@ -293,8 +259,6 @@ export function PopupsPanel({
     allCities.length > 0 ? allCities : cities,
     audienceLabel,
   );
-
-  const pageLabel = pages.find((p) => p.key === draft.pageKey)?.label || 'Select a page';
 
   const errors = popupDraftErrors(draft);
   const canSubmit = popupDraftIsSendable(draft) && !submitting;
@@ -718,136 +682,15 @@ export function PopupsPanel({
                 </div>
 
                 <div className="space-y-3">
-                  <label className="text-xs font-medium text-gray-700">Button link</label>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant={draft.linkType === 'none' ? 'default' : 'outline'}
-                      size="sm"
-                      disabled={readOnly}
-                      className={draft.linkType === 'none' ? 'bg-primary text-white' : undefined}
-                      onClick={() =>
-                        patch({
-                          linkType: 'none',
-                          listingId: '',
-                          listingLabel: '',
-                          pageKey: '',
-                        })
-                      }
-                    >
-                      No link
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={draft.linkType !== 'none' ? 'default' : 'outline'}
-                      size="sm"
-                      disabled={readOnly}
-                      className={draft.linkType !== 'none' ? 'bg-primary text-white' : undefined}
-                      onClick={() => {
-                        if (draft.linkType === 'none') {
-                          patch({ linkType: 'post' });
-                        }
-                      }}
-                    >
-                      Link button
-                    </Button>
-                  </div>
-
-                  {draft.linkType !== 'none' && (
-                    <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          variant={draft.linkType === 'post' ? 'default' : 'outline'}
-                          size="sm"
-                          disabled={readOnly}
-                          className={draft.linkType === 'post' ? 'bg-primary text-white' : undefined}
-                          onClick={() => patch({ linkType: 'post', pageKey: '' })}
-                        >
-                          Listing / project
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={draft.linkType === 'page' ? 'default' : 'outline'}
-                          size="sm"
-                          disabled={readOnly}
-                          className={draft.linkType === 'page' ? 'bg-primary text-white' : undefined}
-                          onClick={() =>
-                            patch({
-                              linkType: 'page',
-                              listingId: '',
-                              listingLabel: '',
-                              pageKey: draft.pageKey || pages[0]?.key || '',
-                            })
-                          }
-                        >
-                          Internal page
-                        </Button>
-                      </div>
-
-                      {draft.linkType === 'post' ? (
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-gray-700">
-                            Listing / project
-                          </label>
-                          <SearchableSelect
-                            options={listingOptions}
-                            value={draft.listingId}
-                            selectedLabel={draft.listingLabel}
-                            onValueChange={(v) =>
-                              patch({
-                                listingId: v || '',
-                                listingLabel: listings.find((l) => l.id === v)?.title || '',
-                              })
-                            }
-                            onSearch={setListingSearch}
-                            loading={listingsLoading}
-                            placeholder="Select listing / project"
-                            searchPlaceholder="Search listings…"
-                            emptyText="No published listings found."
-                            disabled={readOnly}
-                          />
-                        </div>
-                      ) : (
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-gray-700">Internal page</label>
-                          <Select
-                            value={draft.pageKey || undefined}
-                            onValueChange={(v) => patch({ pageKey: v ?? '' })}
-                            disabled={readOnly}
-                          >
-                            <SelectTrigger className="w-full bg-white">
-                              <span>{pageLabel}</span>
-                            </SelectTrigger>
-                            <SelectContent>
-                              {pages.length === 0 ? (
-                                <div className="px-3 py-4 text-sm text-gray-500">
-                                  No pages available.
-                                </div>
-                              ) : (
-                                pages.map((p) => (
-                                  <SelectItem key={p.key} value={p.key}>
-                                    {p.label}
-                                  </SelectItem>
-                                ))
-                              )}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
-
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-gray-700">Button label</label>
-                        <Input
-                          value={draft.ctaLabel}
-                          onChange={(e) => patch({ ctaLabel: e.target.value })}
-                          placeholder="View"
-                          maxLength={40}
-                          readOnly={readOnly}
-                        />
-                      </div>
-                    </div>
-                  )}
+                  <MultiLinkCtaEditor
+                    links={draft.links}
+                    pages={pages}
+                    cityId={draft.cityId || undefined}
+                    disabled={readOnly}
+                    requireLabel
+                    defaultLabel="View"
+                    onChange={(links) => patch({ links })}
+                  />
                 </div>
 
                 {touched && errors.length > 0 && (

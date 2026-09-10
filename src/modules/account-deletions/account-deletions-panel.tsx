@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { PaginationBar } from '@/components/common/pagination-bar';
@@ -20,7 +20,7 @@ import {
   type AccountDeletionRequest,
   type AccountDeletionStatus,
 } from '@/services/account-deletions.service';
-import { Eye, Loader2, Search, UserRound, UserX } from 'lucide-react';
+import { Eye, Loader2, RefreshCw, Search, UserRound, UserX } from 'lucide-react';
 import { newFirstCellClass, NewTag } from '@/components/common/new-row-marker';
 
 function formatDateTime(value?: string | null) {
@@ -75,9 +75,33 @@ export function AccountDeletionsPanel() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
 
+  const fetchList = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await accountDeletionsService.list({
+        status: statusFilter,
+        search,
+        page,
+        limit: pageSize,
+      });
+      setItems(result.items);
+      setTotal(result.total);
+      setTotalPages(result.totalPages);
+      setError('');
+    } catch (err) {
+      setItems([]);
+      setTotal(0);
+      setTotalPages(1);
+      setError(accountDeletionApiError(err, 'Failed to load account deletion requests.'));
+    } finally {
+      setLoading(false);
+    }
+  }, [page, pageSize, search, statusFilter]);
+
   useEffect(() => {
     let cancelled = false;
 
+    setLoading(true);
     void accountDeletionsService
       .list({
         status: statusFilter,
@@ -134,14 +158,26 @@ export function AccountDeletionsPanel() {
       <div className="max-w-7xl space-y-6 pb-16">
         <Breadcrumb items={[{ label: 'Account Deletion Requests' }]} />
 
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-            Account Deletion Requests
-          </h1>
-          <p className="mt-1 text-gray-500">
-            Requests appear as Pending OTP when started in the app, then Completed after OTP verify
-            (soft-delete + inactive).
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+              Account Deletion Requests
+            </h1>
+            <p className="mt-1 text-gray-500">
+              Requests appear as Pending OTP when started in the app, then Completed after OTP verify
+              (soft-delete + inactive).
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void fetchList()}
+            disabled={loading}
+          >
+            <RefreshCw className="mr-1.5 size-3.5" />
+            Refresh
+          </Button>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">

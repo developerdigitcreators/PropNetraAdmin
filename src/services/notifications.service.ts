@@ -75,7 +75,9 @@ export type BroadcastMedia = {
 
 export type BroadcastCta = {
   label: string;
+  linkType?: BroadcastLinkType;
   listingId?: string;
+  pageKey?: string;
   screen?: string;
 };
 
@@ -163,6 +165,7 @@ export type NotificationCampaign = {
   listingId?: string | null;
   pageKey?: string | null;
   media: BroadcastMedia[];
+  ctas?: BroadcastCta[];
   layoutType?: string | null;
   bgColor?: string | null;
   countdownEndsAt?: string | null;
@@ -293,6 +296,8 @@ export const INBOX_LEAD_EVENTS = ['listing.interest', 'listing.contacted'] as co
 
 export type PopupTimerDisplay = 'none' | 'progress_bar' | 'countdown' | 'both';
 
+export type InAppPopupStatus = 'draft' | 'active' | 'expired' | 'inactive';
+
 export const DEFAULT_POPUP_TIMER_DISPLAYS: BroadcastKeyLabel[] = [
   { key: 'none', label: 'No indicator' },
   { key: 'progress_bar', label: 'Progress bar (stories style)' },
@@ -326,6 +331,7 @@ export type InAppPopup = {
   displayDurationSec: number;
   timerDisplay: PopupTimerDisplay;
   ctaLabel: string;
+  ctas?: BroadcastCta[];
   stateIds: string[];
   stateNames: string[];
   cityIds: string[];
@@ -377,6 +383,7 @@ export type CreateInAppPopupPayload = {
   timerDisplay?: PopupTimerDisplay;
   showProgressBar?: boolean;
   ctaLabel?: string;
+  ctas?: BroadcastCta[];
   stateIds?: string[];
   cityIds?: string[];
   audience?: PopupAudience;
@@ -398,6 +405,7 @@ export type UpdateInAppPopupPayload = {
   timerDisplay?: PopupTimerDisplay;
   showProgressBar?: boolean;
   ctaLabel?: string;
+  ctas?: BroadcastCta[];
   stateIds?: string[];
   cityIds?: string[];
   audience?: PopupAudience;
@@ -795,6 +803,33 @@ function asPushActions(raw: unknown): BroadcastPushAction[] {
     .filter((item): item is BroadcastPushAction => !!item);
 }
 
+function asCtas(raw: unknown): BroadcastCta[] {
+  return asArrayUnknown(raw)
+    .map((row) => {
+      const r = (row && typeof row === 'object' ? row : {}) as Record<string, unknown>;
+      const label = str(r.label).trim();
+      const listingId = str(r.listingId || r.listing_id).trim();
+      const pageKey = str(r.pageKey || r.page_key || r.screen).trim();
+      const linkTypeRaw = str(r.linkType || r.link_type).trim();
+      const linkType =
+        linkTypeRaw === 'post' || linkTypeRaw === 'page'
+          ? (linkTypeRaw as BroadcastLinkType)
+          : listingId
+            ? 'post'
+            : pageKey
+              ? 'page'
+              : undefined;
+      if (!label && !listingId && !pageKey) return null;
+      return {
+        label: label || 'Open',
+        ...(linkType ? { linkType } : {}),
+        ...(listingId ? { listingId } : {}),
+        ...(pageKey ? { pageKey, screen: pageKey } : {}),
+      };
+    })
+    .filter((item): item is BroadcastCta => !!item);
+}
+
 function asStringArray(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.map(str).filter(Boolean);
@@ -851,6 +886,7 @@ export function normalizeCampaign(raw: unknown): NotificationCampaign {
     listingId: str(n.listingId || n.listing_id) || null,
     pageKey: str(n.pageKey || n.page_key) || null,
     media: asMediaList(n.media),
+    ctas: asCtas(n.ctas),
     layoutType: str(n.layoutType || n.layout_type).toUpperCase() || null,
     bgColor: str(n.bgColor || n.bg_color) || null,
     countdownEndsAt: str(n.countdownEndsAt || n.countdown_ends_at) || null,
@@ -1055,6 +1091,7 @@ export function normalizeInAppPopup(raw: unknown): InAppPopup {
       n.showProgressBar ?? n.show_progress_bar,
     ),
     ctaLabel: str(n.ctaLabel || n.cta_label) || 'View',
+    ctas: asCtas(n.ctas),
     stateIds,
     stateNames,
     cityIds,
@@ -1617,6 +1654,7 @@ export const notificationsService = {
     listingId?: string;
     pageKey?: string;
     ctaLabel?: string;
+    ctas?: BroadcastCta[];
     cityIds?: string[];
     stateIds?: string[];
     audience?: PopupAudience;

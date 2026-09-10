@@ -20,6 +20,7 @@ import {
 import {
   AlertTriangle,
   Loader2,
+  RefreshCw,
   RotateCcw,
   Trash2,
   UserRound,
@@ -128,13 +129,25 @@ export function RecycleBinPanel() {
       <div className="max-w-7xl space-y-6 pb-16">
         <Breadcrumb items={[{ label: "Deleted Items" }]} />
 
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-            Deleted Items
-          </h1>
-          <p className="mt-1 text-gray-500">
-            Staff see items they deleted for 1 month.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+              Deleted Items
+            </h1>
+            <p className="mt-1 text-gray-500">
+              Staff see items they deleted for 1 month.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void refreshList()}
+            disabled={loading}
+          >
+            <RefreshCw className="mr-1.5 size-3.5" />
+            Refresh
+          </Button>
         </div>
 
         {(error || actionError) && (

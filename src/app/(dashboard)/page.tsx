@@ -31,6 +31,7 @@ type DashCard = {
 
 const ACTION_KEYS: DashboardUnreadKey[] = [
   'documentsPending',
+  'approvalPending',
   'otpIssued',
   'otpVerified',
   'reviewPending',
@@ -38,6 +39,7 @@ const ACTION_KEYS: DashboardUnreadKey[] = [
   'supportTickets',
   'accountDeletions',
   'myListingsActionable',
+  'subscriptionTracking',
 ];
 
 export default function DashboardHome() {
@@ -74,7 +76,15 @@ export default function DashboardHome() {
   const can = (moduleName: string, action: string) =>
     superAdmin || hasPermission(moduleName, action);
 
+  const canUserProfile =
+    can('user_analytics', 'read') ||
+    canReadAppUsersTab('app_users_master', hasPermission) ||
+    superAdmin;
+
   const cards: DashCard[] = useMemo(() => {
+    const showApprovalPending =
+      canUserProfile && summary?.withoutReferralApprovalRequired === true;
+
     const all: Array<DashCard & { show: boolean }> = [
       {
         key: 'reviewPending',
@@ -86,9 +96,16 @@ export default function DashboardHome() {
       {
         key: 'documentsPending',
         label: 'Document verification pending',
-        href: '/app-users/master-data',
+        href: '/user-analytics',
         icon: FileWarning,
-        show: canReadAppUsersTab('app_users_master', hasPermission) || superAdmin,
+        show: canUserProfile,
+      },
+      {
+        key: 'approvalPending',
+        label: 'Approval pending',
+        href: '/user-analytics',
+        icon: UserCheck,
+        show: showApprovalPending,
       },
       {
         key: 'otpIssued',
@@ -126,6 +143,13 @@ export default function DashboardHome() {
         show: can('support_tickets', 'read'),
       },
       {
+        key: 'subscriptionTracking',
+        label: 'Subscription Tracking',
+        href: '/subscribe-now-tracking',
+        icon: ClipboardList,
+        show: can('subscribe_now_tracking', 'read'),
+      },
+      {
         key: 'accountDeletions',
         label: 'Account deletions',
         href: '/account-deletions',
@@ -149,7 +173,7 @@ export default function DashboardHome() {
     ];
     return all.filter((c) => c.show).map(({ show: _show, ...card }) => card);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- can/hasPermission derived from store
-  }, [superAdmin, hasPermission, permissions]);
+  }, [superAdmin, hasPermission, permissions, summary, canUserProfile]);
 
   return (
     <div className="space-y-6">

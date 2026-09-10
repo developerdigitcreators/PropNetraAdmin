@@ -29,6 +29,7 @@ import {
   Loader2,
   MessageSquare,
   Plus,
+  RefreshCw,
   Search,
   Trash2,
 } from 'lucide-react';
@@ -208,27 +209,39 @@ export default function FeedbacksPage() {
               Messages submitted from the app. You can add remarks, but the user message cannot be edited.
             </p>
           </div>
-          <form
-            className="flex w-full max-w-sm items-center gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              setSearch(searchDraft.trim());
-              void fetchList(searchDraft.trim());
-            }}
-          >
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <Input
-                value={searchDraft}
-                onChange={(e) => setSearchDraft(e.target.value)}
-                placeholder="Search user or message"
-                className="h-9 pl-8"
-              />
-            </div>
-            <Button type="submit" variant="outline" className="h-9">
-              Search
+          <div className="flex w-full max-w-md flex-wrap items-center gap-2 sm:w-auto">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void fetchList(search)}
+              disabled={loading}
+            >
+              <RefreshCw className="mr-1.5 size-3.5" />
+              Refresh
             </Button>
-          </form>
+            <form
+              className="flex min-w-[220px] flex-1 items-center gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                setSearch(searchDraft.trim());
+                void fetchList(searchDraft.trim());
+              }}
+            >
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <Input
+                  value={searchDraft}
+                  onChange={(e) => setSearchDraft(e.target.value)}
+                  placeholder="Search user or message"
+                  className="h-9 pl-8"
+                />
+              </div>
+              <Button type="submit" variant="outline" className="h-9">
+                Search
+              </Button>
+            </form>
+          </div>
         </div>
 
         {error && (

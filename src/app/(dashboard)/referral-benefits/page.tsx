@@ -1,18 +1,18 @@
-'use client';
+"use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import Link from 'next/link';
-import { useAuthStore } from '@/store/use-auth-store';
-import { PermissionGuard } from '@/components/common/permission-guard';
-import { Breadcrumb } from '@/components/common/breadcrumb';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import Link from "next/link";
+import { useAuthStore } from "@/store/use-auth-store";
+import { PermissionGuard } from "@/components/common/permission-guard";
+import { Breadcrumb } from "@/components/common/breadcrumb";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   referralApiError,
   referralService,
   type ReferralSettings,
   type ReferralTier,
-} from '@/services/referral.service';
+} from "@/services/referral.service";
 import {
   Gift,
   Loader2,
@@ -21,12 +21,12 @@ import {
   Trash2,
   Users,
   Wallet,
-} from 'lucide-react';
+} from "lucide-react";
 
 type EditableTier = {
-  track: 'FREE_REFERRER' | 'PAID_REFERRER';
+  track: "FREE_REFERRER" | "PAID_REFERRER";
   requiredReferrals: number;
-  rewardType: 'FREE_MONTHS' | 'NETRA_PERCENT';
+  rewardType: "FREE_MONTHS" | "NETRA_PERCENT";
   rewardValue: number;
   rewardCoins: number | null;
   sortOrder: number;
@@ -40,7 +40,9 @@ function toEditable(tiers: ReferralTier[]): EditableTier[] {
     rewardType: t.rewardType,
     rewardValue: Number(t.rewardValue),
     rewardCoins:
-      t.track === 'PAID_REFERRER' && t.rewardCoins != null ? Number(t.rewardCoins) : null,
+      t.track === "PAID_REFERRER" && t.rewardCoins != null
+        ? Number(t.rewardCoins)
+        : null,
     sortOrder: t.sortOrder ?? i + 1,
     isActive: t.isActive !== false,
   }));
@@ -49,25 +51,26 @@ function toEditable(tiers: ReferralTier[]): EditableTier[] {
 function sortTierRows(rows: Array<{ t: EditableTier; i: number }>) {
   return [...rows].sort(
     (a, b) =>
-      a.t.requiredReferrals - b.t.requiredReferrals || a.t.sortOrder - b.t.sortOrder,
+      a.t.requiredReferrals - b.t.requiredReferrals ||
+      a.t.sortOrder - b.t.sortOrder,
   );
 }
 
 export default function ReferralBenefitsPage() {
   const hasPermission = useAuthStore((s) => s.hasPermission);
-  const canUpdate = hasPermission('subscriptions', 'update');
+  const canUpdate = hasPermission("subscriptions", "update");
 
   const [settings, setSettings] = useState<ReferralSettings | null>(null);
   const [tiers, setTiers] = useState<EditableTier[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingTiers, setSavingTiers] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError('');
+    setError("");
     try {
       const [s, t] = await Promise.all([
         referralService.getSettings(),
@@ -76,7 +79,7 @@ export default function ReferralBenefitsPage() {
       setSettings(s);
       setTiers(toEditable(t));
     } catch (err) {
-      setError(referralApiError(err, 'Failed to load referral config.'));
+      setError(referralApiError(err, "Failed to load referral config."));
     } finally {
       setLoading(false);
     }
@@ -89,8 +92,8 @@ export default function ReferralBenefitsPage() {
   const saveSettings = async () => {
     if (!settings || !canUpdate) return;
     setSavingSettings(true);
-    setMessage('');
-    setError('');
+    setMessage("");
+    setError("");
     try {
       const updated = await referralService.updateSettings({
         enabled: settings.enabled,
@@ -99,12 +102,17 @@ export default function ReferralBenefitsPage() {
         importantInfo: settings.importantInfo,
         freeMilestoneWindowDays: Number(settings.freeMilestoneWindowDays),
         freeStandardGraceDays: 0,
-        freeStandardMonthsPerReferral: Number(settings.freeStandardMonthsPerReferral),
+        freeStandardMonthsPerReferral: Number(
+          settings.freeStandardMonthsPerReferral,
+        ),
         paidMilestoneWindowDays: Number(settings.paidMilestoneWindowDays),
         paidStandardPercent: Number(settings.paidStandardPercent),
         paidStandardCoins: null,
         paidMilestoneResetDays: Number(settings.paidMilestoneResetDays),
         paidPendingExpiryDays: Number(settings.paidPendingExpiryDays),
+        paidReferralCoinExpiryDays: Number(
+          settings.paidReferralCoinExpiryDays ?? 365,
+        ),
         freeMilestonesEnabledForNewUsers:
           settings.freeMilestonesEnabledForNewUsers !== false,
         paidMilestonesEnabledForNewUsers:
@@ -112,9 +120,9 @@ export default function ReferralBenefitsPage() {
         renewResetsMilestones: settings.renewResetsMilestones !== false,
       });
       setSettings(updated);
-      setMessage('Program settings saved.');
+      setMessage("Program settings saved.");
     } catch (err) {
-      setError(referralApiError(err, 'Failed to save settings.'));
+      setError(referralApiError(err, "Failed to save settings."));
     } finally {
       setSavingSettings(false);
     }
@@ -123,8 +131,8 @@ export default function ReferralBenefitsPage() {
   const saveTiers = async () => {
     if (!canUpdate) return;
     setSavingTiers(true);
-    setMessage('');
-    setError('');
+    setMessage("");
+    setError("");
     try {
       const normalized = tiers.map((t, i) => ({
         ...t,
@@ -132,15 +140,15 @@ export default function ReferralBenefitsPage() {
       }));
       const saved = await referralService.replaceTiers(normalized);
       setTiers(toEditable(saved));
-      setMessage('Reward tiers saved.');
+      setMessage("Reward tiers saved.");
     } catch (err) {
-      setError(referralApiError(err, 'Failed to save tiers.'));
+      setError(referralApiError(err, "Failed to save tiers."));
     } finally {
       setSavingTiers(false);
     }
   };
 
-  const addTier = (track: EditableTier['track']) => {
+  const addTier = (track: EditableTier["track"]) => {
     const sameTrack = tiers.filter((t) => t.track === track);
     const nextRequired =
       sameTrack.length > 0
@@ -151,8 +159,8 @@ export default function ReferralBenefitsPage() {
       {
         track,
         requiredReferrals: nextRequired,
-        rewardType: track === 'FREE_REFERRER' ? 'FREE_MONTHS' : 'NETRA_PERCENT',
-        rewardValue: track === 'FREE_REFERRER' ? 1 : 15,
+        rewardType: track === "FREE_REFERRER" ? "FREE_MONTHS" : "NETRA_PERCENT",
+        rewardValue: track === "FREE_REFERRER" ? 1 : 15,
         rewardCoins: null,
         sortOrder: sameTrack.length + 1,
         isActive: true,
@@ -161,7 +169,9 @@ export default function ReferralBenefitsPage() {
   };
 
   const updateTier = (index: number, patch: Partial<EditableTier>) => {
-    setTiers((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
+    setTiers((prev) =>
+      prev.map((t, i) => (i === index ? { ...t, ...patch } : t)),
+    );
   };
 
   const removeTier = (index: number) => {
@@ -171,12 +181,12 @@ export default function ReferralBenefitsPage() {
   const freeTiers = sortTierRows(
     tiers
       .map((t, i) => ({ t, i }))
-      .filter(({ t }) => t.track === 'FREE_REFERRER'),
+      .filter(({ t }) => t.track === "FREE_REFERRER"),
   );
   const paidTiers = sortTierRows(
     tiers
       .map((t, i) => ({ t, i }))
-      .filter(({ t }) => t.track === 'PAID_REFERRER'),
+      .filter(({ t }) => t.track === "PAID_REFERRER"),
   );
 
   return (
@@ -184,8 +194,8 @@ export default function ReferralBenefitsPage() {
       <div className="space-y-6">
         <Breadcrumb
           items={[
-            { label: 'Dashboard', href: '/' },
-            { label: 'Referral Benefits' },
+            { label: "Dashboard", href: "/" },
+            { label: "Referral Benefits" },
           ]}
         />
 
@@ -196,8 +206,11 @@ export default function ReferralBenefitsPage() {
               Referral Benefits
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Set up what free and paid users earn when they refer others.{' '}
-              <Link href="/referral-overview" className="text-primary underline">
+              Set up what free and paid users earn when they refer others.{" "}
+              <Link
+                href="/referral-overview"
+                className="text-primary underline"
+              >
                 View referral chains
               </Link>
             </p>
@@ -206,11 +219,11 @@ export default function ReferralBenefitsPage() {
             <span
               className={`rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset ${
                 settings.enabled
-                  ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-                  : 'bg-gray-100 text-gray-600 ring-gray-200'
+                  ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                  : "bg-gray-100 text-gray-600 ring-gray-200"
               }`}
             >
-              {settings.enabled ? 'Program active' : 'Program disabled'}
+              {settings.enabled ? "Program active" : "Program disabled"}
             </span>
           ) : null}
         </div>
@@ -239,19 +252,25 @@ export default function ReferralBenefitsPage() {
                     <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
                       Free reward tiers
                     </p>
-                    <p className="mt-1 text-2xl font-semibold">{freeTiers.length}</p>
+                    <p className="mt-1 text-2xl font-semibold">
+                      {freeTiers.length}
+                    </p>
                   </div>
                   <div className="rounded-xl border bg-white p-4 shadow-sm">
                     <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
                       Paid reward tiers
                     </p>
-                    <p className="mt-1 text-2xl font-semibold">{paidTiers.length}</p>
+                    <p className="mt-1 text-2xl font-semibold">
+                      {paidTiers.length}
+                    </p>
                   </div>
                   <div className="rounded-xl border bg-white p-4 shadow-sm">
                     <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
                       Coins per ₹1
                     </p>
-                    <p className="mt-1 text-2xl font-semibold">{Number(settings.coinsPerRupee)}</p>
+                    <p className="mt-1 text-2xl font-semibold">
+                      {Number(settings.coinsPerRupee)}
+                    </p>
                   </div>
                 </div>
 
@@ -261,8 +280,8 @@ export default function ReferralBenefitsPage() {
                     <h2 className="text-lg font-medium">General settings</h2>
                   </div>
                   <p className="mb-4 text-sm text-muted-foreground">
-                    Turn the program on or off, set the invite message, and define how NetraCoins
-                    are calculated.
+                    Turn the program on or off, set the invite message, and
+                    define how NetraCoins are calculated.
                   </p>
 
                   <div className="space-y-4">
@@ -272,10 +291,15 @@ export default function ReferralBenefitsPage() {
                         checked={settings.enabled}
                         disabled={!canUpdate}
                         onChange={(e) =>
-                          setSettings({ ...settings, enabled: e.target.checked })
+                          setSettings({
+                            ...settings,
+                            enabled: e.target.checked,
+                          })
                         }
                       />
-                      <span className="font-medium">Refer & Earn program enabled</span>
+                      <span className="font-medium">
+                        Refer & Earn program enabled
+                      </span>
                     </label>
 
                     <div className="grid gap-4 md:grid-cols-2">
@@ -306,13 +330,16 @@ export default function ReferralBenefitsPage() {
                         Invite share message
                       </label>
                       <p className="mb-2 text-xs text-muted-foreground">
-                        Use <code className="rounded bg-gray-100 px-1">{'{{inviteUrl}}'}</code> for
-                        the referral link.
+                        Use{" "}
+                        <code className="rounded bg-gray-100 px-1">
+                          {"{{inviteUrl}}"}
+                        </code>{" "}
+                        for the referral link.
                       </p>
                       <textarea
                         className="min-h-[88px] w-full rounded-md border px-3 py-2 text-sm"
                         disabled={!canUpdate}
-                        value={settings.shareMessageTemplate || ''}
+                        value={settings.shareMessageTemplate || ""}
                         onChange={(e) =>
                           setSettings({
                             ...settings,
@@ -324,7 +351,11 @@ export default function ReferralBenefitsPage() {
                   </div>
 
                   {canUpdate ? (
-                    <Button className="mt-4" onClick={saveSettings} disabled={savingSettings}>
+                    <Button
+                      className="mt-4"
+                      onClick={saveSettings}
+                      disabled={savingSettings}
+                    >
                       {savingSettings ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : null}
@@ -343,24 +374,26 @@ export default function ReferralBenefitsPage() {
                     onChange={setSettings}
                     toggles={[
                       {
-                        key: 'freeMilestonesEnabledForNewUsers',
-                        label: 'Milestone for new free users',
-                        hint: 'OFF → new free users see standard benefits only (existing users unchanged).',
-                        accent: 'sky',
+                        key: "freeMilestonesEnabledForNewUsers",
+                        label: "Milestone for new free users",
+                        hint: "OFF → new free users see standard benefits only (existing users unchanged).",
+                        accent: "sky",
                       },
                     ]}
                     fields={[
                       {
-                        key: 'freeMilestoneWindowDays',
-                        label: 'Milestone window',
-                        hint: 'Days from sign-up to hit free milestone slabs (when milestones enrolled).',
-                        suffix: 'days',
+                        key: "freeMilestoneWindowDays",
+                        label: "Milestone window",
+                        hint: "Days from sign-up to hit free milestone slabs (when milestones enrolled).",
+                        suffix: "days",
+                        lockedWhen: (s) =>
+                          s.freeMilestonesEnabledForNewUsers === false,
                       },
                       {
-                        key: 'freeStandardMonthsPerReferral',
-                        label: 'After milestones / standard',
-                        hint: 'Free months added per referral once in standard mode.',
-                        suffix: 'months / referral',
+                        key: "freeStandardMonthsPerReferral",
+                        label: "After milestones / standard",
+                        hint: "Free days added per referral once in standard mode.",
+                        suffix: "days / referral",
                       },
                     ]}
                   />
@@ -373,50 +406,64 @@ export default function ReferralBenefitsPage() {
                     onChange={setSettings}
                     toggles={[
                       {
-                        key: 'paidMilestonesEnabledForNewUsers',
-                        label: 'Milestone for new paid users',
-                        hint: 'OFF → new paid enrollments start on standard % only (existing users unchanged).',
-                        accent: 'amber',
+                        key: "paidMilestonesEnabledForNewUsers",
+                        label: "Milestone for new paid users",
+                        hint: "OFF → new paid enrollments start on standard % only (existing users unchanged).",
+                        accent: "amber",
                       },
                       {
-                        key: 'renewResetsMilestones',
-                        label: 'Renew resets milestones',
-                        hint: 'ON → at next subscription renew/end, milestone cycle resets to 0. Referral coins always expire on plan end.',
-                        accent: 'amber',
+                        key: "renewResetsMilestones",
+                        label: "Renew resets milestones",
+                        hint: "ON → at next subscription renew/end, milestone cycle resets to 0. Referral coins still expire on plan end or by coin expiry days below.",
+                        accent: "amber",
                       },
                     ]}
                     fields={[
                       {
-                        key: 'paidStandardPercent',
-                        label: 'Standard reward %',
-                        hint: 'After milestones or if missed — % of referee’s actual paid amount.',
-                        suffix: '%',
+                        key: "paidMilestoneWindowDays",
+                        label: "Milestone window",
+                        hint: "Days from subscription start to hit paid slabs.",
+                        suffix: "days",
+                        lockedWhen: (s) =>
+                          s.paidMilestonesEnabledForNewUsers === false,
                       },
                       {
-                        key: 'paidMilestoneWindowDays',
-                        label: 'Milestone window',
-                        hint: 'Days from subscription start to hit paid slabs.',
-                        suffix: 'days',
+                        key: "paidMilestoneResetDays",
+                        label: "Yearly reset days",
+                        hint: "Legacy calendar reset window (read-only; gated by Renew toggle).",
+                        suffix: "days",
+                        lockedWhen: () => true,
                       },
                       {
-                        key: 'paidMilestoneResetDays',
-                        label: 'Yearly reset days',
-                        hint: 'Legacy calendar reset window (also gated by Renew toggle).',
-                        suffix: 'days',
+                        key: "paidPendingExpiryDays",
+                        label: "Unsubscribed Referral Benefits Expiry",
+                        hint: "Days to wait for referee to subscribe before referral benefits expires.",
+                        suffix: "days",
                       },
                       {
-                        key: 'paidPendingExpiryDays',
-                        label: 'Pending expiry',
-                        hint: 'Days to wait for referee to subscribe before reward expires.',
-                        suffix: 'days',
+                        key: "paidReferralCoinExpiryDays",
+                        label: "Referral NetraCoin expiry",
+                        hint: "Days after earn until Referral NetraCoins expire (also cleared earlier if paid plan ends).",
+                        suffix: "days",
+                      },
+                      {
+                        key: "paidStandardPercent",
+                        label: "Standard reward %",
+                        hint: "After milestones or if missed — % of referee’s actual paid amount.",
+                        suffix: "%",
                       },
                     ]}
                   />
                 </div>
 
                 {canUpdate ? (
-                  <div className="flex justify-end">
-                    <Button onClick={saveSettings} disabled={savingSettings} variant="outline">
+                  <div className="sticky bottom-4 z-10 flex justify-end">
+                    <Button
+                      onClick={saveSettings}
+                      disabled={savingSettings}
+                      size="lg"
+                      className="shadow-lg ring-2 ring-primary/40 ring-offset-2"
+                    >
                       {savingSettings ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : null}
@@ -434,8 +481,13 @@ export default function ReferralBenefitsPage() {
               rows={freeTiers}
               valueLabel="Free months"
               valueSuffix="months"
-              canUpdate={canUpdate}
-              onAdd={() => addTier('FREE_REFERRER')}
+              canUpdate={
+                canUpdate &&
+                settings?.freeMilestonesEnabledForNewUsers !== false
+              }
+              locked={settings?.freeMilestonesEnabledForNewUsers === false}
+              lockHint="Locked while “Milestone for new free users” is OFF."
+              onAdd={() => addTier("FREE_REFERRER")}
               onChange={updateTier}
               onRemove={removeTier}
             />
@@ -445,8 +497,13 @@ export default function ReferralBenefitsPage() {
               subtitle="Milestone % of the referee’s actual paid amount (intro or full). No fixed coin amounts."
               example="Example: 1 referral at 15% of ₹899 → 135 Referral NetraCoins"
               rows={paidTiers}
-              canUpdate={canUpdate}
-              onAdd={() => addTier('PAID_REFERRER')}
+              canUpdate={
+                canUpdate &&
+                settings?.paidMilestonesEnabledForNewUsers !== false
+              }
+              locked={settings?.paidMilestonesEnabledForNewUsers === false}
+              lockHint="Locked while “Milestone for new paid users” is OFF."
+              onAdd={() => addTier("PAID_REFERRER")}
               onChange={updateTier}
               onRemove={removeTier}
             />
@@ -457,7 +514,9 @@ export default function ReferralBenefitsPage() {
                   Save after adding or editing reward tiers above.
                 </p>
                 <Button onClick={saveTiers} disabled={savingTiers}>
-                  {savingTiers ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {savingTiers ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
                   Save reward tiers
                 </Button>
               </div>
@@ -467,16 +526,17 @@ export default function ReferralBenefitsPage() {
               <p className="font-medium text-gray-800">Quick guide</p>
               <ul className="mt-2 list-inside list-disc space-y-1">
                 <li>
-                  <strong>Free tiers</strong> — milestone rewards in free months when referrals sign
-                  up.
+                  <strong>Free tiers</strong> — milestone rewards in free months
+                  when referrals sign up.
                 </li>
                 <li>
-                  <strong>Paid tiers</strong> — set milestone % and the fixed NetraCoins credited
-                  when that milestone is hit.
+                  <strong>Paid tiers</strong> — set milestone % and the fixed
+                  NetraCoins credited when that milestone is hit.
                 </li>
                 <li>
-                  <strong>Standard mode</strong> — kicks in after milestones end or deadlines pass;
-                  uses the fixed % and NetraCoins set in paid user rules.
+                  <strong>Standard mode</strong> — kicks in after milestones end
+                  or deadlines pass; uses the fixed % and NetraCoins set in paid
+                  user rules.
                 </li>
               </ul>
             </section>
@@ -509,12 +569,13 @@ function RulesCard({
     label: string;
     hint: string;
     suffix: string;
+    lockedWhen?: (s: ReferralSettings) => boolean;
   }>;
   toggles?: Array<{
     key: keyof ReferralSettings;
     label: string;
     hint: string;
-    accent?: 'sky' | 'amber';
+    accent?: "sky" | "amber";
   }>;
   dualValueFields?: Array<{
     label: string;
@@ -534,7 +595,7 @@ function RulesCard({
           <label
             key={String(toggle.key)}
             className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm ${
-              toggle.accent === 'amber' ? 'bg-amber-50/60' : 'bg-sky-50/60'
+              toggle.accent === "amber" ? "bg-amber-50/60" : "bg-sky-50/60"
             }`}
           >
             <input
@@ -555,20 +616,30 @@ function RulesCard({
           </label>
         ))}
         {dualValueFields?.map((group) => (
-          <div key={group.label} className="rounded-lg border bg-gray-50/40 p-3">
-            <label className="block text-sm font-medium text-gray-800">{group.label}</label>
+          <div
+            key={group.label}
+            className="rounded-lg border bg-gray-50/40 p-3"
+          >
+            <label className="block text-sm font-medium text-gray-800">
+              {group.label}
+            </label>
             <p className="mt-0.5 text-xs text-muted-foreground">{group.hint}</p>
             <div className="mt-2 flex flex-wrap items-center gap-3">
               {group.fields.map((field, index) => (
                 <div key={field.key} className="flex items-center gap-2">
-                  {index > 0 ? <span className="text-xs text-gray-400">→</span> : null}
+                  {index > 0 ? (
+                    <span className="text-xs text-gray-400">→</span>
+                  ) : null}
                   <Input
                     type="number"
                     className="w-24"
                     disabled={!canUpdate}
                     value={Number(settings[field.key] ?? 0)}
                     onChange={(e) =>
-                      onChange({ ...settings, [field.key]: Number(e.target.value) })
+                      onChange({
+                        ...settings,
+                        [field.key]: Number(e.target.value),
+                      })
                     }
                   />
                   <span className="text-xs text-gray-500">{field.suffix}</span>
@@ -577,24 +648,47 @@ function RulesCard({
             </div>
           </div>
         ))}
-        {fields.map((field) => (
-          <div key={field.key} className="rounded-lg border bg-gray-50/40 p-3">
-            <label className="block text-sm font-medium text-gray-800">{field.label}</label>
-            <p className="mt-0.5 text-xs text-muted-foreground">{field.hint}</p>
-            <div className="mt-2 flex items-center gap-2">
-              <Input
-                type="number"
-                className="max-w-[120px]"
-                disabled={!canUpdate}
-                value={Number(settings[field.key])}
-                onChange={(e) =>
-                  onChange({ ...settings, [field.key]: Number(e.target.value) })
-                }
-              />
-              <span className="text-xs text-gray-500">{field.suffix}</span>
+        {fields.map((field) => {
+          const locked = field.lockedWhen?.(settings) === true;
+          const disabled = !canUpdate || locked;
+          return (
+            <div
+              key={field.key}
+              className={`rounded-lg border p-3 ${
+                locked
+                  ? "border-dashed bg-gray-100/80 opacity-70"
+                  : "bg-gray-50/40"
+              }`}
+            >
+              <label className="block text-sm font-medium text-gray-800">
+                {field.label}
+                {locked ? (
+                  <span className="ml-2 text-xs font-normal text-amber-700">
+                    Locked
+                  </span>
+                ) : null}
+              </label>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {field.hint}
+              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <Input
+                  type="number"
+                  className="max-w-[120px]"
+                  disabled={disabled}
+                  value={Number(settings[field.key])}
+                  onChange={(e) =>
+                    onChange({
+                      ...settings,
+                      [field.key]: Number(e.target.value),
+                    })
+                  }
+                />
+                <span className="text-xs text-gray-500">{field.suffix}</span>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
@@ -608,6 +702,8 @@ function TierSection({
   valueLabel,
   valueSuffix,
   canUpdate,
+  locked,
+  lockHint,
   onAdd,
   onChange,
   onRemove,
@@ -619,17 +715,33 @@ function TierSection({
   valueLabel: string;
   valueSuffix: string;
   canUpdate: boolean;
+  locked?: boolean;
+  lockHint?: string;
   onAdd: () => void;
   onChange: (index: number, patch: Partial<EditableTier>) => void;
   onRemove: (index: number) => void;
 }) {
   return (
-    <section className="space-y-4 rounded-xl border bg-white p-5 shadow-sm">
+    <section
+      className={`space-y-4 rounded-xl border bg-white p-5 shadow-sm ${
+        locked ? "opacity-70" : ""
+      }`}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-medium">{title}</h2>
+          <h2 className="text-lg font-medium">
+            {title}
+            {locked ? (
+              <span className="ml-2 text-sm font-normal text-amber-700">
+                Locked
+              </span>
+            ) : null}
+          </h2>
           <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
           <p className="mt-1 text-xs text-gray-500">{example}</p>
+          {locked && lockHint ? (
+            <p className="mt-1 text-xs text-amber-700">{lockHint}</p>
+          ) : null}
         </div>
         {canUpdate ? (
           <Button variant="outline" size="sm" onClick={onAdd}>
@@ -649,7 +761,7 @@ function TierSection({
             <li
               key={i}
               className={`flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 ${
-                t.isActive ? 'bg-white' : 'bg-gray-50 opacity-70'
+                t.isActive ? "bg-white" : "bg-gray-50 opacity-70"
               }`}
             >
               <span className="text-sm text-gray-500">When user gets</span>
@@ -663,16 +775,20 @@ function TierSection({
                 }
               />
               <span className="text-sm text-gray-500">
-                referral{t.requiredReferrals === 1 ? '' : 's'} →
+                referral{t.requiredReferrals === 1 ? "" : "s"} →
               </span>
               <Input
                 type="number"
                 className="w-20"
                 disabled={!canUpdate}
                 value={t.rewardValue}
-                onChange={(e) => onChange(i, { rewardValue: Number(e.target.value) })}
+                onChange={(e) =>
+                  onChange(i, { rewardValue: Number(e.target.value) })
+                }
               />
-              <span className="text-sm font-medium text-gray-800">{valueSuffix}</span>
+              <span className="text-sm font-medium text-gray-800">
+                {valueSuffix}
+              </span>
               <span className="hidden text-xs text-muted-foreground sm:inline">
                 ({valueLabel})
               </span>
@@ -683,7 +799,9 @@ function TierSection({
                     type="checkbox"
                     disabled={!canUpdate}
                     checked={t.isActive}
-                    onChange={(e) => onChange(i, { isActive: e.target.checked })}
+                    onChange={(e) =>
+                      onChange(i, { isActive: e.target.checked })
+                    }
                   />
                   Active
                 </label>
@@ -712,6 +830,8 @@ function PaidTierSection({
   example,
   rows,
   canUpdate,
+  locked,
+  lockHint,
   onAdd,
   onChange,
   onRemove,
@@ -721,17 +841,33 @@ function PaidTierSection({
   example: string;
   rows: Array<{ t: EditableTier; i: number }>;
   canUpdate: boolean;
+  locked?: boolean;
+  lockHint?: string;
   onAdd: () => void;
   onChange: (index: number, patch: Partial<EditableTier>) => void;
   onRemove: (index: number) => void;
 }) {
   return (
-    <section className="space-y-4 rounded-xl border bg-white p-5 shadow-sm">
+    <section
+      className={`space-y-4 rounded-xl border bg-white p-5 shadow-sm ${
+        locked ? "opacity-70" : ""
+      }`}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-medium">{title}</h2>
+          <h2 className="text-lg font-medium">
+            {title}
+            {locked ? (
+              <span className="ml-2 text-sm font-normal text-amber-700">
+                Locked
+              </span>
+            ) : null}
+          </h2>
           <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
           <p className="mt-1 text-xs text-gray-500">{example}</p>
+          {locked && lockHint ? (
+            <p className="mt-1 text-xs text-amber-700">{lockHint}</p>
+          ) : null}
         </div>
         {canUpdate ? (
           <Button variant="outline" size="sm" onClick={onAdd}>
@@ -751,7 +887,7 @@ function PaidTierSection({
             <li
               key={i}
               className={`rounded-lg border px-4 py-3 ${
-                t.isActive ? 'bg-white' : 'bg-gray-50 opacity-70'
+                t.isActive ? "bg-white" : "bg-gray-50 opacity-70"
               }`}
             >
               <div className="flex flex-wrap items-center gap-3">
@@ -766,14 +902,16 @@ function PaidTierSection({
                   }
                 />
                 <span className="text-sm text-gray-500">
-                  referral{t.requiredReferrals === 1 ? '' : 's'} at
+                  referral{t.requiredReferrals === 1 ? "" : "s"} at
                 </span>
                 <Input
                   type="number"
                   className="w-20"
                   disabled={!canUpdate}
                   value={t.rewardValue}
-                  onChange={(e) => onChange(i, { rewardValue: Number(e.target.value) })}
+                  onChange={(e) =>
+                    onChange(i, { rewardValue: Number(e.target.value) })
+                  }
                 />
                 <span className="text-sm font-medium text-gray-800">%</span>
                 <span className="text-sm text-gray-500">
@@ -786,7 +924,9 @@ function PaidTierSection({
                       type="checkbox"
                       disabled={!canUpdate}
                       checked={t.isActive}
-                      onChange={(e) => onChange(i, { isActive: e.target.checked })}
+                      onChange={(e) =>
+                        onChange(i, { isActive: e.target.checked })
+                      }
                     />
                     Active
                   </label>

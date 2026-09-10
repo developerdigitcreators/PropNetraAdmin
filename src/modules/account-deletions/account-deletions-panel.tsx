@@ -22,18 +22,10 @@ import {
 } from '@/services/account-deletions.service';
 import { Eye, Loader2, RefreshCw, Search, UserRound, UserX } from 'lucide-react';
 import { newFirstCellClass, NewTag } from '@/components/common/new-row-marker';
+import { formatDisplayDateTime } from '@/lib/format-date';
 
 function formatDateTime(value?: string | null) {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString(undefined, {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDisplayDateTime(value);
 }
 
 function statusLabel(status: AccountDeletionStatus) {

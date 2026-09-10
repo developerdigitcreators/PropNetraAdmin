@@ -6,14 +6,15 @@ import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   referralApiError,
   referralService,
-  type ReferralByReferrerGroup,
+  type ReferralInviteItem,
   type ReferralOverview,
+  type ReferralOverviewUserRow,
   type ReferralUserSummary,
 } from '@/services/referral.service';
+import { formatDisplayDateTime } from '@/lib/format-date';
 import { ChevronDown, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
 
 function userLabel(user: ReferralUserSummary) {
@@ -21,7 +22,7 @@ function userLabel(user: ReferralUserSummary) {
 }
 
 function planShort(code?: string | null) {
-  if (!code) return 'Free';
+  if (!code) return '—';
   const map: Record<string, string> = {
     FREE_TRIAL: 'Free',
     FREE_LIFETIME: 'Free',
@@ -45,25 +46,6 @@ function planBadgeClass(code?: string | null) {
   }
 }
 
-function statusLabel(status: string) {
-  switch (status) {
-    case 'rewarded_paid':
-      return { label: 'Plan purchased', className: 'bg-emerald-50 text-emerald-800' };
-    case 'rewarded_free':
-      return { label: 'Signed up · Month given', className: 'bg-teal-50 text-teal-800' };
-    case 'pending_subscription':
-      return { label: 'Waiting for plan', className: 'bg-amber-50 text-amber-800' };
-    case 'pending_expired':
-      return { label: 'Expired', className: 'bg-gray-100 text-gray-600' };
-    case 'signed_up':
-      return { label: 'Signed up', className: 'bg-sky-50 text-sky-800' };
-    case 'without_referral':
-      return { label: 'Without referral', className: 'bg-orange-50 text-orange-800' };
-    default:
-      return { label: status.replace(/_/g, ' '), className: 'bg-gray-100 text-gray-600' };
-  }
-}
-
 function rewardText(item: {
   coinsCredited: number;
   monthsGranted: number;
@@ -73,7 +55,37 @@ function rewardText(item: {
   if (item.monthsGranted > 0)
     return `+${item.monthsGranted} month${item.monthsGranted === 1 ? '' : 's'}`;
   if (item.status === 'pending_subscription') return 'After plan purchase';
+  if (item.status === 'pending_expired') return 'Window ended';
   return '—';
+}
+
+function InviteTiming({ item }: { item: ReferralInviteItem }) {
+  const lines: string[] = [];
+  if (item.createdAt) {
+    lines.push(`Onboarded ${formatDisplayDateTime(item.createdAt)}`);
+  }
+  if (item.status === 'pending_subscription' && item.pendingExpiresAt) {
+    lines.push(`Plan needed by ${formatDisplayDateTime(item.pendingExpiresAt)}`);
+  } else if (item.status === 'pending_expired') {
+    lines.push(
+      item.pendingExpiresAt
+        ? `Window ended ${formatDisplayDateTime(item.pendingExpiresAt)}`
+        : 'Window ended — no benefit',
+    );
+  } else {
+    if (item.planActivatedAt) {
+      lines.push(`Plan started ${formatDisplayDateTime(item.planActivatedAt)}`);
+    }
+    if (item.rewardExpiresAt) {
+      lines.push(`Reward expiry ${formatDisplayDateTime(item.rewardExpiresAt)}`);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1 text-gray-600">
+      {lines.length ? lines.map((line) => <span key={line}>{line}</span>) : <span>—</span>}
+    </div>
+  );
 }
 
 function PlanBadge({ planCode }: { planCode?: string | null }) {
@@ -87,10 +99,8 @@ function PlanBadge({ planCode }: { planCode?: string | null }) {
 }
 
 export default function ReferralOverviewPage() {
-  const [tab, setTab] = useState<'by-referrer' | 'without-referral'>('by-referrer');
   const [overview, setOverview] = useState<ReferralOverview | null>(null);
-  const [groups, setGroups] = useState<ReferralByReferrerGroup[]>([]);
-  const [organic, setOrganic] = useState<ReferralUserSummary[]>([]);
+  const [rows, setRows] = useState<ReferralOverviewUserRow[]>([]);
   const [qDraft, setQDraft] = useState('');
   const [q, setQ] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -102,38 +112,20 @@ export default function ReferralOverviewPage() {
     setLoading(true);
     setError('');
     try {
-      if (tab === 'by-referrer') {
-        const listRes = await referralService
-          .listByReferrer({ q: q || undefined, page: 1, limit: 50 })
-          .catch((err) => {
-            setError(referralApiError(err, 'Failed to load referrers.'));
-            return {
-              items: [] as ReferralByReferrerGroup[],
-              meta: { page: 1, limit: 50, total: 0, totalPages: 1 },
-            };
-          });
-        setGroups(listRes.items || []);
-        setMetaTotal(listRes.meta?.total ?? listRes.items?.length ?? 0);
-
-        const ov = await referralService.overview(50).catch(() => null);
-        setOverview(ov);
-      } else {
-        const list = await referralService.listWithoutReferral({
-          q: q || undefined,
-          page: 1,
-          limit: 50,
-        });
-        setOrganic(list.items || []);
-        setMetaTotal(list.meta?.total ?? list.items?.length ?? 0);
-      }
+      const [listRes, ov] = await Promise.all([
+        referralService.listOverviewUsers({ q: q || undefined, page: 1, limit: 50 }),
+        referralService.overview(50).catch(() => null),
+      ]);
+      setRows(listRes.items || []);
+      setMetaTotal(listRes.meta?.total ?? listRes.items?.length ?? 0);
+      setOverview(ov);
     } catch (err) {
       setError(referralApiError(err, 'Failed to load referral overview.'));
-      setGroups([]);
-      setOrganic([]);
+      setRows([]);
     } finally {
       setLoading(false);
     }
-  }, [tab, q]);
+  }, [q]);
 
   useEffect(() => {
     void load();
@@ -154,8 +146,8 @@ export default function ReferralOverviewPage() {
               Refer & Earn Overview
             </h1>
             <p className="mt-1 text-sm text-gray-500">
-              Who referred whom, rewards given, and users who joined without a
-              referral.{' '}
+              Users who referred at least one onboarded invitee, rewards given,
+              and whether each referrer joined with or without a referral.{' '}
               <Link
                 href="/referral-benefits"
                 className="font-medium text-primary hover:underline"
@@ -176,7 +168,7 @@ export default function ReferralOverviewPage() {
           </Button>
         </div>
 
-        {overview && tab === 'by-referrer' ? (
+        {overview ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {[
               { label: 'Total referrals', value: overview.stats.totalInView },
@@ -212,231 +204,160 @@ export default function ReferralOverviewPage() {
           </div>
         ) : null}
 
-        <Tabs
-          value={tab}
-          onValueChange={(v) => setTab(v as 'by-referrer' | 'without-referral')}
-        >
-          <TabsList className="bg-gray-100">
-            <TabsTrigger value="by-referrer">By referrer</TabsTrigger>
-            <TabsTrigger value="without-referral">Without referral</TabsTrigger>
-          </TabsList>
-
-          <div className="mt-4 flex flex-wrap items-end gap-2">
-            <div className="min-w-[220px] flex-1">
-              <Input
-                value={qDraft}
-                onChange={(e) => setQDraft(e.target.value)}
-                placeholder="Search name, phone, email, code…"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') setQ(qDraft.trim());
-                }}
-              />
-            </div>
-            <Button type="button" size="sm" onClick={() => setQ(qDraft.trim())}>
-              Search
-            </Button>
-            <span className="self-center text-xs text-gray-500">
-              {metaTotal} result{metaTotal === 1 ? '' : 's'}
-            </span>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-[220px] flex-1">
+            <Input
+              value={qDraft}
+              onChange={(e) => setQDraft(e.target.value)}
+              placeholder="Search name, phone, email, code…"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') setQ(qDraft.trim());
+              }}
+            />
           </div>
+          <Button type="button" size="sm" onClick={() => setQ(qDraft.trim())}>
+            Search
+          </Button>
+          <span className="self-center text-xs text-gray-500">
+            {metaTotal} result{metaTotal === 1 ? '' : 's'}
+          </span>
+        </div>
 
-          <TabsContent value="by-referrer" className="mt-4">
-            {loading ? (
-              <div className="flex justify-center py-16">
-                <Loader2 className="size-6 animate-spin text-primary" />
-              </div>
-            ) : error ? (
-              <p className="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
-                {error}
-              </p>
-            ) : !groups.length ? (
-              <p className="rounded-xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
-                No referrers match this search.
-              </p>
-            ) : (
-              <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-                <table className="min-w-full text-left text-sm">
-                  <thead className="border-b border-gray-100 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
-                    <tr>
-                      <th className="w-10 px-3 py-3" />
-                      <th className="px-4 py-3 font-medium">Referrer</th>
-                      <th className="px-4 py-3 font-medium">Plan</th>
-                      <th className="px-4 py-3 font-medium">Code</th>
-                      <th className="px-4 py-3 font-medium">Invited</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {groups.map((group) => {
-                      const id = group.referrer.id;
-                      const open = !!expanded[id];
-                      return (
-                        <Fragment key={id}>
-                          <tr className="border-b border-gray-50">
-                            <td className="px-3 py-3">
-                              <button
-                                type="button"
-                                className="rounded p-1 text-gray-500 hover:bg-gray-100"
-                                onClick={() =>
-                                  setExpanded((prev) => ({
-                                    ...prev,
-                                    [id]: !prev[id],
-                                  }))
-                                }
-                              >
-                                {open ? (
-                                  <ChevronDown className="size-4" />
-                                ) : (
-                                  <ChevronRight className="size-4" />
-                                )}
-                              </button>
-                            </td>
-                            <td className="px-4 py-3 font-medium text-gray-900">
-                              {userLabel(group.referrer)}
-                            </td>
-                            <td className="px-4 py-3">
-                              <PlanBadge planCode={group.referrer.planCode} />
-                            </td>
-                            <td className="px-4 py-3 font-mono text-xs text-gray-600">
-                              {group.referrer.referralCode || '—'}
-                            </td>
-                            <td className="px-4 py-3 text-gray-700">
-                              {group.invitedCount}
-                            </td>
-                          </tr>
-                          {open ? (
-                            <tr className="border-b border-gray-50 bg-gray-50/70">
-                              <td colSpan={5} className="px-6 py-3">
-                                <table className="min-w-full text-left text-xs">
-                                  <thead className="text-gray-500">
-                                    <tr>
-                                      <th className="py-1 pr-3 font-medium">
-                                        Invited user
-                                      </th>
-                                      <th className="py-1 pr-3 font-medium">
-                                        Plan
-                                      </th>
-                                      <th className="py-1 pr-3 font-medium">
-                                        Status
-                                      </th>
-                                      <th className="py-1 pr-3 font-medium">
-                                        Reward
-                                      </th>
-                                      <th className="py-1 font-medium">Date</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {group.items.map((item) => {
-                                      const st = statusLabel(item.status);
-                                      return (
-                                        <tr key={item.id}>
-                                          <td className="py-1.5 pr-3 font-medium text-gray-900">
-                                            {userLabel(item.referee)}
-                                          </td>
-                                          <td className="py-1.5 pr-3">
-                                            <PlanBadge
-                                              planCode={item.referee.planCode}
-                                            />
-                                          </td>
-                                          <td className="py-1.5 pr-3">
-                                            <span
-                                              className={`rounded-full px-2 py-0.5 font-medium ${st.className}`}
-                                            >
-                                              {st.label}
-                                            </span>
-                                          </td>
-                                          <td className="py-1.5 pr-3 text-gray-700">
-                                            {rewardText(item)}
-                                          </td>
-                                          <td className="py-1.5 text-gray-600">
-                                            {new Date(
-                                              item.createdAt,
-                                            ).toLocaleString()}
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </td>
-                            </tr>
-                          ) : null}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="without-referral" className="mt-4">
-            {loading ? (
-              <div className="flex justify-center py-16">
-                <Loader2 className="size-6 animate-spin text-primary" />
-              </div>
-            ) : error ? (
-              <p className="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
-                {error}
-              </p>
-            ) : !organic.length ? (
-              <p className="rounded-xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
-                No without-referral users found.
-              </p>
-            ) : (
-              <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-                <table className="min-w-full text-left text-sm">
-                  <thead className="border-b border-gray-100 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">User</th>
-                      <th className="px-4 py-3 font-medium">Contact</th>
-                      <th className="px-4 py-3 font-medium">Status</th>
-                      <th className="px-4 py-3 font-medium">Plan</th>
-                      <th className="px-4 py-3 font-medium">Joined</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {organic.map((row) => {
-                      const st = statusLabel(row.status || 'without_referral');
-                      return (
-                        <tr
-                          key={row.id}
-                          className="border-b border-gray-50 last:border-0"
-                        >
-                          <td className="px-4 py-3">
-                            <p className="font-medium text-gray-900">
-                              {userLabel(row)}
-                            </p>
-                            <span className="mt-1 inline-flex rounded-full bg-orange-50 px-2 py-0.5 text-[11px] font-medium text-orange-800">
-                              Without referral
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-gray-700">
-                            {row.contact || row.email || '—'}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span
-                              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${st.className}`}
+        {loading ? (
+          <div className="flex justify-center py-16">
+            <Loader2 className="size-6 animate-spin text-primary" />
+          </div>
+        ) : error ? (
+          <p className="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
+            {error}
+          </p>
+        ) : !rows.length ? (
+          <p className="rounded-xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
+            No users match this search.
+          </p>
+        ) : (
+          <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <table className="min-w-full text-left text-sm">
+              <thead className="border-b border-gray-100 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                <tr>
+                  <th className="w-10 px-3 py-3" />
+                  <th className="px-4 py-3 font-medium">User</th>
+                  <th className="px-4 py-3 font-medium">Plan</th>
+                  <th className="px-4 py-3 font-medium">Code</th>
+                  <th className="px-4 py-3 font-medium">Invited</th>
+                  <th className="px-4 py-3 font-medium">Plan start</th>
+                  <th className="px-4 py-3 font-medium">Joined via</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const id = row.user.id;
+                  const canExpand = row.kind === 'referrer' && row.items.length > 0;
+                  const open = !!expanded[id];
+                  const joinedVia =
+                    row.user.joinedViaReferral === true ||
+                    (row.user.withoutReferral === false && !!row.user.referIdUsed)
+                      ? 'With referral'
+                      : 'Without referral';
+                  return (
+                    <Fragment key={`${row.kind}-${id}`}>
+                      <tr className="border-b border-gray-50">
+                        <td className="px-3 py-3">
+                          {canExpand ? (
+                            <button
+                              type="button"
+                              className="rounded p-1 text-gray-500 hover:bg-gray-100"
+                              onClick={() =>
+                                setExpanded((prev) => ({
+                                  ...prev,
+                                  [id]: !prev[id],
+                                }))
+                              }
                             >
-                              {st.label}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <PlanBadge planCode={row.planCode} />
-                          </td>
-                          <td className="px-4 py-3 text-gray-600">
-                            {row.createdAt
-                              ? new Date(row.createdAt).toLocaleString()
-                              : '—'}
+                              {open ? (
+                                <ChevronDown className="size-4" />
+                              ) : (
+                                <ChevronRight className="size-4" />
+                              )}
+                            </button>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-gray-900">
+                          {userLabel(row.user)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <PlanBadge planCode={row.user.planCode} />
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-gray-600">
+                          {row.user.referralCode || '—'}
+                        </td>
+                        <td className="px-4 py-3 text-gray-700">{row.invitedCount}</td>
+                        <td className="px-4 py-3 text-gray-600">
+                          {formatDisplayDateTime(
+                            row.user.planStartedAt || row.user.createdAt || null,
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                              joinedVia === 'Without referral'
+                                ? 'bg-orange-50 text-orange-800'
+                                : 'bg-emerald-50 text-emerald-800'
+                            }`}
+                          >
+                            {joinedVia}
+                          </span>
+                        </td>
+                      </tr>
+                      {open && canExpand ? (
+                        <tr className="border-b border-gray-50 bg-gray-50/70">
+                          <td colSpan={7} className="px-6 py-4">
+                            <table className="min-w-full text-left text-xs">
+                              <thead className="text-gray-500">
+                                <tr>
+                                  <th className="py-2 pr-3 font-medium">Invited user</th>
+                                  <th className="py-2 pr-3 font-medium">
+                                    Invitee plan at benefit
+                                  </th>
+                                  <th className="py-2 pr-3 font-medium">
+                                    Referrer plan at benefit
+                                  </th>
+                                  <th className="py-2 pr-3 font-medium">Reward</th>
+                                  <th className="py-2 font-medium">Timing</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {row.items.map((item) => (
+                                  <tr key={item.id} className="border-t border-gray-100/80">
+                                    <td className="py-3 pr-3 font-medium text-gray-900">
+                                      {userLabel(item.referee)}
+                                    </td>
+                                    <td className="py-3 pr-3">
+                                      <PlanBadge planCode={item.inviteePlanAtBenefit} />
+                                    </td>
+                                    <td className="py-3 pr-3">
+                                      <PlanBadge planCode={item.referrerPlanAtBenefit} />
+                                    </td>
+                                    <td className="py-3 pr-3 text-gray-700">
+                                      {rewardText(item)}
+                                    </td>
+                                    <td className="py-3">
+                                      <InviteTiming item={item} />
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
                           </td>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </PermissionGuard>
   );

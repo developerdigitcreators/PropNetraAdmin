@@ -14,6 +14,8 @@ export type ReferralSettings = {
   paidStandardCoins?: number | null;
   paidMilestoneResetDays: number;
   paidPendingExpiryDays: number;
+  /** Days after earn until Referral NetraCoins expire */
+  paidReferralCoinExpiryDays?: number;
   freeMilestonesEnabledForNewUsers?: boolean;
   paidMilestonesEnabledForNewUsers?: boolean;
   /** @deprecated Prefer free/paid specific toggles */
@@ -38,6 +40,11 @@ export type ReferralGraph = {
   referrer: Record<string, unknown> | null;
   invited: Array<Record<string, unknown>>;
   successfulReferrals: number;
+  programSettings?: {
+    renewResetsMilestones?: boolean;
+    freeMilestonesEnabledForNewUsers?: boolean;
+    paidMilestonesEnabledForNewUsers?: boolean;
+  };
   rewardState?: {
     mode: string;
     cycleAnchorAt: string | null;
@@ -46,6 +53,7 @@ export type ReferralGraph = {
     paidQualifiedCountInCycle: number;
     baseTrialEndsAt: string | null;
     resetCount: number;
+    milestoneOn?: boolean;
   } | null;
   benefitHistory?: Array<{
     track: string;
@@ -55,6 +63,11 @@ export type ReferralGraph = {
     monthsGranted: number | null;
     coinsCredited: number | null;
     reason: string | null;
+    triggerRefereeId?: string | null;
+    meta?: Record<string, unknown> | null;
+    inviteePlanAtBenefit?: string | null;
+    referrerPlanAtBenefit?: string | null;
+    rewardExpiresAt?: string | null;
     createdAt: string;
   }>;
 };
@@ -73,7 +86,38 @@ export type ReferralUserSummary = {
   referrerTierLabel?: 'Paid' | 'Free';
   referIdUsed?: string | null;
   withoutReferral?: boolean;
+  joinedViaReferral?: boolean;
+  planStartedAt?: string | null;
   badge?: string | null;
+};
+
+export type ReferralInviteItem = {
+  id: string;
+  status: string;
+  coinsCredited: number;
+  monthsGranted: number;
+  createdAt: string;
+  pendingExpiresAt?: string | null;
+  planActivatedAt?: string | null;
+  rewardExpiresAt?: string | null;
+  inviteePlanAtBenefit?: string | null;
+  referrerPlanAtBenefit?: string | null;
+  referee: ReferralUserSummary;
+};
+
+export type ReferralByReferrerGroup = {
+  referrer: ReferralUserSummary;
+  invitedCount: number;
+  lastActivityAt?: string;
+  items: ReferralInviteItem[];
+};
+
+export type ReferralOverviewUserRow = {
+  kind: 'referrer' | 'without_referral';
+  user: ReferralUserSummary;
+  invitedCount: number;
+  lastActivityAt?: string | null;
+  items: ReferralInviteItem[];
 };
 
 export type ReferralOverviewEvent = {
@@ -88,20 +132,6 @@ export type ReferralOverviewEvent = {
   monthsGranted: number;
   countsTowardPaidMilestone?: boolean;
   createdAt: string;
-};
-
-export type ReferralByReferrerGroup = {
-  referrer: ReferralUserSummary;
-  invitedCount: number;
-  lastActivityAt?: string;
-  items: Array<{
-    id: string;
-    status: string;
-    coinsCredited: number;
-    monthsGranted: number;
-    createdAt: string;
-    referee: ReferralUserSummary;
-  }>;
 };
 
 export type ReferralListMeta = {
@@ -171,6 +201,7 @@ export const referralService = {
     paidStandardCoins?: number | null;
     paidMilestoneResetDays?: number;
     paidPendingExpiryDays?: number;
+    paidReferralCoinExpiryDays?: number;
     freeMilestonesEnabledForNewUsers?: boolean;
     paidMilestonesEnabledForNewUsers?: boolean;
     renewResetsMilestones?: boolean;
@@ -217,6 +248,23 @@ export const referralService = {
     );
   },
 
+  async listOverviewUsers(params: {
+    q?: string;
+    page?: number;
+    limit?: number;
+  } = {}) {
+    const response = await axiosClient.get('/admin/referral/overview-users', {
+      params: {
+        page: params.page ?? 1,
+        limit: params.limit ?? 50,
+        ...(params.q ? { q: params.q } : {}),
+      },
+    });
+    return unwrap<{ items: ReferralOverviewUserRow[]; meta: ReferralListMeta }>(
+      response,
+    );
+  },
+
   async listWithoutReferral(params: {
     q?: string;
     page?: number;
@@ -247,5 +295,37 @@ export const referralService = {
       { params: { depth } },
     );
     return unwrap<{ root: ReferralChainNode | null; maxDepth: number }>(response);
+  },
+
+  async getUserCoins(userId: string) {
+    const response = await axiosClient.get(
+      `/admin/referral/users/${encodeURIComponent(userId)}/coins`,
+    );
+    return unwrap<{
+      referralCoinsBalance: number;
+      lots: Array<{
+        id: string;
+        amountRemaining: number;
+        amountGranted: number;
+        grantedAt: string;
+        expiresAt: string | null;
+        expiredAt: string | null;
+        sourceEventId?: string | null;
+        meta?: Record<string, unknown> | null;
+      }>;
+      transactions: Array<{
+        id: string;
+        type: string;
+        title: string;
+        subtitle?: string | null;
+        referralCoinsDelta: number;
+        amountPaise?: number | null;
+        expiresAt?: string | null;
+        addonType?: string | null;
+        paymentOrderId?: string | null;
+        meta?: Record<string, unknown> | null;
+        occurredAt: string;
+      }>;
+    }>(response);
   },
 };

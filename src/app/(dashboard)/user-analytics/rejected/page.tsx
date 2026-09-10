@@ -10,19 +10,11 @@ import { USER_PROFILE_READ_PERMISSIONS } from '@/modules/app-users/app-users-acc
 import { RegisteredUserViewModal } from '@/modules/app-users/registered-user-view-modal';
 import { adminUsersService } from '@/services/admin-users.service';
 import { useAuthStore } from '@/store/use-auth-store';
+import { formatDisplayDateTime } from '@/lib/format-date';
 import { ArrowLeft, Eye, Loader2, RefreshCw, RotateCcw } from 'lucide-react';
 
 function formatDateTime(value?: string | Date | null) {
-  if (!value) return '—';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString(undefined, {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDisplayDateTime(value);
 }
 
 export default function RejectedUsersPage() {

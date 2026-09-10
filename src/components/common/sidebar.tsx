@@ -65,7 +65,8 @@ const MENU_ITEMS: MenuItem[] = [
     path: "/user-analytics",
     icon: BarChart3,
     permission: [...USER_PROFILE_READ_PERMISSIONS],
-    badgeKey: "approvalPending",
+    // Document verification (+ without-referral approval) live on User Profile now.
+    badgeKey: "documentsPending",
   },
   {
     name: "Agent Listing Attributes",
@@ -223,7 +224,6 @@ const MENU_ITEMS: MenuItem[] = [
     icon: Users,
     permission: APP_USERS_ANY_READ,
     defaultChildPath: "/app-users/otp-issued",
-    badgeKey: "documentsPending",
     children: APP_USER_TAB_ACCESS.map((tab) => ({
       name: tab.name,
       path: tab.path,
@@ -271,8 +271,21 @@ export function Sidebar() {
   }, [pathname]);
 
   const appUsersDefaultPath = defaultAppUsersPath(hasPermission);
-  const badgeCount = (key?: keyof AdminDashboardSummary) =>
-    key && typeof summary[key] === "number" ? Number(summary[key]) : 0;
+  const badgeCount = (key?: keyof AdminDashboardSummary, itemPath?: string) => {
+    if (itemPath === "/user-analytics") {
+      // Master Data (docs + without-referral approval) now lives under User Profile.
+      const docs =
+        typeof summary.documentsPending === "number"
+          ? Number(summary.documentsPending)
+          : 0;
+      const approval =
+        typeof summary.approvalPending === "number"
+          ? Number(summary.approvalPending)
+          : 0;
+      return docs + approval;
+    }
+    return key && typeof summary[key] === "number" ? Number(summary[key]) : 0;
+  };
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col hidden md:flex">
@@ -316,7 +329,7 @@ export function Sidebar() {
                         className={`w-5 h-5 mr-3 ${isActive ? "text-primary" : "text-gray-400"}`}
                       />
                       <span className="flex-1">{item.name}</span>
-                      <SidebarBadge count={badgeCount(item.badgeKey)} />
+                      <SidebarBadge count={badgeCount(item.badgeKey, item.path)} />
                     </Link>
                     <button
                       type="button"
@@ -377,7 +390,7 @@ export function Sidebar() {
                     className={`w-5 h-5 mr-3 ${isActive ? "text-primary" : "text-gray-400"}`}
                   />
                   <span className="flex-1">{item.name}</span>
-                  <SidebarBadge count={badgeCount(item.badgeKey)} />
+                  <SidebarBadge count={badgeCount(item.badgeKey, item.path)} />
                 </Link>
               )}
             </div>

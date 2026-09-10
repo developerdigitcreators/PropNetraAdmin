@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { formatDisplayDate, formatDisplayDateTime } from '@/lib/format-date';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { SearchableSelect } from '@/components/common/searchable-select';
@@ -33,6 +34,7 @@ import {
 } from '@/services/support-tickets.service';
 import { SubscriptionTab } from '@/modules/user-analytics/subscription-tab';
 import { ReferralTab } from '@/modules/user-analytics/referral-tab';
+import { UserListingsTab } from '@/modules/user-analytics/user-listings-tab';
 import { VerificationDocsSection } from '@/modules/user-analytics/verification-docs-section';
 import Link from 'next/link';
 import {
@@ -43,14 +45,16 @@ import {
   Gift,
   Loader2,
   MapPin,
+  Mail,
   MessageSquare,
   Phone,
   Sparkles,
   ArrowLeft,
+  Building2,
 } from 'lucide-react';
 import { USER_PROFILE_READ_PERMISSIONS } from '@/modules/app-users/app-users-access';
 
-type ProfileTab = 'subscription' | 'refer' | 'analytics' | 'write';
+type ProfileTab = 'subscription' | 'refer' | 'analytics' | 'write' | 'listings';
 type DetailTab = 'views' | 'contacted' | 'leads';
 
 function parseLocalDate(iso: string) {
@@ -63,11 +67,7 @@ function parseLocalDate(iso: string) {
 function formatDayLabel(iso: string) {
   const date = parseLocalDate(iso);
   if (!date) return iso || '—';
-  return date.toLocaleDateString(undefined, {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  return formatDisplayDate(date);
 }
 
 function formatMonthLabel(ym: string) {
@@ -75,21 +75,29 @@ function formatMonthLabel(ym: string) {
   if (!match) return ym;
   const date = new Date(Number(match[1]), Number(match[2]) - 1, 1);
   if (Number.isNaN(date.getTime())) return ym;
-  return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+  return `${months[date.getMonth()]} ${date.getFullYear()}`;
 }
 
 function formatDateTime(value?: string | null) {
   if (!value) return '—';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return formatDayLabel(value);
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString(undefined, {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return formatDisplayDate(value);
+  return formatDisplayDateTime(value);
 }
 
 function userLabel(user: Pick<AnalyticsUser, 'name' | 'contact' | 'email'>) {
@@ -153,6 +161,7 @@ function PeopleTable({
             <th className="px-4 py-2.5 font-semibold text-gray-700">Name</th>
             <th className="px-4 py-2.5 font-semibold text-gray-700">Contact no</th>
             <th className="px-4 py-2.5 font-semibold text-gray-700">Project</th>
+            <th className="px-4 py-2.5 font-semibold text-gray-700">BHK</th>
             <th className="px-4 py-2.5 font-semibold text-gray-700">City</th>
             <th className="px-4 py-2.5 font-semibold text-gray-700">Location</th>
             <th className="px-4 py-2.5 font-semibold text-gray-700">Date & time</th>
@@ -171,6 +180,7 @@ function PeopleTable({
                 </span>
               </td>
               <td className="px-4 py-3 text-gray-900">{dash(row.project)}</td>
+              <td className="px-4 py-3 text-gray-600">{dash(row.bhk)}</td>
               <td className="px-4 py-3 text-gray-600">{dash(row.city)}</td>
               <td className="px-4 py-3 text-gray-600">{dash(row.location)}</td>
               <td className="whitespace-nowrap px-4 py-3 text-gray-600">
@@ -424,6 +434,9 @@ export function UserAnalyticsPanel() {
           name: String(user.name || ''),
           contact: String(user.contact || user.phone || ''),
           email: String(user.email || ''),
+          city: String(user.city || '') || undefined,
+          companyName: String(user.companyName || user.company_name || '') || undefined,
+          address: String(user.address || '') || undefined,
         });
       })
       .catch(() => {
@@ -555,18 +568,20 @@ export function UserAnalyticsPanel() {
   }, [canPickUser, loadUsers, from, to, searchParams]);
 
   useEffect(() => {
-    if (!userId || !rangeReady) {
+    if (!userId) {
       setDetail(null);
       return;
     }
+    const analyticsFrom = '2020-01-01';
+    const analyticsTo = new Date().toISOString().slice(0, 10);
     let cancelled = false;
     setDetailLoading(true);
     setError('');
     userAnalyticsService
       .getUserAnalytics({
         userId,
-        from,
-        to,
+        from: analyticsFrom,
+        to: analyticsTo,
         stateId,
         cityId,
         fallbackUser: selectedUser,
@@ -586,7 +601,7 @@ export function UserAnalyticsPanel() {
     return () => {
       cancelled = true;
     };
-  }, [cityId, from, rangeReady, selectedUser, stateId, to, userId]);
+  }, [cityId, selectedUser, stateId, userId]);
 
   const pickUser = (id: string) => {
     setUserId(id);
@@ -778,33 +793,78 @@ export function UserAnalyticsPanel() {
                     Without referral
                   </span>
                 ) : null}
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500">
-                  {(selectedUser?.contact || detail?.user.contact) && (
-                    <span className="inline-flex items-center gap-1.5">
-                      <Phone className="h-3.5 w-3.5" />
-                      {selectedUser?.contact || detail?.user.contact}
-                    </span>
-                  )}
-                  {(cityName || stateName) && (
-                    <span className="inline-flex items-center gap-1.5">
-                      <MapPin className="h-3.5 w-3.5" />
-                      {[cityName, stateName].filter(Boolean).join(', ')}
-                    </span>
-                  )}
-                  {from && to && (
-                    <span className="inline-flex items-center gap-1.5">
-                      <CalendarRange className="h-3.5 w-3.5" />
-                      {formatDayLabel(from)} – {formatDayLabel(to)}
-                    </span>
-                  )}
+                <div className="mt-3 flex w-full max-w-xl flex-col gap-2 text-sm text-gray-600">
+                  {(detail?.user.contact || selectedUser?.contact) ? (
+                    <div className="flex items-start gap-2">
+                      <Phone className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                          Phone
+                        </p>
+                        <p className="break-all text-gray-700">
+                          {detail?.user.contact || selectedUser?.contact}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
+                  {(detail?.user.email || selectedUser?.email) ? (
+                    <div className="flex items-start gap-2">
+                      <Mail className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                          Email
+                        </p>
+                        <p className="break-all text-gray-700">
+                          {detail?.user.email || selectedUser?.email}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
+                  {(detail?.user.companyName || selectedUser?.companyName) ? (
+                    <div className="flex items-start gap-2">
+                      <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                          Company
+                        </p>
+                        <p className="break-words text-gray-700">
+                          {detail?.user.companyName || selectedUser?.companyName}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
+                  {(detail?.user.address || selectedUser?.address) ? (
+                    <div className="flex items-start gap-2">
+                      <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                          Address
+                        </p>
+                        <p className="break-words text-gray-700">
+                          {detail?.user.address || selectedUser?.address}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
+                  {(detail?.user.city || selectedUser?.city) ? (
+                    <div className="flex items-start gap-2">
+                      <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                          City
+                        </p>
+                        <p className="break-words text-gray-700">
+                          {detail?.user.city || selectedUser?.city}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
                 {usage ? (
                   <p className="mt-2 text-xs text-gray-500">
                     This month ({usage.period || '—'}): card views used{' '}
                     {usage.viewsUsed ?? 0}
                     {usage.unlimitedViews ? ' / unlimited' : ` / ${usage.viewsLimit ?? 150}`}
-                    {' · '}
-                    coins {usage.coinsUsed ?? 0} / {usage.coinsGranted ?? 50}
                     <span className="ml-1 text-gray-400">
                       (quota for this user — card views they opened this month)
                     </span>
@@ -820,7 +880,8 @@ export function UserAnalyticsPanel() {
                   value === 'subscription' ||
                   value === 'refer' ||
                   value === 'analytics' ||
-                  value === 'write'
+                  value === 'write' ||
+                  value === 'listings'
                 ) {
                   setProfileTab(value);
                 }
@@ -844,6 +905,10 @@ export function UserAnalyticsPanel() {
                   <MessageSquare className="h-4 w-4" />
                   Write to Us
                 </TabsTrigger>
+                <TabsTrigger value="listings" className="gap-1.5 rounded-md px-4">
+                  <Building2 className="h-4 w-4" />
+                  Listings
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="subscription" className="space-y-4">
@@ -855,6 +920,9 @@ export function UserAnalyticsPanel() {
               </TabsContent>
               <TabsContent value="write">
                 <WriteToUsTab userId={userId} />
+              </TabsContent>
+              <TabsContent value="listings">
+                <UserListingsTab userId={userId} />
               </TabsContent>
               <TabsContent value="analytics" className="space-y-4">
                 {detailLoading && !detail ? (
@@ -880,7 +948,7 @@ export function UserAnalyticsPanel() {
                       </TabsTrigger>
                       <TabsTrigger value="contacted" className="gap-1.5 rounded-md px-5">
                         <Phone className="h-4 w-4" />
-                        Listing contacted
+                        Listing contacts
                         <span className="ml-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
                           {contactedCount}
                         </span>

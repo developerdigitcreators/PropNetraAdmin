@@ -49,11 +49,15 @@ export type AddonCatalogItem = {
 export type UserEntitlements = {
   planCode: string;
   displayName: string;
+  planLabel?: string | null;
   isSubscribed: boolean;
   trialEndsAt: string | null;
   trialStartsAt: string | null;
   currentPeriodStart: string | null;
   currentPeriodEnd: string | null;
+  planStartedAt?: string | null;
+  planExpiresAt?: string | null;
+  showTrialEnds?: boolean;
   subscriptionStatus: string;
   badge: string | null;
   pendingPlanCode?: string | null;
@@ -69,6 +73,8 @@ export type UserEntitlements = {
     buyReqContactsMonth: number;
     viewsDay: number;
     viewsMonth: number;
+    activeResaleRentPostsUsed?: number;
+    activeBuyReqPostsUsed?: number;
   };
   addonCredits: {
     listingContactCredits: number;
@@ -76,6 +82,7 @@ export type UserEntitlements = {
     builderContactCredits?: number;
   };
   walletBalance: number;
+  referralCoinsBalance?: number;
   history?: Array<Record<string, unknown>>;
   paymentHistory?: Array<Record<string, unknown>>;
   creditLots?: Array<Record<string, unknown>>;
@@ -291,11 +298,18 @@ export function normalizeUserEntitlements(raw: unknown): UserEntitlements | null
   return {
     planCode: pickString(row.planCode),
     displayName: pickString(row.displayName),
+    planLabel: pickString(row.planLabel, row.plan_label) || null,
     isSubscribed: asBool(row.isSubscribed, false),
     trialEndsAt: pickString(row.trialEndsAt) || null,
     trialStartsAt: pickString(row.trialStartsAt) || null,
     currentPeriodStart: pickString(row.currentPeriodStart) || null,
     currentPeriodEnd: pickString(row.currentPeriodEnd) || null,
+    planStartedAt: pickString(row.planStartedAt, row.plan_started_at) || null,
+    planExpiresAt: pickString(row.planExpiresAt, row.plan_expires_at) || null,
+    showTrialEnds:
+      row.showTrialEnds == null && row.show_trial_ends == null
+        ? undefined
+        : asBool(row.showTrialEnds ?? row.show_trial_ends, false),
     subscriptionStatus: pickString(row.subscriptionStatus),
     badge: pickString(row.badge) || null,
     pendingPlanCode: pickString(row.pendingPlanCode) || null,
@@ -311,6 +325,8 @@ export function normalizeUserEntitlements(raw: unknown): UserEntitlements | null
       buyReqContactsMonth: asNum(usage.buyReqContactsMonth),
       viewsDay: asNum(usage.viewsDay),
       viewsMonth: asNum(usage.viewsMonth),
+      activeResaleRentPostsUsed: asNum(usage.activeResaleRentPostsUsed),
+      activeBuyReqPostsUsed: asNum(usage.activeBuyReqPostsUsed),
     },
     addonCredits: {
       listingContactCredits: asNum(credits.listingContactCredits),
@@ -318,6 +334,9 @@ export function normalizeUserEntitlements(raw: unknown): UserEntitlements | null
       builderContactCredits: asNum(credits.builderContactCredits),
     },
     walletBalance: asNum(row.walletBalance),
+    referralCoinsBalance: asNum(
+      row.referralCoinsBalance ?? row.referral_coins_balance,
+    ),
     history: Array.isArray(row.history) ? row.history : [],
     paymentHistory: Array.isArray(row.paymentHistory)
       ? row.paymentHistory
@@ -351,6 +370,17 @@ export const subscriptionsService = {
       payload,
     );
     return normalizePlan(response.data);
+  },
+
+  /** Recreate Razorpay yearly plans so amounts include GST. */
+  resyncYearlyRazorpayPlans: async (): Promise<SubscriptionPlanItem[]> => {
+    const response = await axiosClient.post(
+      '/admin/subscriptions/razorpay/resync-yearly-plans',
+    );
+    return asArray(response.data)
+      .map((row) => normalizePlan(row))
+      .filter((row): row is SubscriptionPlanItem => !!row)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
   },
 
   listAddons: async (): Promise<AddonCatalogItem[]> => {

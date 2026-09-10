@@ -31,8 +31,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useAuthStore } from '@/store/use-auth-store';
+import { formatDisplayDateTime } from '@/lib/format-date';
 import { isSuperAdmin } from '@/lib/super-admin';
 import { Inbox, Loader2, MessageSquare, Plus, RefreshCw, Users } from 'lucide-react';
+
+function formatDateTime(value?: string | Date | null) {
+  return formatDisplayDateTime(value);
+}
 
 function stopRowClick(event: React.MouseEvent) {
   event.stopPropagation();
@@ -454,7 +459,9 @@ export function MyListingsPanel() {
                       )}
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Interest</th>
-                      <th className="px-4 py-3 text-right">Actions</th>
+                      {tab === 'admin_verified' ? (
+                        <th className="px-4 py-3 text-right">Actions</th>
+                      ) : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -464,16 +471,26 @@ export function MyListingsPanel() {
                         className="cursor-pointer border-b transition-colors last:border-0 hover:bg-gray-50/80"
                         onClick={() => void openListingDetail(item)}
                       >
-                        <td className={newFirstCellClass(item.isNew, 'px-4 py-3')}>
+                        <td
+                          className={
+                            tab === 'admin_verified'
+                              ? newFirstCellClass(item.isNew, 'px-4 py-3')
+                              : 'px-4 py-3'
+                          }
+                        >
                           <div className="flex items-start gap-1.5">
-                            <NewTag show={item.isNew} />
+                            {tab === 'admin_verified' ? (
+                              <NewTag show={item.isNew} />
+                            ) : null}
                             <div>
                               <div className="font-medium text-gray-900">{item.title}</div>
-                              <div className="text-xs text-gray-500">
-                                {item.expiresAt
-                                  ? `Expires ${new Date(item.expiresAt).toLocaleDateString()}`
-                                  : '—'}
-                              </div>
+                              {tab === 'admin_verified' ? (
+                                <div className="text-xs text-gray-500">
+                                  {item.expiresAt
+                                    ? `Expires ${new Date(item.expiresAt).toLocaleDateString()}`
+                                    : '—'}
+                                </div>
+                              ) : null}
                             </div>
                           </div>
                         </td>
@@ -527,37 +544,39 @@ export function MyListingsPanel() {
                             <span className="text-xs text-gray-400">No interest</span>
                           )}
                         </td>
-                        <td className="px-4 py-3" onClick={stopRowClick}>
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => void openRemarks(item)}
-                            >
-                              <MessageSquare className="mr-1 h-3.5 w-3.5" />
-                              Remarks
-                            </Button>
-                            {item.actions.canToggleActive ? (
+                        {tab === 'admin_verified' ? (
+                          <td className="px-4 py-3" onClick={stopRowClick}>
+                            <div className="flex justify-end gap-2">
                               <Button
                                 size="sm"
                                 variant="outline"
-                                disabled={actionId === item.id}
-                                onClick={() => void toggleActive(item)}
+                                onClick={() => void openRemarks(item)}
                               >
-                                {item.isActive ? 'Inactive' : 'Active'}
+                                <MessageSquare className="mr-1 h-3.5 w-3.5" />
+                                Remarks
                               </Button>
-                            ) : null}
-                            {item.actions.canRenew ? (
-                              <Button
-                                size="sm"
-                                disabled={actionId === item.id}
-                                onClick={() => void renewListing(item)}
-                              >
-                                Renew
-                              </Button>
-                            ) : null}
-                          </div>
-                        </td>
+                              {item.actions.canToggleActive ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={actionId === item.id}
+                                  onClick={() => void toggleActive(item)}
+                                >
+                                  {item.isActive ? 'Inactive' : 'Active'}
+                                </Button>
+                              ) : null}
+                              {item.actions.canRenew ? (
+                                <Button
+                                  size="sm"
+                                  disabled={actionId === item.id}
+                                  onClick={() => void renewListing(item)}
+                                >
+                                  Renew
+                                </Button>
+                              ) : null}
+                            </div>
+                          </td>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>
@@ -599,7 +618,7 @@ export function MyListingsPanel() {
                         <p className="text-gray-800">{r.body}</p>
                         <p className="mt-1 text-xs text-gray-400">
                           {r.author?.name || 'Staff'} ·{' '}
-                          {new Date(r.createdAt).toLocaleString()}
+                          {formatDateTime(r.createdAt)}
                         </p>
                       </div>
                     ))
@@ -645,14 +664,16 @@ export function MyListingsPanel() {
                     <DetailField label="Micro market" value={listingDetail.microMarketName} />
                     <DetailField label="Location" value={listingDetail.locationName} />
                     <DetailField label="Status" value={statusBadge(listingDetail)} />
-                    <DetailField
-                      label="Expires"
-                      value={
-                        listingDetail.expiresAt
-                          ? new Date(listingDetail.expiresAt).toLocaleString()
-                          : null
-                      }
-                    />
+                    {tab === 'admin_verified' ? (
+                      <DetailField
+                        label="Expires"
+                        value={
+                          listingDetail.expiresAt
+                            ? formatDateTime(listingDetail.expiresAt)
+                            : null
+                        }
+                      />
+                    ) : null}
                     {tab === 'admin_verified' ? (
                       <>
                         <DetailField label="Lead name" value={listingDetail.leadContactName} />
@@ -702,35 +723,39 @@ export function MyListingsPanel() {
                       {listingDetail.interestCount === 1 ? '' : 's'}
                     </Button>
                   ) : null}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setDetailOpen(false);
-                      void openRemarks(listingDetail);
-                    }}
-                  >
-                    <MessageSquare className="mr-1.5 h-4 w-4" />
-                    Remarks
-                  </Button>
-                  {listingDetail.actions.canToggleActive ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={actionId === listingDetail.id}
-                      onClick={() => void toggleActive(listingDetail)}
-                    >
-                      {listingDetail.isActive ? 'Mark inactive' : 'Mark active'}
-                    </Button>
-                  ) : null}
-                  {listingDetail.actions.canRenew ? (
-                    <Button
-                      type="button"
-                      disabled={actionId === listingDetail.id}
-                      onClick={() => void renewListing(listingDetail)}
-                    >
-                      Renew
-                    </Button>
+                  {tab === 'admin_verified' ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setDetailOpen(false);
+                          void openRemarks(listingDetail);
+                        }}
+                      >
+                        <MessageSquare className="mr-1.5 h-4 w-4" />
+                        Remarks
+                      </Button>
+                      {listingDetail.actions.canToggleActive ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={actionId === listingDetail.id}
+                          onClick={() => void toggleActive(listingDetail)}
+                        >
+                          {listingDetail.isActive ? 'Mark inactive' : 'Mark active'}
+                        </Button>
+                      ) : null}
+                      {listingDetail.actions.canRenew ? (
+                        <Button
+                          type="button"
+                          disabled={actionId === listingDetail.id}
+                          onClick={() => void renewListing(listingDetail)}
+                        >
+                          Renew
+                        </Button>
+                      ) : null}
+                    </>
                   ) : null}
                 </div>
               </>
@@ -789,7 +814,7 @@ export function MyListingsPanel() {
                               </div>
                             </div>
                             <p className="mt-2 text-xs text-gray-400">
-                              {new Date(user.lastInterestedAt).toLocaleString()}
+                              {formatDateTime(user.lastInterestedAt)}
                             </p>
                           </div>
                         ))}
@@ -864,7 +889,7 @@ export function MyListingsPanel() {
                           <p className="text-sm text-gray-800">{remark.body}</p>
                           <p className="mt-2 text-xs text-gray-400">
                             {remark.author?.name || 'Staff'} ·{' '}
-                            {new Date(remark.createdAt).toLocaleString()}
+                            {formatDateTime(remark.createdAt)}
                           </p>
                         </div>
                       ))}

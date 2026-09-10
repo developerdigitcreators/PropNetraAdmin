@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import {
@@ -9,7 +9,43 @@ import {
   type ReferralChainNode,
   type ReferralGraph,
 } from '@/services/referral.service';
+import { formatDisplayDateTime } from '@/lib/format-date';
 import { GitBranch, Loader2 } from 'lucide-react';
+
+function planShort(code?: string | null) {
+  if (!code) return '—';
+  const map: Record<string, string> = {
+    FREE_TRIAL: 'Free',
+    FREE_LIFETIME: 'Free',
+    NETWORK_PAID: 'Network paid',
+    PRO: 'Pro',
+    ELITE: 'Elite',
+  };
+  return map[code] || code.replace(/_/g, ' ');
+}
+
+function planBadgeClass(code?: string | null) {
+  switch (code) {
+    case 'ELITE':
+      return 'bg-blue-100 text-blue-800';
+    case 'PRO':
+      return 'bg-violet-100 text-violet-800';
+    case 'NETWORK_PAID':
+      return 'bg-teal-100 text-teal-800';
+    default:
+      return 'bg-slate-100 text-slate-700';
+  }
+}
+
+function PlanBadge({ planCode }: { planCode?: string | null }) {
+  return (
+    <span
+      className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${planBadgeClass(planCode)}`}
+    >
+      {planShort(planCode)}
+    </span>
+  );
+}
 
 function ChainTree({ node }: { node: ReferralChainNode }) {
   return (
@@ -33,6 +69,19 @@ function ChainTree({ node }: { node: ReferralChainNode }) {
     </li>
   );
 }
+
+type InviteRow = {
+  key: string;
+  name: string;
+  inviteePlanAtBenefit?: string | null;
+  referrerPlanAtBenefit?: string | null;
+  reward: string;
+  onboardedAt?: string | null;
+  planActivatedAt?: string | null;
+  rewardExpiresAt?: string | null;
+  pendingExpiresAt?: string | null;
+  eventStatus?: string | null;
+};
 
 export function ReferralTab({ userId }: { userId: string }) {
   const [graph, setGraph] = useState<ReferralGraph | null>(null);
@@ -73,6 +122,75 @@ export function ReferralTab({ userId }: { userId: string }) {
     }
   };
 
+  const inviteRows = useMemo((): InviteRow[] => {
+    if (!graph) return [];
+    const invited = (graph.invited || []) as Array<{
+      id: string;
+      name?: string;
+      eventStatus?: string | null;
+      pendingExpiresAt?: string | null;
+      planActivatedAt?: string | null;
+      rewardExpiresAt?: string | null;
+      onboardedAt?: string | null;
+      coinsCredited?: number;
+      monthsGranted?: number;
+      inviteePlanAtBenefit?: string | null;
+      referrerPlanAtBenefit?: string | null;
+    }>;
+
+    const fromInvites: InviteRow[] = invited.map((u) => {
+      let reward = '—';
+      if ((u.coinsCredited ?? 0) > 0) reward = `+${u.coinsCredited} NetraCoins`;
+      else if ((u.monthsGranted ?? 0) > 0)
+        reward = `+${u.monthsGranted} month${u.monthsGranted === 1 ? '' : 's'}`;
+      else if (u.eventStatus === 'pending_subscription') reward = 'After plan purchase';
+      else if (u.eventStatus === 'pending_expired') reward = 'Window ended';
+
+      return {
+        key: u.id,
+        name: u.name?.trim() || u.id,
+        inviteePlanAtBenefit: u.inviteePlanAtBenefit,
+        referrerPlanAtBenefit: u.referrerPlanAtBenefit,
+        reward,
+        onboardedAt: u.onboardedAt,
+        planActivatedAt: u.planActivatedAt,
+        rewardExpiresAt: u.rewardExpiresAt,
+        pendingExpiresAt: u.pendingExpiresAt,
+        eventStatus: u.eventStatus,
+      };
+    });
+
+    const covered = new Set(invited.map((u) => u.id));
+    const orphanGrants = (graph.benefitHistory || []).filter(
+      (g) => !g.triggerRefereeId || !covered.has(g.triggerRefereeId),
+    );
+
+    for (const g of orphanGrants) {
+      let reward = '—';
+      if (g.coinsCredited != null && g.coinsCredited > 0) {
+        reward = `+${g.coinsCredited} NetraCoins`;
+      } else if (g.rewardType === 'FREE_MONTHS') {
+        reward = `+${g.monthsGranted ?? g.rewardValue} mo`;
+      } else {
+        reward = `${g.rewardValue}%`;
+      }
+      if (g.reason) reward = `${reward} · ${g.reason}`;
+
+      fromInvites.push({
+        key: `grant-${g.createdAt}-${g.reason || g.rewardType}`,
+        name: g.triggerRefereeId ? 'Invitee' : 'System',
+        inviteePlanAtBenefit: g.inviteePlanAtBenefit,
+        referrerPlanAtBenefit: g.referrerPlanAtBenefit,
+        reward,
+        onboardedAt: g.createdAt,
+        rewardExpiresAt: g.rewardExpiresAt,
+        eventStatus: null,
+      });
+    }
+
+    return fromInvites;
+  }, [graph]);
+
   if (loading) {
     return (
       <div className="flex justify-center py-16">
@@ -85,12 +203,11 @@ export function ReferralTab({ userId }: { userId: string }) {
     | { id?: string; name?: string; referralCode?: string }
     | null
     | undefined;
-  const invited = (graph?.invited || []) as Array<{
-    id: string;
-    name?: string;
-    status?: string;
-    referralCode?: string | null;
-  }>;
+
+  const milestoneOn =
+    graph?.rewardState?.milestoneOn ??
+    !!graph?.rewardState?.mode?.includes('MILESTONE');
+  const renewOn = !!graph?.programSettings?.renewResetsMilestones;
 
   return (
     <div className="space-y-5">
@@ -103,10 +220,10 @@ export function ReferralTab({ userId }: { userId: string }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           Successful referrals: <strong>{graph?.successfulReferrals ?? 0}</strong>
-          {graph?.rewardState?.mode ? (
+          {graph?.rewardState ? (
             <>
               {' '}
-              · Mode: <strong>{graph.rewardState.mode}</strong>
+              · Milestone: <strong>{milestoneOn ? 'On' : 'Off'}</strong>
             </>
           ) : null}
         </p>
@@ -131,7 +248,7 @@ export function ReferralTab({ userId }: { userId: string }) {
       <section className="rounded-xl border bg-white p-4 shadow-sm">
         <h3 className="mb-2 text-sm font-semibold">Reward cycle</h3>
         {graph?.rewardState ? (
-          <dl className="grid gap-2 text-sm sm:grid-cols-2">
+          <dl className="grid gap-3 text-sm sm:grid-cols-2">
             <div>
               <dt className="text-muted-foreground">Referrer tier</dt>
               <dd className="font-medium">
@@ -148,35 +265,38 @@ export function ReferralTab({ userId }: { userId: string }) {
               </dd>
             </div>
             <div>
-              <dt className="text-muted-foreground">Mode</dt>
-              <dd className="font-medium">{graph.rewardState.mode}</dd>
+              <dt className="text-muted-foreground">Milestone</dt>
+              <dd className="font-medium">{milestoneOn ? 'On' : 'Off'}</dd>
+            </div>
+            {renewOn ? (
+              <div>
+                <dt className="text-muted-foreground">Milestone started</dt>
+                <dd>
+                  {graph.rewardState.cycleAnchorAt
+                    ? formatDisplayDateTime(graph.rewardState.cycleAnchorAt)
+                    : '—'}
+                </dd>
+              </div>
+            ) : null}
+            {milestoneOn ? (
+              <div>
+                <dt className="text-muted-foreground">Milestone deadline</dt>
+                <dd>
+                  {graph.rewardState.milestoneDeadlineAt
+                    ? formatDisplayDateTime(graph.rewardState.milestoneDeadlineAt)
+                    : '—'}
+                </dd>
+              </div>
+            ) : null}
+            <div>
+              <dt className="text-muted-foreground">Onboard</dt>
+              <dd className="font-medium">{graph.rewardState.onboardCountInCycle}</dd>
             </div>
             <div>
-              <dt className="text-muted-foreground">Cycle anchor</dt>
-              <dd>
-                {graph.rewardState.cycleAnchorAt
-                  ? new Date(graph.rewardState.cycleAnchorAt).toLocaleString()
-                  : '—'}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Milestone deadline</dt>
-              <dd>
-                {graph.rewardState.milestoneDeadlineAt
-                  ? new Date(graph.rewardState.milestoneDeadlineAt).toLocaleString()
-                  : '—'}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Onboard / paid in cycle</dt>
-              <dd>
-                {graph.rewardState.onboardCountInCycle} /{' '}
+              <dt className="text-muted-foreground">Converted plan user</dt>
+              <dd className="font-medium">
                 {graph.rewardState.paidQualifiedCountInCycle}
               </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Resets</dt>
-              <dd>{graph.rewardState.resetCount}</dd>
             </div>
           </dl>
         ) : (
@@ -185,30 +305,75 @@ export function ReferralTab({ userId }: { userId: string }) {
       </section>
 
       <section className="rounded-xl border bg-white p-4 shadow-sm">
-        <h3 className="mb-2 text-sm font-semibold">Benefit history</h3>
-        {(graph?.benefitHistory || []).length === 0 ? (
-          <p className="text-sm text-muted-foreground">No grants yet</p>
+        <h3 className="mb-3 text-sm font-semibold">Invites & benefits</h3>
+        {inviteRows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">None yet</p>
         ) : (
-          <ul className="divide-y text-sm">
-            {(graph?.benefitHistory || []).map((g, i) => (
-              <li key={i} className="flex flex-wrap items-center gap-2 py-2">
-                <span className="font-medium">
-                  {g.rewardType === 'FREE_MONTHS'
-                    ? `${g.monthsGranted ?? g.rewardValue} mo`
-                    : `${g.rewardValue}%`}
-                </span>
-                {g.coinsCredited != null && g.coinsCredited > 0 ? (
-                  <span className="text-xs text-emerald-700">+{g.coinsCredited} coins</span>
-                ) : null}
-                {g.reason ? (
-                  <span className="text-xs text-muted-foreground">{g.reason}</span>
-                ) : null}
-                <span className="ml-auto text-xs text-muted-foreground">
-                  {new Date(g.createdAt).toLocaleString()}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="pb-2 pr-3 font-medium">Invited user</th>
+                  <th className="pb-2 pr-3 font-medium">Invitee plan at benefit</th>
+                  <th className="pb-2 pr-3 font-medium">Referrer plan at benefit</th>
+                  <th className="pb-2 pr-3 font-medium">Reward</th>
+                  <th className="pb-2 font-medium">Timing</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inviteRows.map((row) => {
+                  const lines: string[] = [];
+                  if (row.onboardedAt) {
+                    lines.push(`Onboarded ${formatDisplayDateTime(row.onboardedAt)}`);
+                  }
+                  if (
+                    row.eventStatus === 'pending_subscription' &&
+                    row.pendingExpiresAt
+                  ) {
+                    lines.push(
+                      `Plan needed by ${formatDisplayDateTime(row.pendingExpiresAt)}`,
+                    );
+                  } else if (row.eventStatus === 'pending_expired' && row.pendingExpiresAt) {
+                    lines.push(
+                      `Window ended ${formatDisplayDateTime(row.pendingExpiresAt)}`,
+                    );
+                  } else {
+                    if (row.planActivatedAt) {
+                      lines.push(
+                        `Plan started ${formatDisplayDateTime(row.planActivatedAt)}`,
+                      );
+                    }
+                    if (row.rewardExpiresAt) {
+                      lines.push(
+                        `Reward expiry ${formatDisplayDateTime(row.rewardExpiresAt)}`,
+                      );
+                    }
+                  }
+                  return (
+                    <tr key={row.key} className="border-t border-gray-100">
+                      <td className="py-3 pr-3 font-medium text-gray-900">{row.name}</td>
+                      <td className="py-3 pr-3">
+                        <PlanBadge planCode={row.inviteePlanAtBenefit} />
+                      </td>
+                      <td className="py-3 pr-3">
+                        <PlanBadge planCode={row.referrerPlanAtBenefit} />
+                      </td>
+                      <td className="py-3 pr-3 text-gray-700">{row.reward}</td>
+                      <td className="py-3">
+                        <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                          {lines.length ? (
+                            lines.map((line) => <span key={line}>{line}</span>)
+                          ) : (
+                            <span>—</span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
@@ -229,27 +394,6 @@ export function ReferralTab({ userId }: { userId: string }) {
               Without referral
             </span>
           </div>
-        )}
-      </section>
-
-      <section className="rounded-xl border bg-white p-4 shadow-sm">
-        <h3 className="mb-2 text-sm font-semibold">Direct invites</h3>
-        {invited.length === 0 ? (
-          <p className="text-sm text-muted-foreground">None yet</p>
-        ) : (
-          <ul className="divide-y text-sm">
-            {invited.map((u) => (
-              <li key={u.id} className="flex flex-wrap items-center gap-2 py-2">
-                <span className="font-medium">{u.name || u.id}</span>
-                <span className="text-xs text-muted-foreground">{u.status}</span>
-                {u.referralCode ? (
-                  <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
-                    {u.referralCode}
-                  </code>
-                ) : null}
-              </li>
-            ))}
-          </ul>
         )}
       </section>
 

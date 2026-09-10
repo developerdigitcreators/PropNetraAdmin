@@ -208,19 +208,19 @@ export function PlanFormDialog({
 
           {showPricing ? (
             <Section
-              title="Pricing (₹ per year)"
-              description="Standard yearly price and optional intro offer for new subscribers."
+              title="Pricing (₹ per year, exclusive of GST)"
+              description="Enter GST-exclusive yearly prices. Customers pay base + GST (default 18%). After changing prices, resync Razorpay yearly plans so autopay includes GST."
             >
               <div className="grid gap-3 sm:grid-cols-3">
                 <NumField
-                  label="Yearly price (₹)"
+                  label="Yearly price (₹, exclusive of GST)"
                   value={priceRupees}
                   onChange={setPriceRupees}
-                  placeholder="1188"
+                  placeholder="1189"
                   prefix="₹"
                 />
                 <NumField
-                  label="Intro offer price (₹)"
+                  label="Intro offer price (₹, exclusive of GST)"
                   value={promoPriceRupees}
                   onChange={setPromoPriceRupees}
                   placeholder="899"
@@ -233,6 +233,34 @@ export function PlanFormDialog({
                   placeholder="30"
                 />
               </div>
+              {(() => {
+                const exclusive = Number(priceRupees);
+                if (!Number.isFinite(exclusive) || exclusive <= 0) return null;
+                const exclusivePaise = Math.round(exclusive * 100);
+                const gstPaise = Math.round((exclusivePaise * 18) / 100);
+                const total = (exclusivePaise + gstPaise) / 100;
+                const promo = Number(promoPriceRupees);
+                let promoLine: string | null = null;
+                if (Number.isFinite(promo) && promo > 0) {
+                  const pPaise = Math.round(promo * 100);
+                  const pGst = Math.round((pPaise * 18) / 100);
+                  promoLine = `Intro total with GST 18% = ₹${(
+                    (pPaise + pGst) /
+                    100
+                  ).toLocaleString('en-IN')}`;
+                }
+                return (
+                  <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-sm text-emerald-900">
+                    <p>
+                      Total with GST 18% = ₹
+                      {total.toLocaleString('en-IN')} (Base ₹
+                      {exclusive.toLocaleString('en-IN')} + GST ₹
+                      {(gstPaise / 100).toLocaleString('en-IN')})
+                    </p>
+                    {promoLine ? <p className="mt-1">{promoLine}</p> : null}
+                  </div>
+                );
+              })()}
             </Section>
           ) : null}
 

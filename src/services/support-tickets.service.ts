@@ -27,7 +27,10 @@ export type TicketRemark = {
   text: string;
   createdAt: string | null;
   updatedAt: string | null;
-  createdBy: { id: string | null; name: string };
+  status: TicketStatus | null;
+  visibility: 'user' | 'admin';
+  messageId: string | null;
+  createdBy: { id: string | null; name: string; role?: string | null };
 };
 
 export type SupportTicketItem = {
@@ -72,6 +75,12 @@ function asStatus(value: unknown): TicketStatus {
   const raw = pickString(value).toLowerCase();
   if (raw === 'resolved' || raw === 'closed' || raw === 'pending') return raw;
   return 'pending';
+}
+
+function asRemarkStatus(value: unknown): TicketStatus | null {
+  const raw = pickString(value).toLowerCase();
+  if (raw === 'resolved' || raw === 'closed' || raw === 'pending') return raw;
+  return null;
 }
 
 function asTier(value: unknown): TicketTier {
@@ -120,9 +129,25 @@ function normalizeRemark(raw: unknown): TicketRemark | null {
     text,
     createdAt: pickString(row.createdAt, row.created_at) || null,
     updatedAt: pickString(row.updatedAt, row.updated_at) || null,
+    status: asRemarkStatus(
+      row.status ??
+        row.ticketStatus ??
+        row.ticket_status ??
+        row.toStatus ??
+        row.to_status ??
+        row.newStatus ??
+        row.new_status,
+    ),
+    visibility: pickString(row.visibility).toLowerCase() === 'user' ? 'user' : 'admin',
+    messageId: pickString(row.messageId, row.message_id) || null,
     createdBy: {
-      id: pickString(createdBy?.id) || null,
-      name: pickString(createdBy?.name),
+      id: pickString(createdBy?.id, row.createdById, row.created_by_id) || null,
+      name: pickString(
+        createdBy?.name,
+        row.createdByName,
+        row.created_by_name,
+      ),
+      role: pickString(createdBy?.role, row.createdByRole, row.created_by_role) || null,
     },
   };
 }

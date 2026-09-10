@@ -1,6 +1,6 @@
-import { axiosClient } from '@/lib/axios-client';
+import { axiosClient } from "@/lib/axios-client";
 
-export type ReviewTab = 'unverified' | 'verified' | 'rejected';
+export type ReviewTab = "unverified" | "verified" | "rejected";
 
 export type RejectListingReviewPayload = {
   rejectPropertyName?: boolean;
@@ -25,11 +25,14 @@ export type RejectListingReviewPayload = {
   };
 };
 
-export type ListingHighlightRef = {
-  id?: string | null;
-  name?: string | null;
-  status?: string | null;
-} | string | null;
+export type ListingHighlightRef =
+  | {
+      id?: string | null;
+      name?: string | null;
+      status?: string | null;
+    }
+  | string
+  | null;
 
 export type ListingReviewHighlights = {
   newPropertyName?: ListingHighlightRef;
@@ -169,11 +172,23 @@ export type ReviewQueueSelectedFilters = {
   propertyTypeId: string | null;
 };
 
-export type ReviewQueueDropdownFilter = { id: string; name: string; total: number };
+export type ReviewQueueDropdownFilter = {
+  id: string;
+  name: string;
+  total: number;
+};
 
 export type ReviewQueueFiltersResponse = {
-  categories: Array<{ categoryId: string; categoryName: string; total: number }>;
-  buildingTypes: Array<{ buildingTypeId: string; buildingTypeName: string; total: number }>;
+  categories: Array<{
+    categoryId: string;
+    categoryName: string;
+    total: number;
+  }>;
+  buildingTypes: Array<{
+    buildingTypeId: string;
+    buildingTypeName: string;
+    total: number;
+  }>;
   propertyTypes: Array<{
     propertyTypeId: string;
     propertyTypeName: string;
@@ -184,9 +199,14 @@ export type ReviewQueueFiltersResponse = {
 
 function asQueueResult(data: unknown): ListingReviewQueueResult {
   if (Array.isArray(data)) {
-    return { items: data as ListingReviewItem[], total: data.length, page: 1, limit: data.length };
+    return {
+      items: data as ListingReviewItem[],
+      total: data.length,
+      page: 1,
+      limit: data.length,
+    };
   }
-  if (data && typeof data === 'object') {
+  if (data && typeof data === "object") {
     const obj = data as Record<string, unknown>;
     const items = Array.isArray(obj.items)
       ? (obj.items as ListingReviewItem[])
@@ -197,74 +217,101 @@ function asQueueResult(data: unknown): ListingReviewQueueResult {
           : [];
     return {
       items,
-      total: typeof obj.total === 'number' ? obj.total : items.length,
-      page: typeof obj.page === 'number' ? obj.page : 1,
-      limit: typeof obj.limit === 'number' ? obj.limit : items.length,
+      total: typeof obj.total === "number" ? obj.total : items.length,
+      page: typeof obj.page === "number" ? obj.page : 1,
+      limit: typeof obj.limit === "number" ? obj.limit : items.length,
       tab:
-        obj.tab === 'verified' ? 'verified' : obj.tab === 'rejected' ? 'rejected' : 'unverified',
+        obj.tab === "verified"
+          ? "verified"
+          : obj.tab === "rejected"
+            ? "rejected"
+            : "unverified",
       totalPages:
-        typeof obj.totalPages === 'number'
+        typeof obj.totalPages === "number"
           ? obj.totalPages
-          : typeof obj.total === 'number' && typeof obj.limit === 'number' && obj.limit > 0
+          : typeof obj.total === "number" &&
+              typeof obj.limit === "number" &&
+              obj.limit > 0
             ? Math.ceil(obj.total / obj.limit)
-            : Math.ceil(items.length / Math.max(1, (typeof obj.limit === 'number' ? obj.limit : items.length))),
+            : Math.ceil(
+                items.length /
+                  Math.max(
+                    1,
+                    typeof obj.limit === "number" ? obj.limit : items.length,
+                  ),
+              ),
       propertyTypeBreakdown: Array.isArray(obj.propertyTypeBreakdown)
         ? (obj.propertyTypeBreakdown as any[]).map((r) => ({
-            propertyTypeId: typeof r.propertyTypeId === 'string' ? r.propertyTypeId : null,
-            propertyTypeName: typeof r.propertyTypeName === 'string' ? r.propertyTypeName : '—',
-            total: typeof r.total === 'number' ? r.total : 0,
+            propertyTypeId:
+              typeof r.propertyTypeId === "string" ? r.propertyTypeId : null,
+            propertyTypeName:
+              typeof r.propertyTypeName === "string" ? r.propertyTypeName : "—",
+            total: typeof r.total === "number" ? r.total : 0,
             totalPages:
-              typeof r.totalPages === 'number'
+              typeof r.totalPages === "number"
                 ? r.totalPages
-                : typeof r.total === 'number' && typeof obj.limit === 'number' && obj.limit > 0
+                : typeof r.total === "number" &&
+                    typeof obj.limit === "number" &&
+                    obj.limit > 0
                   ? Math.ceil(r.total / obj.limit)
                   : 0,
           }))
         : undefined,
       filters:
-        obj.filters && typeof obj.filters === 'object'
+        obj.filters && typeof obj.filters === "object"
           ? {
               categories: Array.isArray((obj.filters as any).categories)
                 ? ((obj.filters as any).categories as any[]).map((r) => ({
-                    categoryId: typeof r.categoryId === 'string' ? r.categoryId : '',
-                    categoryName: typeof r.categoryName === 'string' ? r.categoryName : '—',
-                    total: typeof r.total === 'number' ? r.total : 0,
+                    categoryId:
+                      typeof r.categoryId === "string" ? r.categoryId : "",
+                    categoryName:
+                      typeof r.categoryName === "string" ? r.categoryName : "—",
+                    total: typeof r.total === "number" ? r.total : 0,
                   }))
                 : [],
               buildingTypes: Array.isArray((obj.filters as any).buildingTypes)
                 ? ((obj.filters as any).buildingTypes as any[]).map((r) => ({
                     buildingTypeId:
-                      typeof r.buildingTypeId === 'string' ? r.buildingTypeId : '',
+                      typeof r.buildingTypeId === "string"
+                        ? r.buildingTypeId
+                        : "",
                     buildingTypeName:
-                      typeof r.buildingTypeName === 'string' ? r.buildingTypeName : '—',
-                    total: typeof r.total === 'number' ? r.total : 0,
+                      typeof r.buildingTypeName === "string"
+                        ? r.buildingTypeName
+                        : "—",
+                    total: typeof r.total === "number" ? r.total : 0,
                   }))
                 : [],
               propertyTypes: Array.isArray((obj.filters as any).propertyTypes)
                 ? ((obj.filters as any).propertyTypes as any[]).map((r) => ({
                     propertyTypeId:
-                      typeof r.propertyTypeId === 'string' ? r.propertyTypeId : '',
+                      typeof r.propertyTypeId === "string"
+                        ? r.propertyTypeId
+                        : "",
                     propertyTypeName:
-                      typeof r.propertyTypeName === 'string' ? r.propertyTypeName : '—',
-                    total: typeof r.total === 'number' ? r.total : 0,
-                    totalPages: typeof r.totalPages === 'number' ? r.totalPages : 0,
+                      typeof r.propertyTypeName === "string"
+                        ? r.propertyTypeName
+                        : "—",
+                    total: typeof r.total === "number" ? r.total : 0,
+                    totalPages:
+                      typeof r.totalPages === "number" ? r.totalPages : 0,
                   }))
                 : [],
             }
           : undefined,
       selectedFilters:
-        obj.selectedFilters && typeof obj.selectedFilters === 'object'
+        obj.selectedFilters && typeof obj.selectedFilters === "object"
           ? {
               categoryId:
-                typeof (obj.selectedFilters as any).categoryId === 'string'
+                typeof (obj.selectedFilters as any).categoryId === "string"
                   ? (obj.selectedFilters as any).categoryId
                   : null,
               buildingTypeId:
-                typeof (obj.selectedFilters as any).buildingTypeId === 'string'
+                typeof (obj.selectedFilters as any).buildingTypeId === "string"
                   ? (obj.selectedFilters as any).buildingTypeId
                   : null,
               propertyTypeId:
-                typeof (obj.selectedFilters as any).propertyTypeId === 'string'
+                typeof (obj.selectedFilters as any).propertyTypeId === "string"
                   ? (obj.selectedFilters as any).propertyTypeId
                   : null,
             }
@@ -275,9 +322,9 @@ function asQueueResult(data: unknown): ListingReviewQueueResult {
 }
 
 function highlightName(value: ListingHighlightRef): string {
-  if (!value) return '';
-  if (typeof value === 'string') return value;
-  return value.name || '';
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  return value.name || "";
 }
 
 export type CreateFormOption = {
@@ -359,7 +406,7 @@ export type StaffAssignee = {
   contact: string;
 };
 
-export type MyListingsTab = 'admin_verified' | 'app_postings';
+export type MyListingsTab = "admin_verified" | "app_postings";
 
 export type MyListingItem = {
   id: string;
@@ -444,15 +491,15 @@ export type ListingInterestDetails = {
 
 function pickStr(...values: unknown[]): string {
   for (const value of values) {
-    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === "string" && value.trim()) return value.trim();
   }
-  return '';
+  return "";
 }
 
 function asObject(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const nested = (value as { data?: unknown }).data;
-  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
     return nested as Record<string, unknown>;
   }
   return value as Record<string, unknown>;
@@ -462,15 +509,20 @@ function asOptionList(data: unknown): CreateFormOption[] {
   const list = Array.isArray(data)
     ? data
     : Array.isArray((data as { data?: unknown })?.data)
-      ? ((data as { data: unknown[] }).data)
+      ? (data as { data: unknown[] }).data
       : Array.isArray((data as { items?: unknown })?.items)
-        ? ((data as { items: unknown[] }).items)
+        ? (data as { items: unknown[] }).items
         : [];
   return list
     .map((raw) => {
       const row = asObject(raw);
       const id = pickStr(row.id);
-      const name = pickStr(row.name, row.label, row.display_name, row.displayName);
+      const name = pickStr(
+        row.name,
+        row.label,
+        row.display_name,
+        row.displayName,
+      );
       if (!id || !name) return null;
       return {
         ...row,
@@ -478,9 +530,9 @@ function asOptionList(data: unknown): CreateFormOption[] {
         name,
         is_active: row.is_active !== false && row.isActive !== false,
         phase:
-          typeof row.phase === 'number'
+          typeof row.phase === "number"
             ? row.phase
-            : typeof row.phase === 'string' && row.phase.trim()
+            : typeof row.phase === "string" && row.phase.trim()
               ? Number(row.phase)
               : null,
       } as CreateFormOption;
@@ -492,7 +544,7 @@ function normalizeFieldOptions(raw: unknown): CreateFormFieldOption[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .map((item) => {
-      if (typeof item === 'string' || typeof item === 'number') {
+      if (typeof item === "string" || typeof item === "number") {
         const value = String(item);
         return { label: value, value };
       }
@@ -569,38 +621,39 @@ function collectFieldsRaw(mod: Record<string, unknown>): unknown[] {
 }
 
 const SKIP_CREATE_SCHEMA_KEYS = new Set([
-  'category',
-  'category_id',
-  'building_type',
-  'building_type_id',
-  'property_type',
-  'property_type_id',
-  'property_name',
-  'property_name_id',
-  'location',
-  'location_id',
-  'micro_market',
-  'micro_market_id',
-  'micromarket',
-  'owner_user_id',
-  'owner',
+  "category",
+  "category_id",
+  "building_type",
+  "building_type_id",
+  "property_type",
+  "property_type_id",
+  "property_name",
+  "property_name_id",
+  "location",
+  "location_id",
+  "micro_market",
+  "micro_market_id",
+  "micromarket",
+  "owner_user_id",
+  "owner",
 ]);
 
 function normalizeCreateField(
   raw: unknown,
-  moduleKey = '',
+  moduleKey = "",
 ): CreateFormField | null {
   const row = asObject(raw);
-  const key = pickStr(
-    row.key,
-    row.field_key,
-    row.fieldKey,
-    row.name,
-    row.slug,
-  );
+  const key = pickStr(row.key, row.field_key, row.fieldKey, row.name, row.slug);
   if (!key) return null;
   // Skip catalog/hierarchy fields that are already collected above the form.
-  if (SKIP_CREATE_SCHEMA_KEYS.has(key.trim().toLowerCase().replace(/[\s-]+/g, '_'))) {
+  if (
+    SKIP_CREATE_SCHEMA_KEYS.has(
+      key
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, "_"),
+    )
+  ) {
     return null;
   }
   const type = pickStr(
@@ -609,7 +662,7 @@ function normalizeCreateField(
     row.fieldType,
     row.input_type,
     row.inputType,
-    'text',
+    "text",
   ).toLowerCase();
   const label = pickStr(
     row.label,
@@ -622,7 +675,7 @@ function normalizeCreateField(
   return {
     key,
     label: label || key,
-    type: type || 'text',
+    type: type || "text",
     required:
       row.required === true ||
       row.is_required === true ||
@@ -642,17 +695,25 @@ function normalizeCreateField(
   };
 }
 
-function normalizeModule(raw: unknown): { key: string; label: string; fields: CreateFormField[] } | null {
+function normalizeModule(
+  raw: unknown,
+): { key: string; label: string; fields: CreateFormField[] } | null {
   const row = asObject(raw);
   const key = pickStr(row.key, row.module_key, row.moduleKey, row.name, row.id);
-  const label = pickStr(row.label, row.display_name, row.displayName, row.name, key);
+  const label = pickStr(
+    row.label,
+    row.display_name,
+    row.displayName,
+    row.name,
+    key,
+  );
   const fields = collectFieldsRaw(row)
     .map((field) => normalizeCreateField(field, key))
     .filter((field): field is CreateFormField => !!field);
   if (!key && fields.length === 0) return null;
   // Hide modules with no renderable fields (pure catalog modules)
   if (fields.length === 0) return null;
-  return { key: key || 'module', label: label || key || 'Module', fields };
+  return { key: key || "module", label: label || key || "Module", fields };
 }
 
 export function normalizeCreateSchema(data: unknown): CreateFormSchema {
@@ -660,7 +721,10 @@ export function normalizeCreateSchema(data: unknown): CreateFormSchema {
   const modulesRaw = collectModulesRaw(data);
   const modules = modulesRaw
     .map(normalizeModule)
-    .filter((mod): mod is { key: string; label: string; fields: CreateFormField[] } => !!mod);
+    .filter(
+      (mod): mod is { key: string; label: string; fields: CreateFormField[] } =>
+        !!mod,
+    );
 
   const topFieldsRaw = Array.isArray(root.fields)
     ? root.fields
@@ -676,21 +740,23 @@ export function normalizeCreateSchema(data: unknown): CreateFormSchema {
   // Keep price/price_on_request in schema if present — UI still has dedicated controls,
   // but they should not be the only reason modules disappear.
   const fields =
-    topFields.length > 0
-      ? topFields
-      : modules.flatMap((mod) => mod.fields);
+    topFields.length > 0 ? topFields : modules.flatMap((mod) => mod.fields);
 
   return { fields, modules, raw: data };
 }
 
-async function enrichFieldOptions(fields: CreateFormField[]): Promise<CreateFormField[]> {
+async function enrichFieldOptions(
+  fields: CreateFormField[],
+): Promise<CreateFormField[]> {
   return Promise.all(
     fields.map(async (field) => {
       if ((field.options?.length || 0) > 0) return field;
       const fieldId = pickStr(field.raw?.id);
       if (!fieldId) return field;
       try {
-        const response = await axiosClient.get(`/admin/module-options/field/${fieldId}`);
+        const response = await axiosClient.get(
+          `/admin/module-options/field/${fieldId}`,
+        );
         const options = normalizeFieldOptions(response.data);
         if (options.length === 0) return field;
         return { ...field, options };
@@ -707,8 +773,8 @@ async function buildSchemaFromModuleConfigs(params: {
   propertyTypeId: string;
 }): Promise<CreateFormSchema> {
   const [modulesRes, configsRes] = await Promise.all([
-    axiosClient.get('/admin/listing-config/form-modules'),
-    axiosClient.get('/admin/module-configs', {
+    axiosClient.get("/admin/listing-config/form-modules"),
+    axiosClient.get("/admin/module-configs", {
       params: {
         categoryId: params.categoryId,
         buildingTypeId: params.buildingTypeId,
@@ -720,18 +786,22 @@ async function buildSchemaFromModuleConfigs(params: {
   const modulesList = Array.isArray(modulesRes.data)
     ? modulesRes.data
     : Array.isArray((modulesRes.data as { data?: unknown })?.data)
-      ? ((modulesRes.data as { data: unknown[] }).data)
+      ? (modulesRes.data as { data: unknown[] }).data
       : [];
   const configsList = Array.isArray(configsRes.data)
     ? configsRes.data
     : Array.isArray((configsRes.data as { data?: unknown })?.data)
-      ? ((configsRes.data as { data: unknown[] }).data)
+      ? (configsRes.data as { data: unknown[] }).data
       : [];
 
   const configByModuleId = new Map<string, Record<string, unknown>>();
   for (const conf of configsList) {
     const row = asObject(conf);
-    const moduleId = pickStr(row.module_id, row.moduleId, asObject(row.module).id);
+    const moduleId = pickStr(
+      row.module_id,
+      row.moduleId,
+      asObject(row.module).id,
+    );
     if (moduleId) configByModuleId.set(moduleId, row);
   }
 
@@ -740,7 +810,13 @@ async function buildSchemaFromModuleConfigs(params: {
       const row = asObject(mod);
       const id = pickStr(row.id);
       const key = pickStr(row.key, row.module_key, row.moduleKey, row.name, id);
-      const label = pickStr(row.label, row.display_name, row.displayName, row.name, key);
+      const label = pickStr(
+        row.label,
+        row.display_name,
+        row.displayName,
+        row.name,
+        key,
+      );
       if (!id || !key) return null;
       const conf = configByModuleId.get(id);
       const isCommon = row.is_common === true || row.isCommon === true;
@@ -758,7 +834,14 @@ async function buildSchemaFromModuleConfigs(params: {
       return { id, key, label: label || key, isMandatory };
     })
     .filter(
-      (mod): mod is { id: string; key: string; label: string; isMandatory: boolean } => !!mod,
+      (
+        mod,
+      ): mod is {
+        id: string;
+        key: string;
+        label: string;
+        isMandatory: boolean;
+      } => !!mod,
     );
 
   const modules = await Promise.all(
@@ -770,7 +853,7 @@ async function buildSchemaFromModuleConfigs(params: {
         const fieldsRaw = Array.isArray(fieldsRes.data)
           ? fieldsRes.data
           : Array.isArray((fieldsRes.data as { data?: unknown })?.data)
-            ? ((fieldsRes.data as { data: unknown[] }).data)
+            ? (fieldsRes.data as { data: unknown[] }).data
             : [];
         let fields = fieldsRaw
           .map((field) => {
@@ -790,19 +873,29 @@ async function buildSchemaFromModuleConfigs(params: {
   );
 
   const resolved = modules.filter(
-    (mod): mod is { key: string; label: string; fields: CreateFormField[] } => !!mod,
+    (mod): mod is { key: string; label: string; fields: CreateFormField[] } =>
+      !!mod,
   );
   return {
     modules: resolved,
     fields: resolved.flatMap((mod) => mod.fields),
-    raw: { modules: modulesList, configs: configsList, source: 'module-configs-fallback' },
+    raw: {
+      modules: modulesList,
+      configs: configsList,
+      source: "module-configs-fallback",
+    },
   };
 }
 
 function normalizeCreateProperty(raw: unknown): CreateFormProperty | null {
   const row = asObject(raw);
   const id = pickStr(row.id, row.property_name_id, row.propertyNameId);
-  const name = pickStr(row.name, row.property_name, row.propertyName, row.label);
+  const name = pickStr(
+    row.name,
+    row.property_name,
+    row.propertyName,
+    row.label,
+  );
   if (!id || !name) return null;
   const city = asObject(row.city);
   return {
@@ -811,8 +904,11 @@ function normalizeCreateProperty(raw: unknown): CreateFormProperty | null {
     cityId: pickStr(row.city_id, row.cityId, city.id) || undefined,
     cityName: pickStr(row.city_name, row.cityName, city.name) || undefined,
     propertyTypeId:
-      pickStr(row.property_type_id, row.propertyTypeId, asObject(row.property_type).id) ||
-      undefined,
+      pickStr(
+        row.property_type_id,
+        row.propertyTypeId,
+        asObject(row.property_type).id,
+      ) || undefined,
   };
 }
 
@@ -836,18 +932,14 @@ function normalizePrefill(raw: unknown): CreateFormPrefill {
   const singleLoc = asObject(row.location);
   const locationId =
     pickStr(row.location_id, row.locationId, singleLoc.id) ||
-    (locations.length === 1 ? locations[0].id : '');
+    (locations.length === 1 ? locations[0].id : "");
   const locationName =
     pickStr(row.location_name, row.locationName, singleLoc.name) ||
     locations.find((l) => l.id === locationId)?.name ||
-    '';
+    "";
 
   const mm = asObject(row.micro_market ?? row.microMarket);
-  const microMarketId = pickStr(
-    row.micro_market_id,
-    row.microMarketId,
-    mm.id,
-  );
+  const microMarketId = pickStr(row.micro_market_id, row.microMarketId, mm.id);
   const microMarketName = pickStr(
     row.micro_market_name,
     row.microMarketName,
@@ -878,12 +970,12 @@ export function listingCreateApiError(err: unknown, fallback: string): string {
   };
   const nested = e?.response?.data;
   const fromError =
-    nested && typeof nested === 'object' && 'error' in nested
+    nested && typeof nested === "object" && "error" in nested
       ? (nested as { error?: { message?: unknown } }).error?.message
       : undefined;
   const msg = fromError ?? nested?.message ?? nested?.error;
-  if (Array.isArray(msg)) return msg.filter(Boolean).join(', ');
-  if (typeof msg === 'string' && msg.trim()) return msg;
+  if (Array.isArray(msg)) return msg.filter(Boolean).join(", ");
+  if (typeof msg === "string" && msg.trim()) return msg;
   return e?.message || fallback;
 }
 
@@ -892,13 +984,13 @@ export function isCreateCategoryDisabled(option: CreateFormOption): boolean {
   const key = option.name
     .trim()
     .toLowerCase()
-    .replace(/[\s/_-]+/g, ' ');
-  return key.includes('developer');
+    .replace(/[\s/_-]+/g, " ");
+  return key.includes("developer");
 }
 
 export const listingsService = {
   getReviewQueue: async (
-    tab: ReviewTab = 'unverified',
+    tab: ReviewTab = "unverified",
     page = 1,
     limit = 50,
     filters?: {
@@ -912,19 +1004,28 @@ export const listingsService = {
     if (filters?.buildingTypeId) params.buildingTypeId = filters.buildingTypeId;
     if (filters?.propertyTypeId) params.propertyTypeId = filters.propertyTypeId;
 
-    const response = await axiosClient.get('/admin/listings/review', { params });
+    const response = await axiosClient.get("/admin/listings/review", {
+      params,
+    });
     return asQueueResult(response.data);
   },
 
   getCreateCategories: async (): Promise<CreateFormOption[]> => {
-    const response = await axiosClient.get('/admin/listings/create-form/categories');
+    const response = await axiosClient.get(
+      "/admin/listings/create-form/categories",
+    );
     return asOptionList(response.data);
   },
 
-  getCreateBuildingTypes: async (categoryId: string): Promise<CreateFormOption[]> => {
-    const response = await axiosClient.get('/admin/listings/create-form/building-types', {
-      params: { categoryId },
-    });
+  getCreateBuildingTypes: async (
+    categoryId: string,
+  ): Promise<CreateFormOption[]> => {
+    const response = await axiosClient.get(
+      "/admin/listings/create-form/building-types",
+      {
+        params: { categoryId },
+      },
+    );
     return asOptionList(response.data);
   },
 
@@ -932,9 +1033,12 @@ export const listingsService = {
     buildingTypeId: string,
     categoryId?: string,
   ): Promise<CreateFormOption[]> => {
-    const response = await axiosClient.get('/admin/listings/create-form/property-types', {
-      params: { buildingTypeId, categoryId },
-    });
+    const response = await axiosClient.get(
+      "/admin/listings/create-form/property-types",
+      {
+        params: { buildingTypeId, categoryId },
+      },
+    );
     return asOptionList(response.data);
   },
 
@@ -944,9 +1048,12 @@ export const listingsService = {
     propertyTypeId: string;
   }): Promise<CreateFormSchema> => {
     try {
-      const response = await axiosClient.get('/admin/listings/create-form/schema', {
-        params,
-      });
+      const response = await axiosClient.get(
+        "/admin/listings/create-form/schema",
+        {
+          params,
+        },
+      );
       let normalized = normalizeCreateSchema(response.data);
       if (normalized.fields.length > 0 || normalized.modules.length > 0) {
         const enrichedModules = await Promise.all(
@@ -976,26 +1083,31 @@ export const listingsService = {
     propertyTypeId: string;
     cityId?: string;
   }): Promise<CreateFormProperty[]> => {
-    const response = await axiosClient.get('/admin/listings/create-form/properties', {
-      params: {
-        q: params.q?.trim() || undefined,
-        propertyTypeId: params.propertyTypeId,
-        cityId: params.cityId || undefined,
+    const response = await axiosClient.get(
+      "/admin/listings/create-form/properties",
+      {
+        params: {
+          q: params.q?.trim() || undefined,
+          propertyTypeId: params.propertyTypeId,
+          cityId: params.cityId || undefined,
+        },
       },
-    });
+    );
     const list = Array.isArray(response.data)
       ? response.data
       : Array.isArray((response.data as { data?: unknown })?.data)
-        ? ((response.data as { data: unknown[] }).data)
+        ? (response.data as { data: unknown[] }).data
         : Array.isArray((response.data as { items?: unknown })?.items)
-          ? ((response.data as { items: unknown[] }).items)
+          ? (response.data as { items: unknown[] }).items
           : [];
     return list
       .map(normalizeCreateProperty)
       .filter((row): row is CreateFormProperty => !!row);
   },
 
-  getCreatePropertyPrefill: async (propertyId: string): Promise<CreateFormPrefill> => {
+  getCreatePropertyPrefill: async (
+    propertyId: string,
+  ): Promise<CreateFormPrefill> => {
     const response = await axiosClient.get(
       `/admin/listings/create-form/properties/${propertyId}/prefill`,
     );
@@ -1005,18 +1117,27 @@ export const listingsService = {
   createVerifiedListing: async (
     payload: CreateVerifiedListingPayload,
   ): Promise<unknown> => {
-    const response = await axiosClient.post('/admin/listings/verified', payload);
+    const response = await axiosClient.post(
+      "/admin/listings/verified",
+      payload,
+    );
     return response.data;
   },
 
   getStaffAssignees: async (): Promise<StaffAssignee[]> => {
-    const response = await axiosClient.get('/admin/listings/staff-assignees');
+    const response = await axiosClient.get("/admin/listings/staff-assignees");
     const data = response.data;
-    return Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+    return Array.isArray(data)
+      ? data
+      : Array.isArray(data?.data)
+        ? data.data
+        : [];
   },
 
   getMyListingsSummary: async (): Promise<MyListingsSummary> => {
-    const response = await axiosClient.get('/admin/listings/my-listings/summary');
+    const response = await axiosClient.get(
+      "/admin/listings/my-listings/summary",
+    );
     return response.data as MyListingsSummary;
   },
 
@@ -1025,21 +1146,27 @@ export const listingsService = {
     categoryId?: string;
     buildingTypeId?: string;
     propertyTypeId?: string;
-    status?: 'active' | 'expired' | 'inactive';
+    status?: "active" | "expired" | "inactive";
     page?: number;
     limit?: number;
   }): Promise<MyListingsResponse> => {
-    const response = await axiosClient.get('/admin/listings/my-listings', { params });
+    const response = await axiosClient.get("/admin/listings/my-listings", {
+      params,
+    });
     return response.data as MyListingsResponse;
   },
 
   getMyListingDetail: async (listingId: string): Promise<MyListingDetail> => {
-    const response = await axiosClient.get(`/admin/listings/my-listings/${listingId}`);
+    const response = await axiosClient.get(
+      `/admin/listings/my-listings/${listingId}`,
+    );
     return response.data as MyListingDetail;
   },
 
   getAdminListingRemarks: async (listingId: string) => {
-    const response = await axiosClient.get(`/admin/listings/my-listings/${listingId}/admin-remarks`);
+    const response = await axiosClient.get(
+      `/admin/listings/my-listings/${listingId}/admin-remarks`,
+    );
     return response.data as Array<{
       id: string;
       body: string;
@@ -1048,7 +1175,9 @@ export const listingsService = {
     }>;
   },
 
-  getListingInterestDetails: async (listingId: string): Promise<ListingInterestDetails> => {
+  getListingInterestDetails: async (
+    listingId: string,
+  ): Promise<ListingInterestDetails> => {
     const response = await axiosClient.get(
       `/admin/listings/my-listings/${listingId}/interest-details`,
     );
@@ -1056,30 +1185,45 @@ export const listingsService = {
   },
 
   addAdminListingRemark: async (listingId: string, text: string) => {
-    const response = await axiosClient.post(`/admin/listings/my-listings/${listingId}/admin-remarks`, {
-      text,
-    });
+    const response = await axiosClient.post(
+      `/admin/listings/my-listings/${listingId}/admin-remarks`,
+      {
+        text,
+      },
+    );
     return response.data;
   },
 
   markMyListingInterestSeen: async (listingId: string) => {
-    await axiosClient.post(`/admin/listings/my-listings/${listingId}/mark-interest-seen`);
+    await axiosClient.post(
+      `/admin/listings/my-listings/${listingId}/mark-interest-seen`,
+    );
   },
 
   setMyListingActive: async (listingId: string, active: boolean) => {
-    await axiosClient.put(`/admin/listings/my-listings/${listingId}/active`, { active });
+    await axiosClient.put(`/admin/listings/my-listings/${listingId}/active`, {
+      active,
+    });
   },
 
   renewMyListing: async (listingId: string) => {
-    const response = await axiosClient.post(`/admin/listings/my-listings/${listingId}/renew`);
+    const response = await axiosClient.post(
+      `/admin/listings/my-listings/${listingId}/renew`,
+    );
     return response.data;
   },
 
-  approveReview: async (id: string, payload: ApproveListingReviewPayload = {}): Promise<void> => {
+  approveReview: async (
+    id: string,
+    payload: ApproveListingReviewPayload = {},
+  ): Promise<void> => {
     await axiosClient.post(`/admin/listings/review/${id}/approve`, payload);
   },
 
-  saveToDb: async (id: string, payload: SaveListingCatalogPayload): Promise<void> => {
+  saveToDb: async (
+    id: string,
+    payload: SaveListingCatalogPayload,
+  ): Promise<void> => {
     await axiosClient.post(`/admin/listings/review/${id}/save-to-db`, payload);
   },
 
@@ -1101,39 +1245,92 @@ export const listingsService = {
   setListingActive: async (id: string, active: boolean): Promise<void> => {
     await axiosClient.put(`/admin/listings/review/${id}/active`, { active });
   },
+
+  getAdminUserListings: async (
+    userId: string,
+    params?: {
+      tab?: "active" | "inactive" | "in_approval" | "rejected" | "expired";
+      categoryGroup?: "resale_rent" | "buy_requirement";
+      page?: number;
+      limit?: number;
+    },
+  ) => {
+    const response = await axiosClient.get(
+      `/admin/user-analytics/users/${encodeURIComponent(userId)}/listings`,
+      { params },
+    );
+    return response.data as {
+      items: Array<Record<string, unknown>>;
+      total: number;
+      page: number;
+      limit: number;
+      totalPages: number;
+      tab: string;
+      categoryGroup?: string;
+      tabs: {
+        active: number;
+        inactive: number;
+        in_approval: number;
+        rejected: number;
+        expired: number;
+      };
+    };
+  },
+
+  getAdminUserListingDetail: async (
+    userId: string,
+    listingId: string,
+  ): Promise<MyListingDetail> => {
+    const response = await axiosClient.get(
+      `/admin/user-analytics/users/${encodeURIComponent(userId)}/listings/${encodeURIComponent(listingId)}`,
+    );
+    return response.data as MyListingDetail;
+  },
+
+  hardDeleteAdminUserListing: async (
+    userId: string,
+    listingId: string,
+  ): Promise<{ deleted: true; archived: true }> => {
+    const response = await axiosClient.delete(
+      `/admin/user-analytics/users/${encodeURIComponent(userId)}/listings/${encodeURIComponent(listingId)}`,
+    );
+    return response.data as { deleted: true; archived: true };
+  },
 };
 
 export function getListingCategoryName(item: ListingReviewItem): string {
   const form = item.form as Record<string, unknown> | null | undefined;
   const fromForm = form?.category;
-  if (typeof fromForm === 'string' && fromForm) return fromForm;
-  if (fromForm && typeof fromForm === 'object' && 'name' in fromForm) {
+  if (typeof fromForm === "string" && fromForm) return fromForm;
+  if (fromForm && typeof fromForm === "object" && "name" in fromForm) {
     const name = (fromForm as { name?: string }).name;
     if (name) return name;
   }
-  if (typeof item.category === 'string') return item.category;
-  if (item.category && typeof item.category === 'object') return item.category.name || '—';
-  return '—';
+  if (typeof item.category === "string") return item.category;
+  if (item.category && typeof item.category === "object")
+    return item.category.name || "—";
+  return "—";
 }
 
 export function getListingPropertyTypeName(item: ListingReviewItem): string {
   const form = item.form as Record<string, unknown> | null | undefined;
-  if (typeof form?.propertyType === 'string' && form.propertyType) return form.propertyType;
+  if (typeof form?.propertyType === "string" && form.propertyType)
+    return form.propertyType;
   if (item.property_type?.name) return item.property_type.name;
-  if (typeof item.propertyType === 'string') return item.propertyType;
-  if (item.propertyType && typeof item.propertyType === 'object') {
-    return item.propertyType.name || '—';
+  if (typeof item.propertyType === "string") return item.propertyType;
+  if (item.propertyType && typeof item.propertyType === "object") {
+    return item.propertyType.name || "—";
   }
-  return '—';
+  return "—";
 }
 
 export function getListingPrice(item: ListingReviewItem): string {
   const form = item.form as Record<string, unknown> | null | undefined;
   const price = item.price ?? form?.price;
-  if (form?.priceOnRequest || item.price_on_request) return 'On request';
-  if (price == null || price === '') return '—';
+  if (form?.priceOnRequest || item.price_on_request) return "On request";
+  if (price == null || price === "") return "—";
   const num = Number(price);
-  if (Number.isFinite(num)) return `₹ ${num.toLocaleString('en-IN')}`;
+  if (Number.isFinite(num)) return `₹ ${num.toLocaleString("en-IN")}`;
   return String(price);
 }
 
@@ -1141,9 +1338,9 @@ export function getHighlightedPropertyName(item: ListingReviewItem): string {
   const form = item.form as Record<string, unknown> | null | undefined;
   return (
     highlightName(item.highlights?.newPropertyName ?? null) ||
-    (typeof form?.propertyName === 'string' ? form.propertyName : '') ||
+    (typeof form?.propertyName === "string" ? form.propertyName : "") ||
     item.property_name?.name ||
-    ''
+    ""
   );
 }
 
@@ -1151,156 +1348,175 @@ export function getHighlightedLocationName(item: ListingReviewItem): string {
   const form = item.form as Record<string, unknown> | null | undefined;
   return (
     highlightName(item.highlights?.newLocation ?? null) ||
-    (typeof form?.location === 'string' ? form.location : '') ||
+    (typeof form?.location === "string" ? form.location : "") ||
     item.location?.name ||
-    ''
+    ""
   );
 }
 
 export function getHighlightedMicroMarketId(item: ListingReviewItem): string {
   const mm = item.highlights?.newMicroMarket;
-  if (mm && typeof mm === 'object' && typeof mm.id === 'string' && mm.id) return mm.id;
+  if (mm && typeof mm === "object" && typeof mm.id === "string" && mm.id)
+    return mm.id;
   // fallback: try any id present in form.dynamicData
-  const dynamic = (item.form?.dynamicData as Record<string, unknown> | undefined) || {};
+  const dynamic =
+    (item.form?.dynamicData as Record<string, unknown> | undefined) || {};
   const id =
-    (typeof dynamic.micromarket_id === 'string' && dynamic.micromarket_id) ||
-    (typeof dynamic.micro_market_id === 'string' && dynamic.micro_market_id) ||
-    '';
+    (typeof dynamic.micromarket_id === "string" && dynamic.micromarket_id) ||
+    (typeof dynamic.micro_market_id === "string" && dynamic.micro_market_id) ||
+    "";
 
   // Another fallback: listing has micromarket_id at top-level (spread from entity).
   const listingMmId = (item as any).micromarket_id;
-  if (typeof listingMmId === 'string' && listingMmId) return listingMmId;
+  if (typeof listingMmId === "string" && listingMmId) return listingMmId;
 
   // Or sometimes backend includes *_id inside form.
   const formAny = item.form as Record<string, unknown> | null | undefined;
   const formMmId = formAny?.micromarket_id || formAny?.micro_market_id;
-  if (typeof formMmId === 'string' && formMmId) return formMmId;
+  if (typeof formMmId === "string" && formMmId) return formMmId;
 
   return id;
 }
 
 export function getHighlightedMicroMarketName(item: ListingReviewItem): string {
   const mmHighlight = item.highlights?.newMicroMarket;
-  if (typeof mmHighlight === 'string') return mmHighlight;
-  if (mmHighlight && typeof mmHighlight === 'object' && typeof mmHighlight.name === 'string') {
+  if (typeof mmHighlight === "string") return mmHighlight;
+  if (
+    mmHighlight &&
+    typeof mmHighlight === "object" &&
+    typeof mmHighlight.name === "string"
+  ) {
     if (mmHighlight.name) return mmHighlight.name;
   }
 
   // Backend toModerationQueueItem provides `form.micromarket` as name
   const form = item.form as Record<string, unknown> | null | undefined;
   const formName =
-    (form?.micromarket && typeof form.micromarket === 'string' ? form.micromarket : '') ||
-    (form?.micro_market && typeof form.micro_market === 'string' ? form.micro_market : '');
+    (form?.micromarket && typeof form.micromarket === "string"
+      ? form.micromarket
+      : "") ||
+    (form?.micro_market && typeof form.micro_market === "string"
+      ? form.micro_market
+      : "");
 
   if (formName) return formName;
 
   // Fallback: top-level (if present)
   const top = (item as any).micromarket?.name;
-  if (typeof top === 'string' && top) return top;
+  if (typeof top === "string" && top) return top;
 
-  return '';
+  return "";
 }
 
 /** Custom / rejected names are not in the approved catalog — still need review. */
 function isCustomCatalogStatus(status?: string | null): boolean {
-  const value = String(status || '')
+  const value = String(status || "")
     .trim()
     .toLowerCase();
   if (!value) return false;
-  return value !== 'approved' && value !== 'admin_added';
+  return value !== "approved" && value !== "admin_added";
 }
 
 export function isPropertyNamePending(item: ListingReviewItem): boolean {
   const pn = item.highlights?.newPropertyName;
-  if (typeof pn === 'string') return !!pn;
+  if (typeof pn === "string") return !!pn;
   const status =
-    (pn && typeof pn === 'object' ? pn.status : null) || item.property_name?.status || '';
+    (pn && typeof pn === "object" ? pn.status : null) ||
+    item.property_name?.status ||
+    "";
   return isCustomCatalogStatus(status);
 }
 
 export function isLocationPending(item: ListingReviewItem): boolean {
   const loc = item.highlights?.newLocation;
-  if (typeof loc === 'string') return !!loc;
+  if (typeof loc === "string") return !!loc;
   const status =
-    (loc && typeof loc === 'object' ? loc.status : null) || item.location?.status || '';
+    (loc && typeof loc === "object" ? loc.status : null) ||
+    item.location?.status ||
+    "";
   return isCustomCatalogStatus(status);
 }
 
 export function hasCatalogSave(item: ListingReviewItem): boolean {
   if (item.actions?.catalogSaved) return true;
   const cs = item.catalogSave;
-  return !!(cs?.propertyName?.savedId || cs?.location?.savedId || cs?.microMarket?.savedId);
+  return !!(
+    cs?.propertyName?.savedId ||
+    cs?.location?.savedId ||
+    cs?.microMarket?.savedId
+  );
 }
 
 export function getCatalogSavedName(
   item: ListingReviewItem,
-  field: 'propertyName' | 'location' | 'microMarket',
+  field: "propertyName" | "location" | "microMarket",
 ): string {
-  return item.catalogSave?.[field]?.savedName || '';
+  return item.catalogSave?.[field]?.savedName || "";
 }
 
 export function getCatalogSavedId(
   item: ListingReviewItem,
-  field: 'propertyName' | 'location' | 'microMarket',
+  field: "propertyName" | "location" | "microMarket",
 ): string {
-  return item.catalogSave?.[field]?.savedId || '';
+  return item.catalogSave?.[field]?.savedId || "";
 }
 
 export function getCatalogOriginalName(
   item: ListingReviewItem,
-  field: 'propertyName' | 'location' | 'microMarket',
+  field: "propertyName" | "location" | "microMarket",
 ): string {
-  return item.catalogSave?.[field]?.originalName || '';
+  return item.catalogSave?.[field]?.originalName || "";
 }
 
 export function getReviewPickName(
   item: ListingReviewItem,
-  field: 'propertyName' | 'location' | 'microMarket',
+  field: "propertyName" | "location" | "microMarket",
 ): string {
-  return item.reviewPick?.[field]?.savedName || '';
+  return item.reviewPick?.[field]?.savedName || "";
 }
 
 export function getReviewPickId(
   item: ListingReviewItem,
-  field: 'propertyName' | 'location' | 'microMarket',
+  field: "propertyName" | "location" | "microMarket",
 ): string {
-  return item.reviewPick?.[field]?.savedId || '';
+  return item.reviewPick?.[field]?.savedId || "";
 }
 
 export function getReviewPickOriginalName(
   item: ListingReviewItem,
-  field: 'propertyName' | 'location' | 'microMarket',
+  field: "propertyName" | "location" | "microMarket",
 ): string {
-  return item.reviewPick?.[field]?.originalName || '';
+  return item.reviewPick?.[field]?.originalName || "";
 }
 
 export function getResubmissionPreviousName(
   item: ListingReviewItem,
-  field: 'propertyName' | 'location' | 'microMarket',
+  field: "propertyName" | "location" | "microMarket",
 ): string {
   const snap = item.resubmission;
-  if (!snap) return '';
-  if (field === 'propertyName') return snap.previousPropertyName?.trim() || '';
-  if (field === 'location') return snap.previousLocation?.trim() || '';
-  return snap.previousMicroMarket?.trim() || '';
+  if (!snap) return "";
+  if (field === "propertyName") return snap.previousPropertyName?.trim() || "";
+  if (field === "location") return snap.previousLocation?.trim() || "";
+  return snap.previousMicroMarket?.trim() || "";
 }
 
 export function isMicroMarketPending(item: ListingReviewItem): boolean {
   const mm = item.highlights?.newMicroMarket;
   const status =
-    (mm && typeof mm === 'object' ? mm.status : null) ||
+    (mm && typeof mm === "object" ? mm.status : null) ||
     (item as { micromarket?: { status?: string } }).micromarket?.status ||
-    '';
+    "";
   return isCustomCatalogStatus(status);
 }
 
 export function isForSaleTitleEnabled(item: ListingReviewItem): boolean {
-  if (typeof item.showForSaleInLocation === 'boolean') return item.showForSaleInLocation;
+  if (typeof item.showForSaleInLocation === "boolean")
+    return item.showForSaleInLocation;
   return false;
 }
 
 export function canToggleForSaleTitle(item: ListingReviewItem): boolean {
-  if (typeof item.actions?.canToggleForSaleTitle === 'boolean') {
+  if (typeof item.actions?.canToggleForSaleTitle === "boolean") {
     return item.actions.canToggleForSaleTitle;
   }
   return !!item.allowCustomName;
@@ -1309,124 +1525,129 @@ export function canToggleForSaleTitle(item: ListingReviewItem): boolean {
 export function getSubmittedBy(item: ListingReviewItem): string {
   const form = item.form as Record<string, unknown> | null | undefined;
   const fromForm = form?.submittedBy;
-  if (fromForm && typeof fromForm === 'object' && 'name' in fromForm) {
+  if (fromForm && typeof fromForm === "object" && "name" in fromForm) {
     const name = (fromForm as { name?: string }).name;
     if (name) return name;
   }
   if (item.user?.name) return item.user.name;
   const submitted = item.submittedBy;
-  if (submitted && typeof submitted === 'object' && 'name' in submitted && submitted.name) {
+  if (
+    submitted &&
+    typeof submitted === "object" &&
+    "name" in submitted &&
+    submitted.name
+  ) {
     return String(submitted.name);
   }
-  return '—';
+  return "—";
 }
 
 /** Normalize camelCase / snake_case / numbered keys to snake_case for matching. */
 function normalizeDetailKey(key: string): string {
   return key
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .replace(/([A-Za-z])(\d+)/g, '$1_$2')
-    .replace(/__+/g, '_')
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/([A-Za-z])(\d+)/g, "$1_$2")
+    .replace(/__+/g, "_")
     .toLowerCase();
 }
 
 const AREA_UNIT_DISPLAY: Record<string, string> = {
-  sq_yd: 'sq. yd.',
-  sq_yard: 'sq. yd.',
-  sqyd: 'sq. yd.',
-  yard: 'sq. yd.',
-  yards: 'sq. yd.',
-  square_yard: 'sq. yd.',
-  square_yards: 'sq. yd.',
-  sq_ft: 'sq. ft.',
-  sq_feet: 'sq. ft.',
-  sqft: 'sq. ft.',
-  ft: 'sq. ft.',
-  feet: 'sq. ft.',
-  square_feet: 'sq. ft.',
-  square_foot: 'sq. ft.',
-  sq_m: 'sq. m.',
-  sqm: 'sq. m.',
+  sq_yd: "sq. yd.",
+  sq_yard: "sq. yd.",
+  sqyd: "sq. yd.",
+  yard: "sq. yd.",
+  yards: "sq. yd.",
+  square_yard: "sq. yd.",
+  square_yards: "sq. yd.",
+  sq_ft: "sq. ft.",
+  sq_feet: "sq. ft.",
+  sqft: "sq. ft.",
+  ft: "sq. ft.",
+  feet: "sq. ft.",
+  square_feet: "sq. ft.",
+  square_foot: "sq. ft.",
+  sq_m: "sq. m.",
+  sqm: "sq. m.",
 };
 
 /** Form-module / listing-create flow order (location / property name / micromarket omitted — shown in summary). */
 const DETAIL_FIELD_ORDER: string[] = [
-  'category',
-  'building_type',
-  'property_type',
-  'price',
-  'price_on_request',
-  'bhk',
-  'area',
-  'area_1',
-  'area_2',
-  'area_3',
-  'area_type',
-  'area_type_1',
-  'area_type_2',
-  'area_type_3',
-  'property_direction',
-  'direction',
-  'property_facing',
-  'property_status',
-  'furnishing_status',
-  'leasing_status',
-  'floor',
-  'brokerage_share',
-  'mandate_deal',
-  'tenant_info',
-  'tenant_name',
-  'rent',
-  'security_deposit',
-  'leasing_tenure',
-  'lock_in_period',
-  'road_width',
-  'lift',
-  'additional_space',
-  'amenities',
-  'geo_location',
+  "category",
+  "building_type",
+  "property_type",
+  "price",
+  "price_on_request",
+  "bhk",
+  "area",
+  "area_1",
+  "area_2",
+  "area_3",
+  "area_type",
+  "area_type_1",
+  "area_type_2",
+  "area_type_3",
+  "property_direction",
+  "direction",
+  "property_facing",
+  "property_status",
+  "furnishing_status",
+  "leasing_status",
+  "floor",
+  "brokerage_share",
+  "mandate_deal",
+  "tenant_info",
+  "tenant_name",
+  "rent",
+  "security_deposit",
+  "leasing_tenure",
+  "lock_in_period",
+  "road_width",
+  "lift",
+  "additional_space",
+  "amenities",
+  "geo_location",
 ];
 
 const SKIP_DETAIL_KEYS = new Set([
-  'id',
-  'user_id',
-  'userid',
-  'created_at',
-  'updated_at',
-  'createdat',
-  'updatedat',
-  'created_by_admin_user_id',
-  'connected_staff_user_id',
-  'category_id',
-  'building_type_id',
-  'property_type_id',
-  'property_name_id',
-  'location_id',
-  'micromarket_id',
-  'micro_market_id',
-  'city_id',
-  'state_id',
-  'images',
-  'media',
-  'documents',
-  'dynamic_data',
-  'submitted_by',
+  "id",
+  "user_id",
+  "userid",
+  "created_at",
+  "updated_at",
+  "createdat",
+  "updatedat",
+  "created_by_admin_user_id",
+  "connected_staff_user_id",
+  "category_id",
+  "building_type_id",
+  "property_type_id",
+  "property_name_id",
+  "location_id",
+  "micromarket_id",
+  "micro_market_id",
+  "city_id",
+  "state_id",
+  "images",
+  "media",
+  "documents",
+  "dynamic_data",
+  "submitted_by",
   // Already in summary row
-  'title',
-  'display_title',
-  'property_name',
-  'location',
-  'micromarket',
-  'micro_market',
+  "title",
+  "display_title",
+  "property_name",
+  "location",
+  "micromarket",
+  "micro_market",
   // Consumed when merging area size + unit
-  'area_size',
-  'area_unit',
-  'area_size_1',
-  'area_unit_1',
-  'area_size_2',
-  'area_unit_2',
-  'area_size_3',
-  'area_unit_3',
+  "area_size",
+  "area_unit",
+  "area_size_1",
+  "area_unit_1",
+  "area_size_2",
+  "area_unit_2",
+  "area_size_3",
+  "area_unit_3",
 ]);
 
 function looksLikeUuid(value: string): boolean {
@@ -1438,94 +1659,106 @@ function looksLikeUuid(value: string): boolean {
 function shouldSkipDetailKey(norm: string): boolean {
   if (SKIP_DETAIL_KEYS.has(norm)) return true;
   if (/_id$/.test(norm)) return true;
-  if (norm === 'uuid' || norm.endsWith('_uuid')) return true;
+  if (norm === "uuid" || norm.endsWith("_uuid")) return true;
   return false;
 }
 
 function titleCaseWords(input: string): string {
   return input
-    .replace(/\s+/g, ' ')
+    .replace(/\s+/g, " ")
     .trim()
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function humanizeDetailToken(raw: string): string {
   const s = raw.trim();
-  if (!s) return '';
+  if (!s) return "";
 
-  const lower = s.toLowerCase().replace(/[\s.]+/g, '_').replace(/_+$/g, '');
+  const lower = s
+    .toLowerCase()
+    .replace(/[\s.]+/g, "_")
+    .replace(/_+$/g, "");
   if (AREA_UNIT_DISPLAY[lower]) return AREA_UNIT_DISPLAY[lower];
-  if (lower === 'yes' || lower === 'true') return 'Yes';
-  if (lower === 'no' || lower === 'false') return 'No';
-  if (lower === 'studio') return 'Studio';
-  if (lower === '6_plus_bhk') return '6+ BHK';
+  if (lower === "yes" || lower === "true") return "Yes";
+  if (lower === "no" || lower === "false") return "No";
+  if (lower === "studio") return "Studio";
+  if (lower === "6_plus_bhk") return "6+ BHK";
   const bhkMatch = lower.match(/^(\d+)_bhk$/);
   if (bhkMatch) return `${bhkMatch[1]} BHK`;
 
   // UUID — omit from readable detail rows
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return '';
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s))
+    return "";
   // Currency-looking or already spaced human text without underscores
   if (!/[_-]/.test(s)) {
-    if (/^[a-z]+$/i.test(s)) return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+    if (/^[a-z]+$/i.test(s))
+      return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
     return s;
   }
 
-  return titleCaseWords(s.replace(/[_-]+/g, ' '));
+  return titleCaseWords(s.replace(/[_-]+/g, " "));
 }
 
 function formatDetailLabel(key: string): string {
   const normalized = normalizeDetailKey(key);
-  if (normalized === 'area' || /^area_\d+$/.test(normalized)) {
-    return 'Area';
+  if (normalized === "area" || /^area_\d+$/.test(normalized)) {
+    return "Area";
   }
-  if (normalized === 'area_type' || /^area_type_\d+$/.test(normalized)) {
-    return 'Area Type';
+  if (normalized === "area_type" || /^area_type_\d+$/.test(normalized)) {
+    return "Area Type";
   }
-  if (normalized === 'bhk') return 'BHK';
-  if (normalized === 'price_on_request') return 'Price On Request';
+  if (normalized === "bhk") return "BHK";
+  if (normalized === "price_on_request") return "Price On Request";
   return titleCaseWords(
-    normalized
-      .replace(/_/g, ' ')
-      .replace(/\bmicromarket\b/g, 'Micro Market'),
+    normalized.replace(/_/g, " ").replace(/\bmicromarket\b/g, "Micro Market"),
   );
 }
 
 function formatDetailValue(value: unknown): string {
-  if (value == null || value === '') return '';
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (typeof value === 'number') return Number.isFinite(value) ? value.toLocaleString('en-IN') : String(value);
-  if (typeof value === 'string') return humanizeDetailToken(value);
+  if (value == null || value === "") return "";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number")
+    return Number.isFinite(value)
+      ? value.toLocaleString("en-IN")
+      : String(value);
+  if (typeof value === "string") return humanizeDetailToken(value);
   if (Array.isArray(value)) {
     return value
       .map((v) => {
-        if (typeof v === 'object' && v && 'name' in v) {
-          return humanizeDetailToken(String((v as { name?: string }).name || ''));
+        if (typeof v === "object" && v && "name" in v) {
+          return humanizeDetailToken(
+            String((v as { name?: string }).name || ""),
+          );
         }
-        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+        if (
+          typeof v === "string" ||
+          typeof v === "number" ||
+          typeof v === "boolean"
+        ) {
           return formatDetailValue(v);
         }
-        return '';
+        return "";
       })
       .filter(Boolean)
-      .join(', ');
+      .join(", ");
   }
-  if (typeof value === 'object' && value && 'name' in value) {
-    return humanizeDetailToken(String((value as { name?: string }).name || ''));
+  if (typeof value === "object" && value && "name" in value) {
+    return humanizeDetailToken(String((value as { name?: string }).name || ""));
   }
-  return '';
+  return "";
 }
 
 function formatAreaDisplay(sizeRaw: unknown, unitRaw: unknown): string {
   const sizeText =
-    typeof sizeRaw === 'number' && Number.isFinite(sizeRaw)
-      ? sizeRaw.toLocaleString('en-IN')
-      : sizeRaw != null && sizeRaw !== ''
+    typeof sizeRaw === "number" && Number.isFinite(sizeRaw)
+      ? sizeRaw.toLocaleString("en-IN")
+      : sizeRaw != null && sizeRaw !== ""
         ? String(sizeRaw).trim()
-        : '';
-  if (!sizeText) return '';
+        : "";
+  if (!sizeText) return "";
   const unitText =
-    unitRaw == null || unitRaw === ''
-      ? ''
+    unitRaw == null || unitRaw === ""
+      ? ""
       : humanizeDetailToken(String(unitRaw));
   return unitText ? `${sizeText} ${unitText}` : sizeText;
 }
@@ -1538,21 +1771,27 @@ function detailSortIndex(normalizedKey: string): number {
 export type ListingDetailRow = { key: string; label: string; value: string };
 
 /** Flatten form + dynamicData for expanded row details (form flow order, human-readable). */
-export function getListingDetailRows(item: ListingReviewItem): ListingDetailRow[] {
+export function getListingDetailRows(
+  item: ListingReviewItem,
+): ListingDetailRow[] {
   const form = (item.form || {}) as Record<string, unknown>;
   const dynamic =
-    form.dynamicData && typeof form.dynamicData === 'object'
+    form.dynamicData && typeof form.dynamicData === "object"
       ? (form.dynamicData as Record<string, unknown>)
       : {};
   const merged: Record<string, unknown> = { ...dynamic };
 
   for (const [key, value] of Object.entries(form)) {
-    if (key === 'dynamicData' || key === 'submittedBy') continue;
+    if (key === "dynamicData" || key === "submittedBy") continue;
     if (merged[key] === undefined) merged[key] = value;
   }
 
   // Prefer top-level relation names when form lacks them
-  if (!merged.buildingType && item.building_type && typeof item.building_type === 'object') {
+  if (
+    !merged.buildingType &&
+    item.building_type &&
+    typeof item.building_type === "object"
+  ) {
     merged.buildingType = (item.building_type as { name?: string }).name;
   }
 
@@ -1563,13 +1802,13 @@ export function getListingDetailRows(item: ListingReviewItem): ListingDetailRow[
   }
 
   // Merge area size + unit → "857 sq. yd."
-  const areaSuffixes = ['', '_1', '_2', '_3'];
+  const areaSuffixes = ["", "_1", "_2", "_3"];
   for (const suffix of areaSuffixes) {
     const sizeEntry = byNorm.get(`area_size${suffix}`);
     const unitEntry = byNorm.get(`area_unit${suffix}`);
     const combined = formatAreaDisplay(sizeEntry?.value, unitEntry?.value);
     if (combined) {
-      const areaKey = suffix ? `area${suffix}` : 'area';
+      const areaKey = suffix ? `area${suffix}` : "area";
       byNorm.set(areaKey, { originalKey: areaKey, value: combined });
     }
     byNorm.delete(`area_size${suffix}`);
@@ -1580,19 +1819,19 @@ export function getListingDetailRows(item: ListingReviewItem): ListingDetailRow[
   for (const [norm, entry] of byNorm) {
     if (shouldSkipDetailKey(norm)) continue;
     // area_size_N / area_unit_N already removed; also skip bare title variants
-    if (norm.startsWith('area_size') || norm.startsWith('area_unit')) continue;
+    if (norm.startsWith("area_size") || norm.startsWith("area_unit")) continue;
 
     let value: string;
-    if (norm === 'area' || /^area_\d+$/.test(norm)) {
+    if (norm === "area" || /^area_\d+$/.test(norm)) {
       // Already formatted by formatAreaDisplay (or pass-through string)
       value =
-        typeof entry.value === 'string'
+        typeof entry.value === "string"
           ? entry.value
           : formatDetailValue(entry.value);
-    } else if (norm === 'price') {
+    } else if (norm === "price") {
       const num = Number(entry.value);
       value = Number.isFinite(num)
-        ? `₹ ${num.toLocaleString('en-IN')}`
+        ? `₹ ${num.toLocaleString("en-IN")}`
         : formatDetailValue(entry.value);
     } else {
       value = formatDetailValue(entry.value);

@@ -87,15 +87,29 @@ function PlanCard({
 
       <div className="mt-4 rounded-lg bg-gray-50 px-4 py-3">
         <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-          Yearly subscription
+          Yearly subscription (exclusive of GST)
         </p>
         <p className="mt-1 text-2xl font-bold text-gray-900">
           {formatInrFromPaise(plan.pricePaise)}
         </p>
+        {plan.pricePaise != null && plan.pricePaise > 0 ? (
+          <p className="mt-1 text-sm text-gray-600">
+            Total with GST 18%:{" "}
+            {formatInrFromPaise(
+              plan.pricePaise + Math.round((plan.pricePaise * 18) / 100),
+            )}
+          </p>
+        ) : null}
         {plan.promoPricePaise != null ? (
           <p className="mt-1 text-sm text-emerald-700">
             Intro offer: {formatInrFromPaise(plan.promoPricePaise)}
             {plan.promoWindowDays != null ? ` for first ${plan.promoWindowDays} days` : ''}
+            {" · "}
+            with GST{" "}
+            {formatInrFromPaise(
+              plan.promoPricePaise +
+                Math.round((plan.promoPricePaise * 18) / 100),
+            )}
           </p>
         ) : null}
         {plan.trialDays != null ? (
@@ -181,6 +195,7 @@ export default function SubscriptionPlansPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [resyncing, setResyncing] = useState(false);
 
   const fetchPlans = useCallback(async () => {
     setLoading(true);
@@ -221,6 +236,24 @@ export default function SubscriptionPlansPage() {
     }
   };
 
+  const handleResyncRazorpay = async () => {
+    if (!canUpdate || resyncing) return;
+    setResyncing(true);
+    setError('');
+    try {
+      setPlans(await subscriptionsService.resyncYearlyRazorpayPlans());
+    } catch (err) {
+      setError(
+        subscriptionApiError(
+          err,
+          'Failed to resync Razorpay yearly plans (needed so autopay includes GST).',
+        ),
+      );
+    } finally {
+      setResyncing(false);
+    }
+  };
+
   return (
     <PermissionGuard permission="subscriptions:read">
       <div className="space-y-6">
@@ -238,20 +271,39 @@ export default function SubscriptionPlansPage() {
               Subscription Plans
             </h1>
             <p className="mt-1 max-w-3xl text-sm text-gray-500">
-              Manage what each partner plan includes — pricing in rupees, contact reveal limits,
-              active post caps, and optional features like boosts and builder packs.
+              Manage what each partner plan includes — pricing in rupees (exclusive of GST),
+              contact reveal limits, active post caps, and optional features. After deploy or
+              price changes, resync Razorpay yearly plans so renewals include GST.
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void fetchPlans()}
-            disabled={loading}
-          >
-            <RefreshCw className="mr-1.5 size-3.5" />
-            Refresh
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {canUpdate ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void handleResyncRazorpay()}
+                disabled={loading || resyncing}
+              >
+                {resyncing ? (
+                  <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-1.5 size-3.5" />
+                )}
+                Resync Razorpay (GST)
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void fetchPlans()}
+              disabled={loading}
+            >
+              <RefreshCw className="mr-1.5 size-3.5" />
+              Refresh
+            </Button>
+          </div>
         </div>
 
         {error ? (

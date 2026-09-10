@@ -10,6 +10,9 @@ export type AnalyticsUser = {
   name: string;
   contact: string;
   email: string;
+  city?: string;
+  companyName?: string;
+  address?: string;
 };
 
 export type PersonRow = {
@@ -19,6 +22,7 @@ export type PersonRow = {
   project: string;
   city: string;
   location: string;
+  bhk: string;
   occurredAt: string | null;
   channels: string[];
 };
@@ -202,6 +206,11 @@ function normalizeUser(raw: unknown): AnalyticsUser | null {
     name: pickString(nested.name, nested.fullName, nested.full_name),
     contact: pickString(nested.contact, nested.phone, nested.mobile),
     email: pickString(nested.email),
+    city: pickString(nested.city, nested.cityName, nested.city_name) || undefined,
+    companyName:
+      pickString(nested.companyName, nested.company_name, nested.company) ||
+      undefined,
+    address: pickString(nested.address) || undefined,
   };
 }
 
@@ -252,6 +261,7 @@ function normalizePerson(raw: unknown, index: number): PersonRow | null {
     project,
     city: pickString(row.city, row.cityName, row.city_name),
     location: pickString(row.location, row.locationName, row.location_name),
+    bhk: pickString(row.bhk, row.BHK),
     occurredAt,
     channels: normalizeChannels(row),
   };

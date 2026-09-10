@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode } from 'react';
+import { formatDisplayDate, formatDisplayDateTime } from '@/lib/format-date';
 import { cn } from '@/lib/utils';
 import { MarkdownText } from './markdown-text';
 import type { BroadcastMedia } from '@/services/notifications.service';
@@ -28,16 +29,8 @@ export type BubbleMessage = {
 export type BubbleStatus = 'pending' | 'processing' | 'sent' | 'failed';
 
 export function formatDateTime(value?: string | Date | null) {
-  if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleString(undefined, {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  if (value == null || value === '') return '';
+  return formatDisplayDateTime(value);
 }
 
 function StatusTick({ status }: { status: BubbleStatus }) {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { axiosClient } from '@/lib/axios-client';
+import { formatDisplayDateTime } from '@/lib/format-date';
 import { ExternalLink, Loader2 } from 'lucide-react';
 
 type DocRow = {
@@ -58,16 +59,7 @@ function typeLabel(type: string) {
 }
 
 function formatWhen(value?: string | null) {
-  if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleString(undefined, {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDisplayDateTime(value);
 }
 
 /** Latest file per type. Older rejected copies stay as a one-line note, not a second card. */

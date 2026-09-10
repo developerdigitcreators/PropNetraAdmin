@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { formatDisplayDateTime } from "@/lib/format-date";
 import { locationService } from "@/services/location.service";
 import { listingConfigService } from "@/services/listing-config.service";
 import {
@@ -753,10 +754,7 @@ function addLocationChip(
 }
 
 function formatReviewLogAt(at?: string) {
-  if (!at) return "";
-  const d = new Date(at);
-  if (Number.isNaN(d.getTime())) return at;
-  return d.toLocaleString();
+  return formatDisplayDateTime(at);
 }
 
 export function ListingReviewTable({
@@ -1574,9 +1572,9 @@ export function ListingReviewTable({
                             {getSubmittedBy(item)}
                             {(item.created_at || item.createdAt) && (
                               <p className="text-[10px] text-gray-400 mt-1">
-                                {new Date(
+                                {formatDisplayDateTime(
                                   item.created_at || item.createdAt!,
-                                ).toLocaleString()}
+                                )}
                               </p>
                             )}
                           </div>

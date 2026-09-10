@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuthStore } from "@/store/use-auth-store";
+import { formatDisplayDateTime } from "@/lib/format-date";
 import { PermissionGuard } from "@/components/common/permission-guard";
 import { Breadcrumb } from "@/components/common/breadcrumb";
 import { DateRangePicker } from "@/components/common/date-range-picker";
@@ -111,16 +112,7 @@ const FALLBACK_PLANS = [
 ];
 
 function formatDateTime(value?: string | null) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDisplayDateTime(value);
 }
 
 function labelize(value?: string | null) {
@@ -939,7 +931,18 @@ export default function SubscriptionTrackingPage() {
                             {formatDateTime(row.currentPeriodEnd)}
                           </td>
                           <td className="px-4 py-3 text-gray-700">
-                            {row.autopayEnabled ? "On" : "Off"}
+                            {row.autopayEnabled ? (
+                              "On"
+                            ) : (
+                              <span className="inline-flex flex-col gap-0.5">
+                                <span>Off</span>
+                                {row.billingState === "autopay_cancelled" ? (
+                                  <span className="text-[10px] text-amber-700">
+                                    Renew Autopay not linked
+                                  </span>
+                                ) : null}
+                              </span>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-gray-700">
                             {row.openDeclineCount || 0}

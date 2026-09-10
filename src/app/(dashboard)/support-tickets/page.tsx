@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
+import { formatDisplayDateTime } from '@/lib/format-date';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { Button } from '@/components/ui/button';
@@ -36,16 +37,7 @@ import {
 } from 'lucide-react';
 
 function formatDateTime(value?: string | null) {
-  if (!value) return '—';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString(undefined, {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDisplayDateTime(value);
 }
 
 function statusLabel(status: TicketStatus) {
@@ -143,13 +135,13 @@ export default function SupportTicketsPage() {
     setDetailError('');
     setRemarkDraft('');
     setEditingRemark(null);
-    setNextStatus(row.status === 'pending' ? 'resolved' : 'closed');
+    setNextStatus(row.status);
     setDetailLoading(true);
     try {
       const next = await supportTicketsService.get(row.id);
       if (next) {
         applyDetail(next);
-        setNextStatus(next.status === 'pending' ? 'resolved' : 'closed');
+        setNextStatus(next.status);
       }
     } catch (err) {
       setDetailError(ticketApiError(err, 'Failed to load ticket.'));
@@ -175,6 +167,7 @@ export default function SupportTicketsPage() {
 
   const handleStatusChange = async () => {
     if (!detail || !remarkDraft.trim() || statusBusy || !canUpdate) return;
+    if (detail.status === 'resolved' || detail.status === 'closed') return;
     setStatusBusy(true);
     setDetailError('');
     try {
@@ -247,6 +240,133 @@ export default function SupportTicketsPage() {
 
   const remarks = detail?.remarks || [];
   const messages = detail?.messages || [];
+  const statusLocked =
+    detail?.status === 'resolved' || detail?.status === 'closed';
+  const firstMessageId = messages[0]?.id ?? null;
+  const remarksForMessage = (messageId: string, isFirst: boolean) =>
+    remarks
+      .filter(
+        (remark) =>
+          remark.messageId === messageId ||
+          (isFirst && !remark.messageId),
+      )
+      .slice()
+      .sort((a, b) => {
+        const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return ta - tb;
+      });
+  const orphanRemarks =
+    !firstMessageId
+      ? remarks
+          .filter((remark) => !remark.messageId)
+          .slice()
+          .sort((a, b) => {
+            const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return ta - tb;
+          })
+      : [];
+
+  const renderRemarkItem = (remark: TicketRemark) => {
+    const isEditing = editingRemark?.id === remark.id;
+    return (
+      <li
+        key={remark.id}
+        className="rounded-lg border border-gray-100 bg-gray-50/80 px-2.5 py-2 text-sm"
+      >
+        {isEditing ? (
+          <div className="space-y-2">
+            <textarea
+              value={editDraft}
+              onChange={(e) => setEditDraft(e.target.value)}
+              rows={3}
+              className="min-h-[64px] w-full resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEditingRemark(null)}
+                disabled={editBusy}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void handleSaveRemark()}
+                disabled={!editDraft.trim() || editBusy}
+                className="bg-primary text-white hover:bg-primary/90"
+              >
+                {editBusy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                Save
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="whitespace-pre-wrap break-words text-gray-800">{remark.text}</p>
+            <div className="mt-1.5 flex items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <Badge className="bg-sky-100 font-medium capitalize text-sky-800">
+                  {remark.createdBy.role || remark.createdBy.name || 'Admin'}
+                </Badge>
+                {remark.createdBy.role &&
+                remark.createdBy.name &&
+                remark.createdBy.role.toLowerCase() !==
+                  remark.createdBy.name.toLowerCase() ? (
+                  <Badge className="bg-slate-100 text-slate-600">
+                    {remark.createdBy.name}
+                  </Badge>
+                ) : null}
+                {remark.visibility === 'admin' ? (
+                  <Badge className="bg-violet-100 text-violet-700">Admin only</Badge>
+                ) : null}
+                <Badge
+                  className={
+                    remark.status
+                      ? statusClass(remark.status)
+                      : 'bg-gray-100 text-gray-500'
+                  }
+                >
+                  {remark.status ? statusLabel(remark.status) : 'No status'}
+                </Badge>
+                <span className="text-[10px] text-gray-400">
+                  {formatDateTime(remark.updatedAt || remark.createdAt)}
+                </span>
+              </div>
+              <div className="flex items-center">
+                {canUpdate && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    title="Edit remark"
+                    onClick={() => {
+                      setEditingRemark(remark);
+                      setEditDraft(remark.text);
+                    }}
+                  >
+                    <Edit2 className="h-3.5 w-3.5 text-gray-500" />
+                  </Button>
+                )}
+                {canDelete && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    title="Delete remark"
+                    className="text-red-500 hover:bg-red-50 hover:text-red-600"
+                    onClick={() => setToDeleteRemark(remark)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </li>
+    );
+  };
 
   return (
     <PermissionGuard
@@ -481,31 +601,49 @@ export default function SupportTicketsPage() {
 
               <div className="space-y-1.5">
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
-                  User messages
+                  Episodes & remarks
                 </p>
                 {messages.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-gray-200 py-3 text-center text-sm text-gray-500">
                     No messages.
                   </p>
                 ) : (
-                  <ul className="space-y-2">
-                    {messages.map((message) => (
-                      <li
-                        key={message.id}
-                        className="rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-sm"
-                      >
-                        <p className="text-[10px] font-medium uppercase tracking-wide text-orange-500">
-                          {message.kind === 'reissue' ? 'Reissue' : 'Opened'}
-                        </p>
-                        <p className="mt-1 whitespace-pre-wrap break-words text-gray-800">
-                          {message.body}
-                        </p>
-                        <p className="mt-1.5 text-[10px] text-gray-400">
-                          {formatDateTime(message.createdAt)}
-                        </p>
-                      </li>
-                    ))}
+                  <ul className="space-y-3">
+                    {messages.map((message, index) => {
+                      const episodeRemarks = remarksForMessage(message.id, index === 0);
+                      return (
+                        <li
+                          key={message.id}
+                          className="rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-sm"
+                        >
+                          <p className="text-[10px] font-medium uppercase tracking-wide text-orange-500">
+                            {message.kind === 'reissue' ? 'Reissue' : 'Opened'}
+                          </p>
+                          <p className="mt-1 whitespace-pre-wrap break-words text-gray-800">
+                            {message.body}
+                          </p>
+                          <p className="mt-1.5 text-[10px] text-gray-400">
+                            {formatDateTime(message.createdAt)}
+                          </p>
+                          {episodeRemarks.length > 0 && (
+                            <ul className="mt-2 max-h-48 space-y-1.5 overflow-y-auto border-t border-gray-100 pt-2 pr-1">
+                              {episodeRemarks.map((remark) => renderRemarkItem(remark))}
+                            </ul>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
+                )}
+                {orphanRemarks.length > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
+                      Earlier remarks
+                    </p>
+                    <ul className="space-y-1.5">
+                      {orphanRemarks.map((remark) => renderRemarkItem(remark))}
+                    </ul>
+                  </div>
                 )}
               </div>
 
@@ -514,6 +652,13 @@ export default function SupportTicketsPage() {
                   <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
                     Change status (remark required)
                   </p>
+                  {statusLocked ? (
+                    <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      Save status is locked while this ticket is {statusLabel(detail.status)}. The
+                      user must reissue before you can change status again. You can still add
+                      admin-only remarks.
+                    </p>
+                  ) : null}
                   <div className="flex flex-wrap gap-2">
                     {(['pending', 'resolved', 'closed'] as TicketStatus[]).map((status) => (
                       <Button
@@ -522,6 +667,7 @@ export default function SupportTicketsPage() {
                         size="sm"
                         variant={nextStatus === status ? 'default' : 'outline'}
                         onClick={() => setNextStatus(status)}
+                        disabled={statusLocked}
                       >
                         {statusLabel(status)}
                       </Button>
@@ -531,14 +677,20 @@ export default function SupportTicketsPage() {
                     value={remarkDraft}
                     onChange={(e) => setRemarkDraft(e.target.value)}
                     rows={3}
-                    placeholder="Write a review / remark before changing status…"
+                    placeholder={
+                      statusLocked
+                        ? 'Write an admin-only remark…'
+                        : 'Write a remark (visible to user when saving status)…'
+                    }
                     className="min-h-[72px] w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
                   />
                   <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
                       onClick={() => void handleStatusChange()}
-                      disabled={!remarkDraft.trim() || statusBusy || nextStatus === detail.status}
+                      disabled={
+                        statusLocked || !remarkDraft.trim() || statusBusy
+                      }
                       className="bg-primary text-white hover:bg-primary/90"
                       size="sm"
                     >
@@ -575,7 +727,7 @@ export default function SupportTicketsPage() {
                     onChange={(e) => setRemarkDraft(e.target.value)}
                     rows={3}
                     placeholder="Write a remark…"
-                    className="min-h-[72px] w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                    className="min-h-[72px] w-full resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm"
                   />
                   <Button
                     type="button"
@@ -593,99 +745,6 @@ export default function SupportTicketsPage() {
                   </Button>
                 </div>
               )}
-
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
-                  Remarks ({remarks.length})
-                </p>
-                {detailLoading ? (
-                  <Loader2 className="mx-auto my-4 h-5 w-5 animate-spin text-primary" />
-                ) : remarks.length === 0 ? (
-                  <p className="rounded-xl border border-dashed border-gray-200 py-4 text-center text-sm text-gray-500">
-                    No remarks yet.
-                  </p>
-                ) : (
-                  <ul className="max-h-64 space-y-2 overflow-y-auto pr-1">
-                    {remarks.map((remark) => {
-                      const isEditing = editingRemark?.id === remark.id;
-                      return (
-                        <li
-                          key={remark.id}
-                          className="rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-sm"
-                        >
-                          {isEditing ? (
-                            <div className="space-y-2">
-                              <textarea
-                                value={editDraft}
-                                onChange={(e) => setEditDraft(e.target.value)}
-                                rows={3}
-                                className="min-h-[64px] w-full resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm"
-                              />
-                              <div className="flex justify-end gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => setEditingRemark(null)}
-                                  disabled={editBusy}
-                                >
-                                  Cancel
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  onClick={() => void handleSaveRemark()}
-                                  disabled={!editDraft.trim() || editBusy}
-                                  className="bg-primary text-white hover:bg-primary/90"
-                                >
-                                  {editBusy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-                                  Save
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <>
-                              <p className="whitespace-pre-wrap break-words text-gray-800">
-                                {remark.text}
-                              </p>
-                              <div className="mt-1.5 flex items-center justify-between gap-2">
-                                <p className="text-[10px] text-gray-400">
-                                  {remark.createdBy.name ? `${remark.createdBy.name} · ` : ''}
-                                  {formatDateTime(remark.updatedAt || remark.createdAt)}
-                                </p>
-                                <div className="flex items-center">
-                                  {canUpdate && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      title="Edit remark"
-                                      onClick={() => {
-                                        setEditingRemark(remark);
-                                        setEditDraft(remark.text);
-                                      }}
-                                    >
-                                      <Edit2 className="h-3.5 w-3.5 text-gray-500" />
-                                    </Button>
-                                  )}
-                                  {canDelete && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      title="Delete remark"
-                                      className="text-red-500 hover:bg-red-50 hover:text-red-600"
-                                      onClick={() => setToDeleteRemark(remark)}
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  )}
-                                </div>
-                              </div>
-                            </>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
             </div>
           ) : null}
         </DialogContent>

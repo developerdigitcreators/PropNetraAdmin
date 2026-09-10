@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, Fragment } from "react";
+import { formatDisplayDateTime } from "@/lib/format-date";
 import { UserFormModal } from "@/modules/rbac/user-form-modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +21,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { resolvePlanChip } from "@/lib/plan-labels";
 import { rbacService } from "@/services/rbac.service";
 import {
   adminUsersService,
@@ -100,16 +102,7 @@ const STEP_CHIP: Record<string, { label: string; className: string }> = {
 };
 
 function formatDateTime(value?: string | Date | null) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDisplayDateTime(value);
 }
 
 const DOC_STATUS_CHIP: Record<string, { label: string; className: string }> = {
@@ -132,41 +125,6 @@ const DOC_STATUS_CHIP: Record<string, { label: string; className: string }> = {
   reuploaded: {
     label: "Reuploaded",
     className: "bg-violet-50 text-violet-800 border-violet-200",
-  },
-};
-
-const PLAN_CHIP: Record<string, { label: string; className: string }> = {
-  free: {
-    label: "Free",
-    className: "bg-sky-50 text-sky-800 border-sky-200",
-  },
-  "free trial": {
-    label: "Free",
-    className: "bg-sky-50 text-sky-800 border-sky-200",
-  },
-  free_trial: {
-    label: "Free",
-    className: "bg-sky-50 text-sky-800 border-sky-200",
-  },
-  "lifetime free": {
-    label: "Lifetime Free",
-    className: "bg-slate-100 text-slate-800 border-slate-300",
-  },
-  lifetime_free: {
-    label: "Lifetime Free",
-    className: "bg-slate-100 text-slate-800 border-slate-300",
-  },
-  network: {
-    label: "Network",
-    className: "bg-indigo-50 text-indigo-800 border-indigo-200",
-  },
-  pro: {
-    label: "Pro",
-    className: "bg-amber-50 text-amber-900 border-amber-200",
-  },
-  elite: {
-    label: "Elite",
-    className: "bg-violet-50 text-violet-900 border-violet-200",
   },
 };
 
@@ -198,22 +156,13 @@ function PlanBadge({
   label?: string | null;
   planCode?: string | null;
 }) {
-  const raw = String(label || planCode || "").trim();
-  if (!raw) {
+  const chip = resolvePlanChip(label, planCode);
+  if (!chip) {
     return <span className="text-gray-400 text-xs">—</span>;
   }
-  const key = raw.toLowerCase().replace(/_/g, " ");
-  const codeKey = String(planCode || "").toLowerCase();
-  const chip =
-    PLAN_CHIP[key] ||
-    PLAN_CHIP[codeKey] ||
-    PLAN_CHIP[codeKey.replace(/_/g, " ")];
   return (
-    <Badge
-      variant="outline"
-      className={chip?.className || "text-gray-700 border-gray-200 bg-gray-50"}
-    >
-      {chip?.label || raw}
+    <Badge variant="outline" className={chip.className}>
+      {chip.label}
     </Badge>
   );
 }
@@ -1667,10 +1616,10 @@ export function AppUsersTable({ tab }: Props) {
                                     }
                                   />
                                   <span
-                                    className={`text-xs font-medium ${
+                                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
                                       isActive
-                                        ? "text-green-700"
-                                        : "text-gray-500"
+                                        ? "bg-green-50 text-green-700"
+                                        : "bg-red-50 text-red-700"
                                     }`}
                                   >
                                     {busy

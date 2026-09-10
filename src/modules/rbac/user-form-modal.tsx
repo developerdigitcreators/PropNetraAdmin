@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { formatDisplayDateTime } from '@/lib/format-date';
 import { Loader2 } from 'lucide-react';
 
 interface UserFormModalProps {
@@ -34,16 +35,7 @@ interface UserFormModalProps {
 }
 
 function formatLogTime(value?: string) {
-  if (!value) return '—';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString(undefined, {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDisplayDateTime(value);
 }
 
 function digitsOnly(value: string, max = 10) {

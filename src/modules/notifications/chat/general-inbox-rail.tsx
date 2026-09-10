@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { formatDisplayDate } from '@/lib/format-date';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import type {
@@ -37,9 +38,13 @@ function previewTime(value?: string | null) {
   if (Number.isNaN(d.getTime())) return '';
   const today = new Date();
   if (d.toDateString() === today.toDateString()) {
-    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const hours = d.getHours();
+    const minutes = d.getMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const h12 = hours % 12 || 12;
+    return `${h12}:${String(minutes).padStart(2, '0')} ${ampm}`;
   }
-  return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
+  return formatDisplayDate(d);
 }
 
 export function GeneralInboxRail({

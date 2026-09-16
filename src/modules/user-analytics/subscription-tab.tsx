@@ -862,7 +862,10 @@ function paymentDetailRows(item: HistoryItem) {
     const prev = item.meta?.previousAutopay;
     const next = item.meta?.newAutopay;
     if (prev?.planCode) {
-      rows.push({ label: "Previous plan", value: labelize(prev.planCode) });
+      rows.push({
+        label: "Previous plan",
+        value: planLabelFromCode(prev.planCode) || labelize(prev.planCode),
+      });
     }
     if (prev?.renewalPricePaise != null) {
       rows.push({
@@ -878,7 +881,10 @@ function paymentDetailRows(item: HistoryItem) {
       });
     }
     if (next?.planCode) {
-      rows.push({ label: "New plan", value: labelize(next.planCode) });
+      rows.push({
+        label: "New plan",
+        value: planLabelFromCode(next.planCode) || labelize(next.planCode),
+      });
     }
     if (next?.renewalPricePaise != null) {
       rows.push({

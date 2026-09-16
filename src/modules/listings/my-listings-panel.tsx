@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   listingsService,
   getListingDetailRows,
@@ -10,30 +10,37 @@ import {
   type MyListingDetail,
   type MyListingItem,
   type MyListingsTab,
-} from '@/services/listings.service';
-import { PermissionGuard } from '@/components/common/permission-guard';
-import { PaginationBar } from '@/components/common/pagination-bar';
-import { newFirstCellClass, NewTag } from '@/components/common/new-row-marker';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+} from "@/services/listings.service";
+import { PermissionGuard } from "@/components/common/permission-guard";
+import { PaginationBar } from "@/components/common/pagination-bar";
+import { newFirstCellClass, NewTag } from "@/components/common/new-row-marker";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { useAuthStore } from '@/store/use-auth-store';
-import { formatDisplayDateTime } from '@/lib/format-date';
-import { isSuperAdmin } from '@/lib/super-admin';
-import { Inbox, Loader2, MessageSquare, Plus, RefreshCw, Users } from 'lucide-react';
+} from "@/components/ui/dialog";
+import { useAuthStore } from "@/store/use-auth-store";
+import { formatDisplayDateTime } from "@/lib/format-date";
+import { isSuperAdmin } from "@/lib/super-admin";
+import {
+  Inbox,
+  Loader2,
+  MessageSquare,
+  Plus,
+  RefreshCw,
+  Users,
+} from "lucide-react";
 
 function formatDateTime(value?: string | Date | null) {
   return formatDisplayDateTime(value);
@@ -43,22 +50,28 @@ function stopRowClick(event: React.MouseEvent) {
   event.stopPropagation();
 }
 
-function DetailField({ label, value }: { label: string; value?: string | null }) {
+function DetailField({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | null;
+}) {
   return (
     <div>
       <p className="text-xs uppercase tracking-wide text-gray-400">{label}</p>
-      <p className="text-sm font-medium text-gray-900">{value || '—'}</p>
+      <p className="text-sm font-medium text-gray-900">{value || "—"}</p>
     </div>
   );
 }
 
-type StatusFilter = 'all' | 'active' | 'expired' | 'inactive';
+type StatusFilter = "all" | "active" | "expired" | "inactive";
 
 function statusBadge(item: MyListingItem) {
-  if (item.status === 'expired') return 'Expired';
-  if (!item.isActive) return 'Inactive';
+  if (item.status === "expired") return "Expired";
+  if (!item.isActive) return "Inactive";
   if (item.expiringSoon) return `Expiring (${item.daysLeft}d)`;
-  return 'Active';
+  return "Active";
 }
 
 export function MyListingsPanel() {
@@ -72,11 +85,19 @@ export function MyListingsPanel() {
     [user, permissions, activeRole, accessToken],
   );
 
-  const [tab, setTab] = useState<MyListingsTab>('admin_verified');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
-  const [selectedBuildingTypeId, setSelectedBuildingTypeId] = useState<string>('');
-  const [selectedPropertyTypeId, setSelectedPropertyTypeId] = useState<string>('__ALL__');
+  const [tab, setTab] = useState<MyListingsTab>("admin_verified");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [companyNameInput, setCompanyNameInput] = useState("");
+  const [usernameInput, setUsernameInput] = useState("");
+  const [leadInput, setLeadInput] = useState("");
+  const [companyNameFilter, setCompanyNameFilter] = useState("");
+  const [usernameFilter, setUsernameFilter] = useState("");
+  const [leadFilter, setLeadFilter] = useState("");
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
+  const [selectedBuildingTypeId, setSelectedBuildingTypeId] =
+    useState<string>("");
+  const [selectedPropertyTypeId, setSelectedPropertyTypeId] =
+    useState<string>("__ALL__");
   const [items, setItems] = useState<MyListingItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -94,19 +115,33 @@ export function MyListingsPanel() {
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
   const [remarksOpen, setRemarksOpen] = useState(false);
-  const [remarksListing, setRemarksListing] = useState<MyListingItem | null>(null);
+  const [remarksListing, setRemarksListing] = useState<MyListingItem | null>(
+    null,
+  );
   const [remarks, setRemarks] = useState<
-    Array<{ id: string; body: string; author: { id: string; name: string } | null; createdAt: string }>
+    Array<{
+      id: string;
+      body: string;
+      author: { id: string; name: string } | null;
+      createdAt: string;
+    }>
   >([]);
-  const [remarkText, setRemarkText] = useState('');
+  const [remarkText, setRemarkText] = useState("");
   const [remarksLoading, setRemarksLoading] = useState(false);
   const [interestOpen, setInterestOpen] = useState(false);
-  const [interestListing, setInterestListing] = useState<MyListingItem | null>(null);
-  const [interestDetails, setInterestDetails] = useState<ListingInterestDetails | null>(null);
+  const [interestListing, setInterestListing] = useState<MyListingItem | null>(
+    null,
+  );
+  const [interestDetails, setInterestDetails] =
+    useState<ListingInterestDetails | null>(null);
   const [interestLoading, setInterestLoading] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [detailListing, setDetailListing] = useState<MyListingItem | null>(null);
-  const [listingDetail, setListingDetail] = useState<MyListingDetail | null>(null);
+  const [detailListing, setDetailListing] = useState<MyListingItem | null>(
+    null,
+  );
+  const [listingDetail, setListingDetail] = useState<MyListingDetail | null>(
+    null,
+  );
   const [detailLoading, setDetailLoading] = useState(false);
 
   const fetchList = useCallback(async () => {
@@ -119,8 +154,15 @@ export function MyListingsPanel() {
         categoryId: selectedCategoryId || undefined,
         buildingTypeId: selectedBuildingTypeId || undefined,
         propertyTypeId:
-          selectedPropertyTypeId === '__ALL__' ? undefined : selectedPropertyTypeId,
-        status: statusFilter === 'all' ? undefined : statusFilter,
+          selectedPropertyTypeId === "__ALL__"
+            ? undefined
+            : selectedPropertyTypeId,
+        status: statusFilter === "all" ? undefined : statusFilter,
+        companyName:
+          tab === "app_postings" ? companyNameFilter || undefined : undefined,
+        username:
+          tab === "app_postings" ? usernameFilter || undefined : undefined,
+        lead: tab === "admin_verified" ? leadFilter || undefined : undefined,
       });
       setItems(result.items);
       setTotal(result.total);
@@ -140,7 +182,23 @@ export function MyListingsPanel() {
     selectedBuildingTypeId,
     selectedPropertyTypeId,
     statusFilter,
+    companyNameFilter,
+    usernameFilter,
+    leadFilter,
   ]);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setCompanyNameFilter(companyNameInput.trim());
+      setUsernameFilter(usernameInput.trim());
+      setLeadFilter(leadInput.trim());
+    }, 350);
+    return () => window.clearTimeout(handle);
+  }, [companyNameInput, usernameInput, leadInput]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [companyNameFilter, usernameFilter, leadFilter]);
 
   useEffect(() => {
     void fetchList();
@@ -150,7 +208,7 @@ export function MyListingsPanel() {
     setRemarksListing(item);
     setRemarksOpen(true);
     setRemarksLoading(true);
-    setRemarkText('');
+    setRemarkText("");
     try {
       const rows = await listingsService.getAdminListingRemarks(item.id);
       setRemarks(rows);
@@ -208,9 +266,14 @@ export function MyListingsPanel() {
     if (!remarksListing || !remarkText.trim()) return;
     setActionId(remarksListing.id);
     try {
-      await listingsService.addAdminListingRemark(remarksListing.id, remarkText.trim());
-      setRemarkText('');
-      const rows = await listingsService.getAdminListingRemarks(remarksListing.id);
+      await listingsService.addAdminListingRemark(
+        remarksListing.id,
+        remarkText.trim(),
+      );
+      setRemarkText("");
+      const rows = await listingsService.getAdminListingRemarks(
+        remarksListing.id,
+      );
       setRemarks(rows);
     } finally {
       setActionId(null);
@@ -248,17 +311,21 @@ export function MyListingsPanel() {
   const categorySum = filters.categories.reduce((a, c) => a + c.total, 0);
   const buildingSum = filters.buildingTypes.reduce((a, c) => a + c.total, 0);
   const propertySum = filters.propertyTypes.reduce((a, c) => a + c.total, 0);
-  const selectedCategory = filters.categories.find((c) => c.id === selectedCategoryId);
-  const selectedBuildingType = filters.buildingTypes.find((b) => b.id === selectedBuildingTypeId);
+  const selectedCategory = filters.categories.find(
+    (c) => c.id === selectedCategoryId,
+  );
+  const selectedBuildingType = filters.buildingTypes.find(
+    (b) => b.id === selectedBuildingTypeId,
+  );
   const selectedPropertyType =
-    selectedPropertyTypeId === '__ALL__'
-      ? { name: 'All', total: total }
+    selectedPropertyTypeId === "__ALL__"
+      ? { name: "All", total: total }
       : filters.propertyTypes.find((p) => p.id === selectedPropertyTypeId);
   const statusLabels: Record<StatusFilter, string> = {
-    all: 'All',
-    active: 'Active',
-    inactive: 'Inactive',
-    expired: 'Expired',
+    all: "All",
+    active: "Active",
+    inactive: "Inactive",
+    expired: "Expired",
   };
 
   return (
@@ -273,10 +340,14 @@ export function MyListingsPanel() {
       <div className="space-y-6 pb-12">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900">My Listings</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+              My Listings
+            </h1>
             <p className="mt-1 text-gray-500">
               Admin-posted verified listings assigned to you
-              {superAdmin ? ', plus all admin posts and app user postings.' : '.'}
+              {superAdmin
+                ? ", plus all admin posts and app user postings."
+                : "."}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -308,27 +379,38 @@ export function MyListingsPanel() {
           }}
         >
           <TabsList className="mb-4 h-auto border bg-white p-1 shadow-sm">
-            <TabsTrigger value="admin_verified" className="rounded-md px-6 text-sm">
+            <TabsTrigger
+              value="admin_verified"
+              className="rounded-md px-6 text-sm"
+            >
               Admin Verified
             </TabsTrigger>
             {superAdmin ? (
-              <TabsTrigger value="app_postings" className="rounded-md px-6 text-sm">
+              <TabsTrigger
+                value="app_postings"
+                className="rounded-md px-6 text-sm"
+              >
                 App Postings
               </TabsTrigger>
             ) : null}
           </TabsList>
 
-          <TabsContent value={tab} className="space-y-4 focus-visible:outline-none">
+          <TabsContent
+            value={tab}
+            className="space-y-4 focus-visible:outline-none"
+          >
             <div className="flex flex-wrap items-end gap-4">
               <div className="min-w-[200px]">
-                <p className="mb-1 text-xs text-gray-500">Category ({categorySum})</p>
+                <p className="mb-1 text-xs text-gray-500">
+                  Category ({categorySum})
+                </p>
                 <Select
                   value={selectedCategoryId}
                   onValueChange={(v) => {
                     if (!v) return;
                     setSelectedCategoryId(v);
-                    setSelectedBuildingTypeId('');
-                    setSelectedPropertyTypeId('__ALL__');
+                    setSelectedBuildingTypeId("");
+                    setSelectedPropertyTypeId("__ALL__");
                     setPage(1);
                   }}
                 >
@@ -351,21 +433,24 @@ export function MyListingsPanel() {
                 </Select>
               </div>
               <div className="min-w-[200px]">
-                <p className="mb-1 text-xs text-gray-500">Building type ({buildingSum})</p>
+                <p className="mb-1 text-xs text-gray-500">
+                  Building type ({buildingSum})
+                </p>
                 <Select
                   value={selectedBuildingTypeId}
                   disabled={!selectedCategoryId}
                   onValueChange={(v) => {
                     if (!v) return;
                     setSelectedBuildingTypeId(v);
-                    setSelectedPropertyTypeId('__ALL__');
+                    setSelectedPropertyTypeId("__ALL__");
                     setPage(1);
                   }}
                 >
                   <SelectTrigger>
                     {selectedBuildingType ? (
                       <span>
-                        {selectedBuildingType.name} ({selectedBuildingType.total})
+                        {selectedBuildingType.name} (
+                        {selectedBuildingType.total})
                       </span>
                     ) : (
                       <SelectValue placeholder="Building type" />
@@ -381,7 +466,9 @@ export function MyListingsPanel() {
                 </Select>
               </div>
               <div className="min-w-[220px]">
-                <p className="mb-1 text-xs text-gray-500">Property type ({propertySum})</p>
+                <p className="mb-1 text-xs text-gray-500">
+                  Property type ({propertySum})
+                </p>
                 <Select
                   value={selectedPropertyTypeId}
                   disabled={!selectedBuildingTypeId}
@@ -394,7 +481,8 @@ export function MyListingsPanel() {
                   <SelectTrigger>
                     {selectedPropertyType ? (
                       <span>
-                        {selectedPropertyType.name} ({selectedPropertyType.total})
+                        {selectedPropertyType.name} (
+                        {selectedPropertyType.total})
                       </span>
                     ) : (
                       <SelectValue placeholder="Property type" />
@@ -430,6 +518,35 @@ export function MyListingsPanel() {
                   </SelectContent>
                 </Select>
               </div>
+              {tab === "admin_verified" ? (
+                <div className="min-w-[200px]">
+                  <p className="mb-1 text-xs text-gray-500">Lead</p>
+                  <Input
+                    value={leadInput}
+                    placeholder="Search lead name or phone"
+                    onChange={(e) => setLeadInput(e.target.value)}
+                  />
+                </div>
+              ) : (
+                <>
+                  <div className="min-w-[180px]">
+                    <p className="mb-1 text-xs text-gray-500">Company name</p>
+                    <Input
+                      value={companyNameInput}
+                      placeholder="Search company"
+                      onChange={(e) => setCompanyNameInput(e.target.value)}
+                    />
+                  </div>
+                  <div className="min-w-[180px]">
+                    <p className="mb-1 text-xs text-gray-500">Username</p>
+                    <Input
+                      value={usernameInput}
+                      placeholder="Search username"
+                      onChange={(e) => setUsernameInput(e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             {loading ? (
@@ -449,7 +566,7 @@ export function MyListingsPanel() {
                       <th className="px-4 py-3">Listing</th>
                       <th className="px-4 py-3">Category</th>
                       <th className="px-4 py-3">Price</th>
-                      {tab === 'admin_verified' ? (
+                      {tab === "admin_verified" ? (
                         <>
                           <th className="px-4 py-3">Lead contact</th>
                           <th className="px-4 py-3">Connected staff</th>
@@ -459,7 +576,7 @@ export function MyListingsPanel() {
                       )}
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Interest</th>
-                      {tab === 'admin_verified' ? (
+                      {tab === "admin_verified" ? (
                         <th className="px-4 py-3 text-right">Actions</th>
                       ) : null}
                     </tr>
@@ -473,55 +590,68 @@ export function MyListingsPanel() {
                       >
                         <td
                           className={
-                            tab === 'admin_verified'
-                              ? newFirstCellClass(item.isNew, 'px-4 py-3')
-                              : 'px-4 py-3'
+                            tab === "admin_verified"
+                              ? newFirstCellClass(item.isNew, "px-4 py-3")
+                              : "px-4 py-3"
                           }
                         >
                           <div className="flex items-start gap-1.5">
-                            {tab === 'admin_verified' ? (
+                            {tab === "admin_verified" ? (
                               <NewTag show={item.isNew} />
                             ) : null}
                             <div>
-                              <div className="font-medium text-gray-900">{item.title}</div>
-                              {tab === 'admin_verified' ? (
+                              <div className="font-medium text-gray-900">
+                                {item.title}
+                              </div>
+                              {tab === "admin_verified" ? (
                                 <div className="text-xs text-gray-500">
                                   {item.expiresAt
                                     ? `Expires ${new Date(item.expiresAt).toLocaleDateString()}`
-                                    : '—'}
+                                    : "—"}
                                 </div>
                               ) : null}
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-gray-600">{item.categoryName || '—'}</td>
-                        <td className="px-4 py-3 text-gray-600">{item.priceLabel}</td>
-                        {tab === 'admin_verified' ? (
+                        <td className="px-4 py-3 text-gray-600">
+                          {item.categoryName || "—"}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">
+                          {item.priceLabel}
+                        </td>
+                        {tab === "admin_verified" ? (
                           <>
                             <td className="px-4 py-3 text-gray-600">
-                              {item.leadContactName || '—'}
+                              {item.leadContactName || "—"}
                               <br />
-                              <span className="text-xs">{item.leadContactPhone || ''}</span>
+                              <span className="text-xs">
+                                {item.leadContactPhone || ""}
+                              </span>
                             </td>
                             <td className="px-4 py-3 text-gray-600">
-                              {item.connectedStaff?.name || '—'}
+                              {item.connectedStaff?.name || "—"}
                             </td>
                           </>
                         ) : (
                           <td className="px-4 py-3 text-gray-600">
-                            {item.ownerUser?.name || '—'}
+                            <div className="font-medium text-gray-900">
+                              {item.ownerUser?.companyName?.trim() || "—"}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {item.ownerUser?.name?.trim() || "—"}
+                            </div>
                           </td>
                         )}
                         <td className="px-4 py-3">
                           <span
                             className={`rounded-full px-2 py-0.5 text-xs ${
                               item.expiringSoon
-                                ? 'bg-amber-100 text-amber-800'
-                                : item.status === 'expired'
-                                  ? 'bg-gray-100 text-gray-700'
+                                ? "bg-amber-100 text-amber-800"
+                                : item.status === "expired"
+                                  ? "bg-gray-100 text-gray-700"
                                   : !item.isActive
-                                    ? 'bg-slate-100 text-slate-700'
-                                    : 'bg-green-100 text-green-800'
+                                    ? "bg-slate-100 text-slate-700"
+                                    : "bg-green-100 text-green-800"
                             }`}
                           >
                             {statusBadge(item)}
@@ -538,13 +668,15 @@ export function MyListingsPanel() {
                             >
                               <Users className="mr-1.5 h-3.5 w-3.5" />
                               View {item.interestCount} interest
-                              {item.interestCount === 1 ? '' : 's'}
+                              {item.interestCount === 1 ? "" : "s"}
                             </Button>
                           ) : (
-                            <span className="text-xs text-gray-400">No interest</span>
+                            <span className="text-xs text-gray-400">
+                              No interest
+                            </span>
                           )}
                         </td>
-                        {tab === 'admin_verified' ? (
+                        {tab === "admin_verified" ? (
                           <td className="px-4 py-3" onClick={stopRowClick}>
                             <div className="flex justify-end gap-2">
                               <Button
@@ -562,7 +694,7 @@ export function MyListingsPanel() {
                                   disabled={actionId === item.id}
                                   onClick={() => void toggleActive(item)}
                                 >
-                                  {item.isActive ? 'Inactive' : 'Active'}
+                                  {item.isActive ? "Inactive" : "Active"}
                                 </Button>
                               ) : null}
                               {item.actions.canRenew ? (
@@ -614,10 +746,13 @@ export function MyListingsPanel() {
                     <p className="text-sm text-gray-500">No remarks yet.</p>
                   ) : (
                     remarks.map((r) => (
-                      <div key={r.id} className="rounded-lg border border-gray-100 p-3 text-sm">
+                      <div
+                        key={r.id}
+                        className="rounded-lg border border-gray-100 p-3 text-sm"
+                      >
                         <p className="text-gray-800">{r.body}</p>
                         <p className="mt-1 text-xs text-gray-400">
-                          {r.author?.name || 'Staff'} ·{' '}
+                          {r.author?.name || "Staff"} ·{" "}
                           {formatDateTime(r.createdAt)}
                         </p>
                       </div>
@@ -632,7 +767,9 @@ export function MyListingsPanel() {
                   />
                   <Button
                     onClick={() => void submitRemark()}
-                    disabled={!remarkText.trim() || actionId === remarksListing?.id}
+                    disabled={
+                      !remarkText.trim() || actionId === remarksListing?.id
+                    }
                   >
                     Add
                   </Button>
@@ -645,7 +782,11 @@ export function MyListingsPanel() {
         <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
           <DialogContent className="flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden sm:max-w-3xl">
             <DialogHeader className="shrink-0">
-              <DialogTitle>{listingDetail?.title || detailListing?.title || 'Property details'}</DialogTitle>
+              <DialogTitle>
+                {listingDetail?.title ||
+                  detailListing?.title ||
+                  "Property details"}
+              </DialogTitle>
             </DialogHeader>
             {detailLoading ? (
               <div className="flex justify-center py-12">
@@ -655,16 +796,40 @@ export function MyListingsPanel() {
               <>
                 <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <DetailField label="Category" value={listingDetail.categoryName} />
-                    <DetailField label="Building type" value={listingDetail.buildingTypeName} />
-                    <DetailField label="Property type" value={listingDetail.propertyTypeName} />
-                    <DetailField label="Price" value={listingDetail.priceLabel} />
-                    <DetailField label="Project / property name" value={listingDetail.propertyName} />
+                    <DetailField
+                      label="Category"
+                      value={listingDetail.categoryName}
+                    />
+                    <DetailField
+                      label="Building type"
+                      value={listingDetail.buildingTypeName}
+                    />
+                    <DetailField
+                      label="Property type"
+                      value={listingDetail.propertyTypeName}
+                    />
+                    <DetailField
+                      label="Price"
+                      value={listingDetail.priceLabel}
+                    />
+                    <DetailField
+                      label="Project / property name"
+                      value={listingDetail.propertyName}
+                    />
                     <DetailField label="City" value={listingDetail.cityName} />
-                    <DetailField label="Micro market" value={listingDetail.microMarketName} />
-                    <DetailField label="Location" value={listingDetail.locationName} />
-                    <DetailField label="Status" value={statusBadge(listingDetail)} />
-                    {tab === 'admin_verified' ? (
+                    <DetailField
+                      label="Micro market"
+                      value={listingDetail.microMarketName}
+                    />
+                    <DetailField
+                      label="Location"
+                      value={listingDetail.locationName}
+                    />
+                    <DetailField
+                      label="Status"
+                      value={statusBadge(listingDetail)}
+                    />
+                    {tab === "admin_verified" ? (
                       <DetailField
                         label="Expires"
                         value={
@@ -674,10 +839,16 @@ export function MyListingsPanel() {
                         }
                       />
                     ) : null}
-                    {tab === 'admin_verified' ? (
+                    {tab === "admin_verified" ? (
                       <>
-                        <DetailField label="Lead name" value={listingDetail.leadContactName} />
-                        <DetailField label="Lead phone" value={listingDetail.leadContactPhone} />
+                        <DetailField
+                          label="Lead name"
+                          value={listingDetail.leadContactName}
+                        />
+                        <DetailField
+                          label="Lead phone"
+                          value={listingDetail.leadContactPhone}
+                        />
                         <DetailField
                           label="Connected staff"
                           value={
@@ -689,18 +860,34 @@ export function MyListingsPanel() {
                       </>
                     ) : (
                       <>
-                        <DetailField label="Owner" value={listingDetail.ownerUser?.name} />
-                        <DetailField label="Owner phone" value={listingDetail.ownerUser?.contact} />
+                        <DetailField
+                          label="Company name"
+                          value={listingDetail.ownerUser?.companyName}
+                        />
+                        <DetailField
+                          label="Username"
+                          value={listingDetail.ownerUser?.name}
+                        />
+                        <DetailField
+                          label="Owner phone"
+                          value={listingDetail.ownerUser?.contact}
+                        />
                       </>
                     )}
                   </div>
 
                   {detailRows.length > 0 ? (
                     <div className="border-t border-gray-100 pt-4">
-                      <h3 className="mb-3 text-sm font-semibold text-gray-900">Property details</h3>
+                      <h3 className="mb-3 text-sm font-semibold text-gray-900">
+                        Property details
+                      </h3>
                       <div className="grid gap-3 sm:grid-cols-2">
                         {detailRows.map((row) => (
-                          <DetailField key={row.key} label={row.label} value={row.value} />
+                          <DetailField
+                            key={row.key}
+                            label={row.label}
+                            value={row.value}
+                          />
                         ))}
                       </div>
                     </div>
@@ -720,10 +907,10 @@ export function MyListingsPanel() {
                     >
                       <Users className="mr-1.5 h-4 w-4" />
                       View {listingDetail.interestCount} interest
-                      {listingDetail.interestCount === 1 ? '' : 's'}
+                      {listingDetail.interestCount === 1 ? "" : "s"}
                     </Button>
                   ) : null}
-                  {tab === 'admin_verified' ? (
+                  {tab === "admin_verified" ? (
                     <>
                       <Button
                         type="button"
@@ -743,7 +930,9 @@ export function MyListingsPanel() {
                           disabled={actionId === listingDetail.id}
                           onClick={() => void toggleActive(listingDetail)}
                         >
-                          {listingDetail.isActive ? 'Mark inactive' : 'Mark active'}
+                          {listingDetail.isActive
+                            ? "Mark inactive"
+                            : "Mark active"}
                         </Button>
                       ) : null}
                       {listingDetail.actions.canRenew ? (
@@ -781,10 +970,13 @@ export function MyListingsPanel() {
                 <div className="grid gap-6 md:grid-cols-2">
                   <div className="space-y-3">
                     <h3 className="text-sm font-semibold text-gray-900">
-                      Interested users ({interestDetails.interestedUsers.length})
+                      Interested users ({interestDetails.interestedUsers.length}
+                      )
                     </h3>
                     {interestDetails.interestedUsers.length === 0 ? (
-                      <p className="text-sm text-gray-500">No interested users yet.</p>
+                      <p className="text-sm text-gray-500">
+                        No interested users yet.
+                      </p>
                     ) : (
                       <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
                         {interestDetails.interestedUsers.map((user) => (
@@ -794,12 +986,18 @@ export function MyListingsPanel() {
                           >
                             <div className="flex items-start justify-between gap-2">
                               <div>
-                                <p className="font-medium text-gray-900">{user.name}</p>
+                                <p className="font-medium text-gray-900">
+                                  {user.name}
+                                </p>
                                 {user.contact ? (
-                                  <p className="text-sm text-gray-600">{user.contact}</p>
+                                  <p className="text-sm text-gray-600">
+                                    {user.contact}
+                                  </p>
                                 ) : null}
                                 {user.email ? (
-                                  <p className="text-xs text-gray-500">{user.email}</p>
+                                  <p className="text-xs text-gray-500">
+                                    {user.email}
+                                  </p>
                                 ) : null}
                               </div>
                               <div className="flex shrink-0 flex-wrap justify-end gap-1">
@@ -824,21 +1022,31 @@ export function MyListingsPanel() {
 
                   <div className="space-y-3">
                     <h3 className="text-sm font-semibold text-gray-900">
-                      {tab === 'admin_verified' ? 'Lead contact (form)' : 'Listing owner'}
+                      {tab === "admin_verified"
+                        ? "Lead contact (form)"
+                        : "Listing owner"}
                     </h3>
                     <div className="rounded-lg border border-gray-100 bg-gray-50/80 p-4 space-y-3">
-                      {tab === 'admin_verified' ? (
+                      {tab === "admin_verified" ? (
                         <>
                           <div>
-                            <p className="text-xs uppercase tracking-wide text-gray-400">Name</p>
+                            <p className="text-xs uppercase tracking-wide text-gray-400">
+                              Name
+                            </p>
                             <p className="text-sm font-medium text-gray-900">
-                              {interestDetails.lead.name || interestListing?.leadContactName || '—'}
+                              {interestDetails.lead.name ||
+                                interestListing?.leadContactName ||
+                                "—"}
                             </p>
                           </div>
                           <div>
-                            <p className="text-xs uppercase tracking-wide text-gray-400">Phone</p>
+                            <p className="text-xs uppercase tracking-wide text-gray-400">
+                              Phone
+                            </p>
                             <p className="text-sm font-medium text-gray-900">
-                              {interestDetails.lead.phone || interestListing?.leadContactPhone || '—'}
+                              {interestDetails.lead.phone ||
+                                interestListing?.leadContactPhone ||
+                                "—"}
                             </p>
                           </div>
                           {interestDetails.connectedStaff ? (
@@ -858,15 +1066,27 @@ export function MyListingsPanel() {
                       ) : (
                         <>
                           <div>
-                            <p className="text-xs uppercase tracking-wide text-gray-400">Name</p>
+                            <p className="text-xs uppercase tracking-wide text-gray-400">
+                              Company name
+                            </p>
                             <p className="text-sm font-medium text-gray-900">
-                              {interestListing?.ownerUser?.name || '—'}
+                              {interestListing?.ownerUser?.companyName || "—"}
                             </p>
                           </div>
                           <div>
-                            <p className="text-xs uppercase tracking-wide text-gray-400">Phone</p>
+                            <p className="text-xs uppercase tracking-wide text-gray-400">
+                              Username
+                            </p>
                             <p className="text-sm font-medium text-gray-900">
-                              {interestListing?.ownerUser?.contact || '—'}
+                              {interestListing?.ownerUser?.name || "—"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-gray-400">
+                              Phone
+                            </p>
+                            <p className="text-sm font-medium text-gray-900">
+                              {interestListing?.ownerUser?.contact || "—"}
                             </p>
                           </div>
                         </>
@@ -876,7 +1096,9 @@ export function MyListingsPanel() {
                 </div>
 
                 <div className="border-t border-gray-100 pt-4">
-                  <h3 className="mb-3 text-sm font-semibold text-gray-900">All remarks</h3>
+                  <h3 className="mb-3 text-sm font-semibold text-gray-900">
+                    All remarks
+                  </h3>
                   {interestDetails.remarks.length === 0 ? (
                     <p className="text-sm text-gray-500">No remarks yet.</p>
                   ) : (
@@ -888,7 +1110,7 @@ export function MyListingsPanel() {
                         >
                           <p className="text-sm text-gray-800">{remark.body}</p>
                           <p className="mt-2 text-xs text-gray-400">
-                            {remark.author?.name || 'Staff'} ·{' '}
+                            {remark.author?.name || "Staff"} ·{" "}
                             {formatDateTime(remark.createdAt)}
                           </p>
                         </div>

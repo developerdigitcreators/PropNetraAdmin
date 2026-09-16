@@ -63,7 +63,7 @@ export function AddonFormDialog({
       displayName: displayName.trim(),
       coinCost: isAutomatic ? 0 : coinCost,
       quantity: isAutomatic ? 0 : quantity,
-      enabled,
+      enabled: isAutomatic ? true : enabled,
       description: description.trim() || null,
     });
   };
@@ -127,9 +127,9 @@ export function AddonFormDialog({
               <Switch checked={enabled} onCheckedChange={(c) => setEnabled(Boolean(c))} />
             </div>
           ) : (
-            <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
-              This feature runs automatically in listing search — it is not enabled or purchased
-              like other add-ons.
+            <div className="rounded-lg border border-dashed border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs text-emerald-800">
+              Enabled automatically for top paid referrers in listing search — not sold as a
+              coin pack.
             </div>
           )}
 

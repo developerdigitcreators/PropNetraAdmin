@@ -10,39 +10,18 @@ import {
   type ReferralGraph,
 } from '@/services/referral.service';
 import { formatDisplayDateTime } from '@/lib/format-date';
+import { planLabelFromCode, resolvePlanChip } from '@/lib/plan-labels';
 import { GitBranch, Loader2 } from 'lucide-react';
 
-function planShort(code?: string | null) {
-  if (!code) return '—';
-  const map: Record<string, string> = {
-    FREE_TRIAL: 'Free',
-    FREE_LIFETIME: 'Free',
-    NETWORK_PAID: 'Network paid',
-    PRO: 'Pro',
-    ELITE: 'Elite',
-  };
-  return map[code] || code.replace(/_/g, ' ');
-}
-
-function planBadgeClass(code?: string | null) {
-  switch (code) {
-    case 'ELITE':
-      return 'bg-blue-100 text-blue-800';
-    case 'PRO':
-      return 'bg-violet-100 text-violet-800';
-    case 'NETWORK_PAID':
-      return 'bg-teal-100 text-teal-800';
-    default:
-      return 'bg-slate-100 text-slate-700';
-  }
-}
-
 function PlanBadge({ planCode }: { planCode?: string | null }) {
+  const chip = resolvePlanChip(null, planCode);
   return (
     <span
-      className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${planBadgeClass(planCode)}`}
+      className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${
+        chip?.className || 'bg-slate-100 text-slate-700'
+      }`}
     >
-      {planShort(planCode)}
+      {chip?.label || planLabelFromCode(planCode) || '—'}
     </span>
   );
 }
@@ -259,7 +238,8 @@ export function ReferralTab({ userId }: { userId: string }) {
                 )}
                 {(graph.user as { planCode?: string })?.planCode ? (
                   <span className="ml-1 text-xs text-muted-foreground">
-                    · {(graph.user as { planCode?: string }).planCode}
+                    · {planLabelFromCode((graph.user as { planCode?: string }).planCode) ||
+                      String((graph.user as { planCode?: string }).planCode).replace(/_/g, ' ')}
                   </span>
                 ) : null}
               </dd>

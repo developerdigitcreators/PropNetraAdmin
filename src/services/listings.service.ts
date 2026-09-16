@@ -425,7 +425,12 @@ export type MyListingItem = {
   leadContactName: string | null;
   leadContactPhone: string | null;
   connectedStaff: { id: string; name: string; contact: string } | null;
-  ownerUser: { id: string; name: string; contact: string } | null;
+  ownerUser: {
+    id: string;
+    name: string;
+    contact: string;
+    companyName?: string | null;
+  } | null;
   actions: { canRenew: boolean; canToggleActive: boolean };
   createdAt: string;
   updatedAt: string;
@@ -1147,6 +1152,9 @@ export const listingsService = {
     buildingTypeId?: string;
     propertyTypeId?: string;
     status?: "active" | "expired" | "inactive";
+    companyName?: string;
+    username?: string;
+    lead?: string;
     page?: number;
     limit?: number;
   }): Promise<MyListingsResponse> => {

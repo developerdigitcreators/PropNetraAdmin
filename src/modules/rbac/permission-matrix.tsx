@@ -22,7 +22,7 @@ interface PermissionScope {
   children?: PermissionScope[];
 }
 
-const ACTION_ORDER = ['read', 'create', 'update', 'delete'];
+const ACTION_ORDER = ['read', 'create', 'update', 'delete', 'assign'];
 
 function asScope(raw: unknown): PermissionScope | null {
   if (!raw || typeof raw !== 'object') return null;

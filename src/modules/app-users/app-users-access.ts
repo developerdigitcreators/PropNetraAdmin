@@ -3,6 +3,9 @@ export const APP_USERS_PARENT_MODULE = 'app_users';
 /** Dispatched by App Users layout Refresh; table reloads on listen. */
 export const APP_USERS_REFRESH_EVENT = 'propnetra:app-users-refresh';
 
+/** Dispatched by App Users layout Reset; table clears local filters. */
+export const APP_USERS_RESET_EVENT = 'propnetra:app-users-reset';
+
 export const APP_USER_TAB_ACCESS = [
   {
     name: 'OTP Issued',

@@ -328,4 +328,32 @@ export const referralService = {
       }>;
     }>(response);
   },
+
+  async getReferralSaleMe() {
+    const response = await axiosClient.get('/admin/referral/sale/me');
+    return unwrap<ReferralSaleMe>(response);
+  },
+};
+
+export type ReferralSaleInvitee = {
+  id: string;
+  name: string;
+  contact?: string | null;
+  email?: string | null;
+  planCode?: string | null;
+  allotteeType: 'paid' | 'free';
+  eventStatus?: string;
+  joinedAt: string;
+};
+
+export type ReferralSaleMe = {
+  referralCode: string;
+  inviteUrl: string;
+  shareMessage?: string;
+  totals: {
+    direct: number;
+    paid: number;
+    free: number;
+  };
+  invitees: ReferralSaleInvitee[];
 };

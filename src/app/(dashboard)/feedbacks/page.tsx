@@ -1,9 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
+import { AdminDataTable } from '@/components/common/admin-data-table';
+import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +18,9 @@ import {
 } from '@/components/ui/dialog';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 import { newFirstCellClass, NewTag } from '@/components/common/new-row-marker';
+import { useClientPagedRows } from '@/hooks/use-client-paged-rows';
+import { useUrlFilters } from '@/hooks/use-url-filters';
+import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
 import {
   feedbackApiError,
   feedbacksService,
@@ -27,9 +32,7 @@ import {
   Edit2,
   Eye,
   Loader2,
-  MessageSquare,
   Plus,
-  RefreshCw,
   Search,
   Trash2,
 } from 'lucide-react';
@@ -39,7 +42,7 @@ function formatDateTime(value?: string | null) {
   return formatDisplayDateTime(value);
 }
 
-export default function FeedbacksPage() {
+function FeedbacksPageInner() {
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const canCreate = hasPermission('feedbacks', 'create');
   const canUpdate = hasPermission('feedbacks', 'update');
@@ -48,8 +51,9 @@ export default function FeedbacksPage() {
   const [items, setItems] = useState<FeedbackItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
-  const [searchDraft, setSearchDraft] = useState('');
+  const { filters, setFilters, resetFilters } = useUrlFilters({ q: '' });
+  const search = filters.q;
+  const [searchDraft, setSearchDraft] = useState(search);
 
   const [detail, setDetail] = useState<FeedbackItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -60,6 +64,12 @@ export default function FeedbacksPage() {
   const [editingRemark, setEditingRemark] = useState<FeedbackRemark | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const [editBusy, setEditBusy] = useState(false);
+  const {
+    requestClose: requestDetailClose,
+    dialog: detailUnsavedDialog,
+  } = useDialogUnsavedGuard(
+    remarkDraft.trim().length > 0 || editDraft.trim().length > 0,
+  );
   const [toDeleteRemark, setToDeleteRemark] = useState<FeedbackRemark | null>(null);
   const [deletingRemark, setDeletingRemark] = useState(false);
 
@@ -80,8 +90,23 @@ export default function FeedbacksPage() {
   }, []);
 
   useEffect(() => {
-    fetchList();
-  }, [fetchList]);
+    fetchList(search);
+  }, [fetchList, search]);
+
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+    resetPage,
+  } = useClientPagedRows(items);
+
+  useEffect(() => {
+    resetPage();
+  }, [search, resetPage]);
 
   const applyDetail = (next: FeedbackItem | null) => {
     if (!next) return;
@@ -201,140 +226,131 @@ export default function FeedbacksPage() {
               Messages submitted from the app. You can add remarks, but the user message cannot be edited.
             </p>
           </div>
-          <div className="flex w-full max-w-md flex-wrap items-center gap-2 sm:w-auto">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void fetchList(search)}
-              disabled={loading}
-            >
-              <RefreshCw className="mr-1.5 size-3.5" />
-              Refresh
-            </Button>
-            <form
-              className="flex min-w-[220px] flex-1 items-center gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                setSearch(searchDraft.trim());
-                void fetchList(searchDraft.trim());
-              }}
-            >
-              <div className="relative flex-1">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <Input
-                  value={searchDraft}
-                  onChange={(e) => setSearchDraft(e.target.value)}
-                  placeholder="Search user or message"
-                  className="h-9 pl-8"
-                />
-              </div>
-              <Button type="submit" variant="outline" className="h-9">
-                Search
-              </Button>
-            </form>
-          </div>
+          <AdminListToolbar
+            onRefresh={() => void fetchList(search)}
+            refreshBusy={loading}
+            onReset={() => {
+              resetFilters();
+              setSearchDraft('');
+              resetPage();
+            }}
+          />
         </div>
 
-        {error && (
-          <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</div>
-        )}
+        <form
+          className="flex max-w-md flex-wrap items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setFilters({ q: searchDraft.trim() });
+          }}
+        >
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <Input
+              value={searchDraft}
+              onChange={(e) => setSearchDraft(e.target.value)}
+              placeholder="Search user or message"
+              className="h-9 pl-8"
+            />
+          </div>
+          <Button type="submit" variant="outline" size="sm">
+            Search
+          </Button>
+        </form>
 
-        <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-gray-100 bg-gray-50/80">
-                <tr>
-                  <th className="px-5 py-3 font-semibold text-gray-700">User</th>
-                  <th className="px-5 py-3 font-semibold text-gray-700">Feedback</th>
-                  <th className="px-5 py-3 font-semibold text-gray-700">Remarks</th>
-                  <th className="px-5 py-3 font-semibold text-gray-700">Submitted</th>
-                  <th className="px-5 py-3 text-right font-semibold text-gray-700">Actions</th>
+        <AdminDataTable
+          page={page}
+          limit={limit}
+          total={total}
+          totalPages={totalPages}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
+          loading={loading}
+          error={error || null}
+          isEmpty={!items.length}
+          emptyMessage="No feedback yet."
+          syncKey={pageRows.length}
+        >
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-gray-100 bg-gray-50/80">
+              <tr>
+                <th className="px-5 py-3 font-semibold text-gray-700">User</th>
+                <th className="px-5 py-3 font-semibold text-gray-700">Feedback</th>
+                <th className="px-5 py-3 font-semibold text-gray-700">Remarks</th>
+                <th className="px-5 py-3 font-semibold text-gray-700">Submitted</th>
+                <th className="px-5 py-3 text-right font-semibold text-gray-700">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageRows.map((row) => (
+                <tr key={row.id} className="border-b border-gray-50 last:border-0">
+                  <td className={newFirstCellClass(row.isNew, 'px-5 py-4')}>
+                    <div className="flex items-start gap-1.5">
+                      <NewTag show={row.isNew} />
+                      <div>
+                        <p className="font-medium text-gray-900">{row.user.name || '—'}</p>
+                        <p className="text-xs text-gray-500 break-all">{row.user.email || '—'}</p>
+                        <p className="text-xs text-gray-400">{row.user.contact || '—'}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="max-w-[360px] px-5 py-4">
+                    <p className="line-clamp-2 text-sm text-gray-700">{row.message}</p>
+                  </td>
+                  <td className="px-5 py-4">
+                    <Badge variant="secondary" className="bg-gray-100 text-gray-700">
+                      {row.remarksCount}
+                    </Badge>
+                  </td>
+                  <td className="whitespace-nowrap px-5 py-4 text-xs text-gray-500">
+                    {formatDateTime(row.createdAt)}
+                  </td>
+                  <td className="px-5 py-4 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void openDetail(row)}
+                        title="View"
+                      >
+                        <Eye className="h-4 w-4 text-gray-500" />
+                      </Button>
+                      {canDelete && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setToDelete(row)}
+                          className="text-red-500 hover:bg-red-50 hover:text-red-600"
+                          title="Delete feedback"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              {loading ? (
-                <tbody>
-                  <tr>
-                    <td colSpan={5} className="px-6 py-16 text-center">
-                      <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />
-                    </td>
-                  </tr>
-                </tbody>
-              ) : items.length === 0 ? (
-                <tbody>
-                  <tr>
-                    <td colSpan={5} className="px-6 py-16 text-center text-gray-500">
-                      <MessageSquare className="mx-auto mb-3 h-8 w-8 text-gray-300" />
-                      No feedback yet.
-                    </td>
-                  </tr>
-                </tbody>
-              ) : (
-                <tbody>
-                  {items.map((row) => (
-                    <tr key={row.id} className="border-b border-gray-50 last:border-0">
-                      <td className={newFirstCellClass(row.isNew, 'px-5 py-4')}>
-                        <div className="flex items-start gap-1.5">
-                          <NewTag show={row.isNew} />
-                          <div>
-                            <p className="font-medium text-gray-900">{row.user.name || '—'}</p>
-                            <p className="text-xs text-gray-500 break-all">{row.user.email || '—'}</p>
-                            <p className="text-xs text-gray-400">{row.user.contact || '—'}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="max-w-[360px] px-5 py-4">
-                        <p className="line-clamp-2 text-sm text-gray-700">{row.message}</p>
-                      </td>
-                      <td className="px-5 py-4">
-                        <Badge variant="secondary" className="bg-gray-100 text-gray-700">
-                          {row.remarksCount}
-                        </Badge>
-                      </td>
-                      <td className="whitespace-nowrap px-5 py-4 text-xs text-gray-500">
-                        {formatDateTime(row.createdAt)}
-                      </td>
-                      <td className="px-5 py-4 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => void openDetail(row)}
-                            title="View"
-                          >
-                            <Eye className="h-4 w-4 text-gray-500" />
-                          </Button>
-                          {canDelete && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setToDelete(row)}
-                              className="text-red-500 hover:bg-red-50 hover:text-red-600"
-                              title="Delete feedback"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              )}
-            </table>
-          </div>
-        </div>
+              ))}
+            </tbody>
+          </table>
+        </AdminDataTable>
       </div>
 
       <Dialog
         open={detailOpen}
         onOpenChange={(open) => {
-          setDetailOpen(open);
-          if (!open) {
+          if (open) {
+            setDetailOpen(true);
+            return;
+          }
+          void requestDetailClose().then((ok) => {
+            if (!ok) return;
+            setDetailOpen(false);
             setDetail(null);
             setEditingRemark(null);
+            setRemarkDraft('');
+            setEditDraft('');
             setDetailError('');
-          }
+          });
         }}
       >
         <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
@@ -539,6 +555,21 @@ export default function FeedbacksPage() {
           </div>
         </DialogContent>
       </Dialog>
+      {detailUnsavedDialog}
     </PermissionGuard>
+  );
+}
+
+export default function FeedbacksPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <FeedbacksPageInner />
+    </Suspense>
   );
 }

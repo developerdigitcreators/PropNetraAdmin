@@ -101,6 +101,7 @@ export type ChangePlanRow = {
   badge?: string | null;
   statusGroup: string;
   targetPlans: string[];
+  latestTargetPlan?: string | null;
   occurredAt: string;
   remarks: TrackingRemark[];
   remarksCount: number;
@@ -110,6 +111,7 @@ export type ChangePlanRow = {
   attempts?: ChangePlanAttempt[];
   planCode?: string | null;
   planStartedAt?: string | null;
+  currentPeriodEnd?: string | null;
   billingState?: string | null;
   autopayEnabled: boolean;
   convertSource?: string | null;
@@ -127,13 +129,9 @@ export type ChangePlanRow = {
 
 export type TabCount = { total: number; new: number };
 
-export type ChangePlanTabCounts = {
-  statusGroups: Record<string, TabCount>;
-  kinds: Record<string, TabCount>;
-};
-
-export type ConvertedTabCounts = {
-  statusGroups: Record<string, TabCount>;
+export type TrackingFilterOptions = {
+  plans: Array<{ code: string; label: string; count: number }>;
+  autopay: { on: number; off: number };
 };
 
 export type ListMeta = {
@@ -246,6 +244,9 @@ function normalizeChangePlanRow(raw: unknown): ChangePlanRow | null {
         })
         .filter(Boolean) as ChangePlanAttempt[]
     : [];
+  const latestTargetPlan =
+    str(row.latestTargetPlan || row.latest_target_plan) ||
+    (targetPlans.length ? targetPlans[targetPlans.length - 1] : null);
   const latestRemark =
     normalizeRemark(row.latestRemark || row.latest_remark) ||
     (remarks.length ? remarks[remarks.length - 1] : null);
@@ -258,7 +259,8 @@ function normalizeChangePlanRow(raw: unknown): ChangePlanRow | null {
     email: str(row.email) || null,
     badge: str(row.badge) || null,
     statusGroup: str(row.statusGroup || row.status_group) || 'unverified',
-    targetPlans,
+    targetPlans: latestTargetPlan ? [latestTargetPlan] : [],
+    latestTargetPlan,
     occurredAt: str(row.occurredAt || row.occurred_at),
     remarks,
     remarksCount: Number(row.remarksCount ?? remarks.length) || remarks.length,
@@ -268,6 +270,8 @@ function normalizeChangePlanRow(raw: unknown): ChangePlanRow | null {
     attempts,
     planCode: str(row.planCode || row.plan_code) || null,
     planStartedAt: str(row.planStartedAt || row.plan_started_at) || null,
+    currentPeriodEnd:
+      str(row.currentPeriodEnd || row.current_period_end) || null,
     billingState: str(row.billingState || row.billing_state) || null,
     autopayEnabled: Boolean(row.autopayEnabled ?? row.autopay_enabled),
     convertSource: str(row.convertSource || row.convert_source) || null,
@@ -291,6 +295,42 @@ function normalizeChangePlanRow(raw: unknown): ChangePlanRow | null {
         row.callStatusUpdatedByName || row.call_status_updated_by_name,
       ) || null,
     isNew: Boolean(row.isNew ?? row.is_new),
+  };
+}
+
+function normalizeFilterOptions(raw: unknown): TrackingFilterOptions {
+  const data = asRecord(raw) || {};
+  const autopay = asRecord(data.autopay) || {};
+  const plans = Array.isArray(data.plans)
+    ? data.plans
+        .map((p) => {
+          const row = asRecord(p);
+          if (!row) return null;
+          const code = str(row.code);
+          if (!code) return null;
+          return {
+            code,
+            label: str(row.label) || code.replace(/_/g, ' '),
+            count: Number(row.count) || 0,
+          };
+        })
+        .filter(Boolean) as TrackingFilterOptions['plans']
+    : [];
+  return {
+    plans,
+    autopay: {
+      on: Number(autopay.on) || 0,
+      off: Number(autopay.off) || 0,
+    },
+  };
+}
+
+function normalizeTabCount(raw: unknown): TabCount {
+  const row = asRecord(raw);
+  if (!row) return { total: 0, new: 0 };
+  return {
+    total: Number(row.total) || 0,
+    new: Number(row.new) || 0,
   };
 }
 
@@ -342,6 +382,126 @@ export const subscriptionTrackingService = {
         totalPages: Number(meta.totalPages) || 1,
       },
     };
+  },
+
+  getUsersFilterOptions: async (params: {
+    startsFrom?: string;
+    startsTo?: string;
+    endsFrom?: string;
+    endsTo?: string;
+    billingState?: string;
+    subscribedOnly?: boolean;
+    declinedOnly?: boolean;
+    autopayEnabled?: boolean;
+    planCode?: string;
+    q?: string;
+  } = {}): Promise<TrackingFilterOptions> => {
+    const response = await axiosClient.get(
+      '/admin/subscription-tracking/users/filter-options',
+      {
+        params: {
+          ...(params.startsFrom ? { startsFrom: params.startsFrom } : {}),
+          ...(params.startsTo ? { startsTo: params.startsTo } : {}),
+          ...(params.endsFrom ? { endsFrom: params.endsFrom } : {}),
+          ...(params.endsTo ? { endsTo: params.endsTo } : {}),
+          ...(params.billingState ? { billingState: params.billingState } : {}),
+          ...(params.subscribedOnly ? { subscribedOnly: 'true' } : {}),
+          ...(params.declinedOnly ? { declinedOnly: 'true' } : {}),
+          ...(params.autopayEnabled === true ? { autopayEnabled: 'true' } : {}),
+          ...(params.autopayEnabled === false
+            ? { autopayEnabled: 'false' }
+            : {}),
+          ...(params.planCode ? { planCode: params.planCode } : {}),
+          ...(params.q ? { q: params.q } : {}),
+        },
+      },
+    );
+    return normalizeFilterOptions(response.data);
+  },
+
+  listUpcomingRenewals: async (params: {
+    autopayEnabled?: boolean;
+    planCode?: string;
+    q?: string;
+    page?: number;
+    limit?: number;
+  } = {}): Promise<{ items: ChangePlanRow[]; meta: ListMeta }> => {
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 20;
+    const response = await axiosClient.get(
+      '/admin/subscription-tracking/upcoming-renewals',
+      {
+        params: {
+          page,
+          limit,
+          ...(params.autopayEnabled === true ? { autopayEnabled: 'true' } : {}),
+          ...(params.autopayEnabled === false
+            ? { autopayEnabled: 'false' }
+            : {}),
+          ...(params.planCode ? { planCode: params.planCode } : {}),
+          ...(params.q ? { q: params.q } : {}),
+        },
+      },
+    );
+    const data = asRecord(response.data) || {};
+    const meta = asRecord(data.meta) || {};
+    const items = Array.isArray(data.items)
+      ? (data.items
+          .map(normalizeChangePlanRow)
+          .filter(Boolean) as ChangePlanRow[])
+      : [];
+    return {
+      items,
+      meta: {
+        page: Number(meta.page) || page,
+        limit: Number(meta.limit) || limit,
+        total: Number(meta.total) || items.length,
+        totalPages: Number(meta.totalPages) || 1,
+      },
+    };
+  },
+
+  getUpcomingRenewalsCounts: async (params: {
+    autopayEnabled?: boolean;
+    planCode?: string;
+    q?: string;
+  } = {}): Promise<{ total: number }> => {
+    const response = await axiosClient.get(
+      '/admin/subscription-tracking/upcoming-renewals/counts',
+      {
+        params: {
+          ...(params.autopayEnabled === true ? { autopayEnabled: 'true' } : {}),
+          ...(params.autopayEnabled === false
+            ? { autopayEnabled: 'false' }
+            : {}),
+          ...(params.planCode ? { planCode: params.planCode } : {}),
+          ...(params.q ? { q: params.q } : {}),
+        },
+      },
+    );
+    const data = asRecord(response.data) || {};
+    return { total: Number(data.total) || 0 };
+  },
+
+  getUpcomingRenewalsFilterOptions: async (params: {
+    autopayEnabled?: boolean;
+    planCode?: string;
+    q?: string;
+  } = {}): Promise<TrackingFilterOptions> => {
+    const response = await axiosClient.get(
+      '/admin/subscription-tracking/upcoming-renewals/filter-options',
+      {
+        params: {
+          ...(params.autopayEnabled === true ? { autopayEnabled: 'true' } : {}),
+          ...(params.autopayEnabled === false
+            ? { autopayEnabled: 'false' }
+            : {}),
+          ...(params.planCode ? { planCode: params.planCode } : {}),
+          ...(params.q ? { q: params.q } : {}),
+        },
+      },
+    );
+    return normalizeFilterOptions(response.data);
   },
 
   getHistory: async (userId: string): Promise<TrackingHistoryResult> => {
@@ -411,8 +571,8 @@ export const subscriptionTrackingService = {
   },
 
   listChangePlan: async (params: {
-    statusGroup?: string;
-    kind?: string;
+    planCode?: string;
+    q?: string;
     page?: number;
     limit?: number;
   } = {}): Promise<{ items: ChangePlanRow[]; meta: ListMeta }> => {
@@ -424,8 +584,8 @@ export const subscriptionTrackingService = {
         params: {
           page,
           limit,
-          ...(params.statusGroup ? { statusGroup: params.statusGroup } : {}),
-          ...(params.kind ? { kind: params.kind } : {}),
+          ...(params.planCode ? { planCode: params.planCode } : {}),
+          ...(params.q ? { q: params.q } : {}),
         },
       },
     );
@@ -448,7 +608,8 @@ export const subscriptionTrackingService = {
   },
 
   listConverted: async (params: {
-    statusGroup?: string;
+    planCode?: string;
+    q?: string;
     page?: number;
     limit?: number;
   } = {}): Promise<{ items: ChangePlanRow[]; meta: ListMeta }> => {
@@ -460,7 +621,8 @@ export const subscriptionTrackingService = {
         params: {
           page,
           limit,
-          ...(params.statusGroup ? { statusGroup: params.statusGroup } : {}),
+          ...(params.planCode ? { planCode: params.planCode } : {}),
+          ...(params.q ? { q: params.q } : {}),
         },
       },
     );
@@ -482,64 +644,50 @@ export const subscriptionTrackingService = {
     };
   },
 
-  getChangePlanCounts: async (
-    statusGroup?: string,
-  ): Promise<ChangePlanTabCounts> => {
+  getChangePlanCounts: async (): Promise<TabCount> => {
     const response = await axiosClient.get(
       '/admin/subscription-tracking/change-plan/counts',
-      { params: statusGroup ? { statusGroup } : undefined },
     );
-    const data = asRecord(response.data) || {};
-    const empty = (): TabCount => ({ total: 0, new: 0 });
-    const readGroup = (raw: unknown): TabCount => {
-      const row = asRecord(raw);
-      if (!row) return empty();
-      return {
-        total: Number(row.total) || 0,
-        new: Number(row.new) || 0,
-      };
-    };
-    const statusGroupsRaw = asRecord(data.statusGroups) || {};
-    const kindsRaw = asRecord(data.kinds) || {};
-    return {
-      statusGroups: {
-        unverified: readGroup(statusGroupsRaw.unverified),
-        network: readGroup(statusGroupsRaw.network),
-        pro: readGroup(statusGroupsRaw.pro),
-        elite: readGroup(statusGroupsRaw.elite),
-      },
-      kinds: {
-        all: readGroup(kindsRaw.all),
-        plan_intent: readGroup(kindsRaw.plan_intent),
-        payment_declined: readGroup(kindsRaw.payment_declined),
-        autopay_stopped: readGroup(kindsRaw.autopay_stopped),
-      },
-    };
+    return normalizeTabCount(response.data);
   },
 
-  getConvertedCounts: async (): Promise<ConvertedTabCounts> => {
+  getConvertedCounts: async (): Promise<TabCount> => {
     const response = await axiosClient.get(
       '/admin/subscription-tracking/converted/counts',
     );
-    const data = asRecord(response.data) || {};
-    const empty = (): TabCount => ({ total: 0, new: 0 });
-    const readGroup = (raw: unknown): TabCount => {
-      const row = asRecord(raw);
-      if (!row) return empty();
-      return {
-        total: Number(row.total) || 0,
-        new: Number(row.new) || 0,
-      };
-    };
-    const statusGroupsRaw = asRecord(data.statusGroups) || {};
-    return {
-      statusGroups: {
-        unverified: readGroup(statusGroupsRaw.unverified),
-        network: readGroup(statusGroupsRaw.network),
-        pro: readGroup(statusGroupsRaw.pro),
-        elite: readGroup(statusGroupsRaw.elite),
+    return normalizeTabCount(response.data);
+  },
+
+  getChangePlanFilterOptions: async (params: {
+    planCode?: string;
+    q?: string;
+  } = {}): Promise<TrackingFilterOptions> => {
+    const response = await axiosClient.get(
+      '/admin/subscription-tracking/change-plan/filter-options',
+      {
+        params: {
+          ...(params.planCode ? { planCode: params.planCode } : {}),
+          ...(params.q ? { q: params.q } : {}),
+        },
       },
-    };
+    );
+    return normalizeFilterOptions(response.data);
+  },
+
+  getConvertedFilterOptions: async (params: {
+    planCode?: string;
+    q?: string;
+  } = {}): Promise<TrackingFilterOptions> => {
+    const response = await axiosClient.get(
+      '/admin/subscription-tracking/converted/filter-options',
+      {
+        params: {
+          ...(params.planCode ? { planCode: params.planCode } : {}),
+          ...(params.q ? { q: params.q } : {}),
+        },
+      },
+    );
+    return normalizeFilterOptions(response.data);
   },
 
   addChangePlanRemark: async (

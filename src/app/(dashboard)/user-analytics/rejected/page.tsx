@@ -4,14 +4,17 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
+import { AdminDataTable } from '@/components/common/admin-data-table';
+import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { USER_PROFILE_READ_PERMISSIONS } from '@/modules/app-users/app-users-access';
 import { RegisteredUserViewModal } from '@/modules/app-users/registered-user-view-modal';
 import { adminUsersService } from '@/services/admin-users.service';
 import { useAuthStore } from '@/store/use-auth-store';
+import { useClientPagedRows } from '@/hooks/use-client-paged-rows';
 import { formatDisplayDateTime } from '@/lib/format-date';
-import { ArrowLeft, Eye, Loader2, RefreshCw, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Eye, Loader2, RotateCcw } from 'lucide-react';
 
 function formatDateTime(value?: string | Date | null) {
   return formatDisplayDateTime(value);
@@ -49,6 +52,16 @@ export default function RejectedUsersPage() {
     void fetchUsers();
   }, [fetchUsers]);
 
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+  } = useClientPagedRows(users);
+
   const triggerRefresh = () => {
     setRefreshBusy(true);
     void fetchUsers().finally(() => {
@@ -81,7 +94,7 @@ export default function RejectedUsersPage() {
       <div className="space-y-6 pb-12">
         <Breadcrumb
           items={[
-            { label: 'User Profile', href: '/user-analytics' },
+            { label: 'User Profile master data', href: '/user-analytics' },
             { label: 'Rejected users' },
           ]}
         />
@@ -93,125 +106,114 @@ export default function RejectedUsersPage() {
               className="mb-2 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
-              Back to User Profile
+              Back to User Profile master data
             </Link>
             <h1 className="text-2xl font-bold tracking-tight text-gray-900">Rejected users</h1>
             <p className="mt-1 text-gray-500">
               Users rejected from without-referral approval. Revoke to move them back to pending.
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={triggerRefresh}
-            disabled={refreshBusy || isLoading}
-          >
-            <RefreshCw className={`mr-1.5 size-3.5 ${refreshBusy ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
+          <AdminListToolbar
+            onRefresh={triggerRefresh}
+            refreshBusy={refreshBusy || isLoading}
+          />
         </div>
 
-        <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-gray-200 bg-gray-50">
-                <tr>
-                  <th className="px-5 py-4 font-semibold text-gray-700">Name / Email / Contact</th>
-                  <th className="px-5 py-4 font-semibold text-gray-700">Role</th>
-                  <th className="px-5 py-4 font-semibold text-gray-700">Remark</th>
-                  <th className="px-5 py-4 font-semibold text-gray-700">Rejected</th>
-                  <th className="px-5 py-4 text-right font-semibold text-gray-700">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center">
-                      <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />
+        <AdminDataTable
+          page={page}
+          limit={limit}
+          total={total}
+          totalPages={totalPages}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
+          loading={isLoading}
+          isEmpty={!users.length}
+          emptyMessage="No rejected users."
+          syncKey={pageRows.length}
+        >
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-gray-200 bg-gray-50">
+              <tr>
+                <th className="px-5 py-4 font-semibold text-gray-700">Name / Email / Contact</th>
+                <th className="px-5 py-4 font-semibold text-gray-700">Role</th>
+                <th className="px-5 py-4 font-semibold text-gray-700">Remark</th>
+                <th className="px-5 py-4 font-semibold text-gray-700">Rejected</th>
+                <th className="px-5 py-4 text-right font-semibold text-gray-700">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {pageRows.map((user) => {
+                const roleName = user.userRoles?.[0]?.role?.name;
+                const remark =
+                  user.statusRemark ||
+                  user.rejectRemark ||
+                  user.latestRemarkPreview ||
+                  '—';
+                return (
+                  <tr key={user.id} className="align-top hover:bg-gray-50/50">
+                    <td className="px-5 py-4">
+                      <p className="font-medium text-gray-900">{user.name || '—'}</p>
+                      <p className="text-xs text-gray-500">{user.email || '—'}</p>
+                      <p className="text-xs text-gray-400">{user.contact || '—'}</p>
+                    </td>
+                    <td className="px-5 py-4">
+                      {roleName ? (
+                        <Badge
+                          variant="secondary"
+                          className="bg-primary-light text-[10px] capitalize text-primary"
+                        >
+                          {String(roleName).replace('_', ' ')}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="max-w-xs px-5 py-4 text-sm text-gray-700">{remark}</td>
+                    <td className="whitespace-nowrap px-5 py-4 text-xs text-gray-600">
+                      {formatDateTime(
+                        user.statusChangedAt || user.updatedAt || user.createdAt,
+                      )}
+                    </td>
+                    <td className="px-5 py-4 text-right">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {canUpdate ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleRevoke(user)}
+                            disabled={revokingId === user.id}
+                          >
+                            {revokingId === user.id ? (
+                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                            )}
+                            Revoke
+                          </Button>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1 px-2 text-[0.8rem]"
+                          title="View"
+                          onClick={() => {
+                            setViewUser(user);
+                            setViewOpen(true);
+                          }}
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          View
+                        </Button>
+                      </div>
                     </td>
                   </tr>
-                ) : users.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
-                      No rejected users.
-                    </td>
-                  </tr>
-                ) : (
-                  users.map((user) => {
-                    const roleName = user.userRoles?.[0]?.role?.name;
-                    const remark =
-                      user.statusRemark ||
-                      user.rejectRemark ||
-                      user.latestRemarkPreview ||
-                      '—';
-                    return (
-                      <tr key={user.id} className="align-top hover:bg-gray-50/50">
-                        <td className="px-5 py-4">
-                          <p className="font-medium text-gray-900">{user.name || '—'}</p>
-                          <p className="text-xs text-gray-500">{user.email || '—'}</p>
-                          <p className="text-xs text-gray-400">{user.contact || '—'}</p>
-                        </td>
-                        <td className="px-5 py-4">
-                          {roleName ? (
-                            <Badge
-                              variant="secondary"
-                              className="bg-primary-light text-[10px] capitalize text-primary"
-                            >
-                              {String(roleName).replace('_', ' ')}
-                            </Badge>
-                          ) : (
-                            <span className="text-xs text-gray-400">—</span>
-                          )}
-                        </td>
-                        <td className="max-w-xs px-5 py-4 text-sm text-gray-700">{remark}</td>
-                        <td className="whitespace-nowrap px-5 py-4 text-xs text-gray-600">
-                          {formatDateTime(
-                            user.statusChangedAt || user.updatedAt || user.createdAt,
-                          )}
-                        </td>
-                        <td className="px-5 py-4 text-right">
-                          <div className="flex flex-wrap items-center justify-end gap-2">
-                            {canUpdate ? (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => void handleRevoke(user)}
-                                disabled={revokingId === user.id}
-                              >
-                                {revokingId === user.id ? (
-                                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                                )}
-                                Revoke
-                              </Button>
-                            ) : null}
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-7 gap-1 px-2 text-[0.8rem]"
-                              title="View"
-                              onClick={() => {
-                                setViewUser(user);
-                                setViewOpen(true);
-                              }}
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                              View
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                );
+              })}
+            </tbody>
+          </table>
+        </AdminDataTable>
 
         <RegisteredUserViewModal
           open={viewOpen}

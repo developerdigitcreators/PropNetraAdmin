@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { listingConfigService } from '@/services/listing-config.service';
+import { AdminDataTable } from '@/components/common/admin-data-table';
+import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -13,6 +15,8 @@ import { Badge } from '@/components/ui/badge';
 import { useRouter } from 'next/navigation';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
+import { useClientPagedRows } from '@/hooks/use-client-paged-rows';
+import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
 
 export default function FormModulesPage() {
   const { permissions } = useAuthStore();
@@ -28,6 +32,33 @@ export default function FormModulesPage() {
 
   // Form State
   const [formData, setFormData] = useState<any>({ key: '', label: '', admin_name: '', is_common: false });
+  const baselineRef = useRef('');
+  const formSnapshot = useMemo(() => JSON.stringify(formData), [formData]);
+  const dirty =
+    isModalOpen &&
+    baselineRef.current !== '' &&
+    formSnapshot !== baselineRef.current;
+  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(dirty);
+
+  const handleModalOpenChange = async (next: boolean) => {
+    if (isSubmitting) return;
+    if (!next) {
+      const ok = await requestClose();
+      if (ok) setIsModalOpen(false);
+      return;
+    }
+    setIsModalOpen(true);
+  };
+
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+  } = useClientPagedRows(modules);
 
   const fetchModules = async () => {
     setIsLoading(true);
@@ -47,16 +78,16 @@ export default function FormModulesPage() {
 
   const handleOpenModal = (item: any = null) => {
     setEditingItem(item);
-    if (item) {
-      setFormData({ 
-        key: item.key, 
-        label: item.label, 
-        admin_name: item.admin_name || '',
-        is_common: item.is_common ?? false
-      });
-    } else {
-      setFormData({ key: '', label: '', admin_name: '', is_common: false });
-    }
+    const next = item
+      ? {
+          key: item.key,
+          label: item.label,
+          admin_name: item.admin_name || '',
+          is_common: item.is_common ?? false,
+        }
+      : { key: '', label: '', admin_name: '', is_common: false };
+    setFormData(next);
+    baselineRef.current = JSON.stringify(next);
     setIsModalOpen(true);
   };
 
@@ -118,14 +149,30 @@ export default function FormModulesPage() {
             <h1 className="text-2xl font-bold tracking-tight text-gray-900">Form Modules (Sections)</h1>
             <p className="text-gray-500 mt-1">Manage sections (e.g., Area Details, Amenities) which group multiple form fields.</p>
           </div>
-          {canCreate && (
-            <Button onClick={() => handleOpenModal()} className="bg-primary text-white hover:bg-primary/90">
-              <Plus className="w-4 h-4 mr-2" /> Add Section
-            </Button>
-          )}
+          <AdminListToolbar
+            onRefresh={() => void fetchModules()}
+            refreshDisabled={isLoading}
+          >
+            {canCreate ? (
+              <Button onClick={() => handleOpenModal()} className="bg-primary text-white hover:bg-primary/90">
+                <Plus className="w-4 h-4 mr-2" /> Add Section
+              </Button>
+            ) : null}
+          </AdminListToolbar>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mt-6">
+        <AdminDataTable
+          page={page}
+          limit={limit}
+          total={total}
+          totalPages={totalPages}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
+          loading={isLoading}
+          isEmpty={!pageRows.length}
+          emptyMessage="No sections found."
+          syncKey={pageRows.length}
+        >
           <table className="w-full text-sm text-left">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -136,44 +183,38 @@ export default function FormModulesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {isLoading ? (
-                <tr><td colSpan={4} className="px-6 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></td></tr>
-              ) : modules.length === 0 ? (
-                <tr><td colSpan={4} className="px-6 py-12 text-center text-gray-500">No sections found.</td></tr>
-              ) : (
-                modules.map(item => (
-                  <tr key={item.id} className="hover:bg-gray-50/50">
-                    <td className="px-6 py-4 font-medium text-gray-900">{item.label}</td>
-                    <td className="px-6 py-4 text-gray-500">{item.admin_name || '—'}</td>
-                    <td className="px-6 py-4">
-                      {item.is_common ? <Badge variant="secondary" className="bg-blue-50 text-blue-700">Common</Badge> : <Badge variant="outline" className="text-gray-500">Specific</Badge>}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => router.push(`/listings/form-modules/${item.id}/fields`)} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Manage Fields">
-                          <Layers className="w-4 h-4 mr-1" /> Manage Fields
+              {pageRows.map(item => (
+                <tr key={item.id} className="hover:bg-gray-50/50">
+                  <td className="px-6 py-4 font-medium text-gray-900">{item.label}</td>
+                  <td className="px-6 py-4 text-gray-500">{item.admin_name || '—'}</td>
+                  <td className="px-6 py-4">
+                    {item.is_common ? <Badge variant="secondary" className="bg-blue-50 text-blue-700">Common</Badge> : <Badge variant="outline" className="text-gray-500">Specific</Badge>}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => router.push(`/listings/form-modules/${item.id}/fields`)} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Manage Fields">
+                        <Layers className="w-4 h-4 mr-1" /> Manage Fields
+                      </Button>
+                      {canUpdate && (
+                        <Button variant="ghost" size="sm" onClick={() => handleOpenModal(item)} className="text-gray-500 hover:text-gray-700">
+                          <Edit2 className="w-4 h-4" />
                         </Button>
-                        {canUpdate && (
-                          <Button variant="ghost" size="sm" onClick={() => handleOpenModal(item)} className="text-gray-500 hover:text-gray-700">
-                            <Edit2 className="w-4 h-4" />
-                          </Button>
-                        )}
-                        {canDelete && (
-                          <Button variant="ghost" size="sm" onClick={() => handleOpenDelete(item)} className="text-red-500 hover:text-red-600 hover:bg-red-50">
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
+                      )}
+                      {canDelete && (
+                        <Button variant="ghost" size="sm" onClick={() => handleOpenDelete(item)} className="text-red-500 hover:text-red-600 hover:bg-red-50">
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
-        </div>
+        </AdminDataTable>
 
         {/* Create/Edit Module Modal */}
-        <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <Dialog open={isModalOpen} onOpenChange={(next) => void handleModalOpenChange(next)}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{editingItem ? 'Edit' : 'Add'} Section</DialogTitle>
@@ -205,13 +246,14 @@ export default function FormModulesPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => void handleModalOpenChange(false)}>Cancel</Button>
               <Button onClick={handleSave} disabled={isSubmitting || !formData.key || !formData.label}>
                 {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        {unsavedDialog}
 
         <DeleteRemarkDialog
           open={isDeleteModalOpen}

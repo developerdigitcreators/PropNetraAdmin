@@ -4,15 +4,15 @@ import { usePathname } from 'next/navigation';
 import { ReactNode, useCallback, useState } from 'react';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { PermissionGuard } from '@/components/common/permission-guard';
-import { Button } from '@/components/ui/button';
+import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { useAuthStore } from '@/store/use-auth-store';
 import {
   APP_USERS_ANY_READ,
   APP_USERS_REFRESH_EVENT,
+  APP_USERS_RESET_EVENT,
   defaultAppUsersPath,
   readPermissionsForTab,
 } from '@/modules/app-users/app-users-access';
-import { RefreshCw } from 'lucide-react';
 
 const PAGE_COPY: Record<string, { label: string; permission: string | string[]; description: string }> = {
   '/app-users/otp-issued': {
@@ -40,6 +40,10 @@ export default function AppUsersLayout({ children }: { children: ReactNode }) {
     window.setTimeout(() => setRefreshBusy(false), 800);
   }, []);
 
+  const triggerReset = useCallback(() => {
+    window.dispatchEvent(new Event(APP_USERS_RESET_EVENT));
+  }, []);
+
   if (!page) return <>{children}</>;
 
   const fillViewport = pathname.startsWith('/app-users/otp-verified');
@@ -50,16 +54,11 @@ export default function AppUsersLayout({ children }: { children: ReactNode }) {
         <h1 className="text-2xl font-bold tracking-tight text-gray-900">{page.label}</h1>
         <p className="text-gray-500 mt-1">{page.description}</p>
       </div>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={triggerRefresh}
-        disabled={refreshBusy}
-      >
-        <RefreshCw className="mr-1.5 size-3.5" />
-        Refresh
-      </Button>
+      <AdminListToolbar
+        onRefresh={triggerRefresh}
+        refreshBusy={refreshBusy}
+        onReset={triggerReset}
+      />
     </div>
   );
 

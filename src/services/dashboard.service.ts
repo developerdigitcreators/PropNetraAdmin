@@ -10,6 +10,7 @@ export type DashboardUnreadKey =
   | 'supportTickets'
   | 'accountDeletions'
   | 'myListingsActionable'
+  | 'adminVerifiedLeads'
   | 'subscriptionTracking';
 
 export type AdminDashboardSummary = {
@@ -22,6 +23,7 @@ export type AdminDashboardSummary = {
   supportTickets?: number;
   accountDeletions?: number;
   myListingsActionable?: number;
+  adminVerifiedLeads?: number;
   subscriptionTracking?: number;
   activeUsers?: number;
   inactiveUsers?: number;

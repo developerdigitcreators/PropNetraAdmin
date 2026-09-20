@@ -11,6 +11,10 @@ export type PlanLimits = {
   listingViewsMonthly: number | null;
   monthlyCoinGrant: number;
   listingBoostHours: number;
+  /** Separate daily caps when spending addon pack credits */
+  addonListingContactsDaily: number;
+  addonBuyReqContactsDaily: number;
+  addonBuilderContactsDaily: number;
 };
 
 export type PlanFlags = {
@@ -220,6 +224,9 @@ function normalizeLimits(raw: unknown): PlanLimits | null {
     listingViewsMonthly: asNumOrNull(row.listingViewsMonthly),
     monthlyCoinGrant: asNum(row.monthlyCoinGrant),
     listingBoostHours: asNum(row.listingBoostHours, 24),
+    addonListingContactsDaily: asNum(row.addonListingContactsDaily, 0),
+    addonBuyReqContactsDaily: asNum(row.addonBuyReqContactsDaily, 0),
+    addonBuilderContactsDaily: asNum(row.addonBuilderContactsDaily, 0),
   };
 }
 

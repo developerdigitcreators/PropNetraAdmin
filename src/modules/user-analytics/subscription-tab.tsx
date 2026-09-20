@@ -1,16 +1,10 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthStore } from "@/store/use-auth-store";
 import { formatDisplayDate, formatDisplayDateTime } from "@/lib/format-date";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   subscriptionApiError,
   subscriptionsService,
@@ -23,6 +17,10 @@ import {
   resolvePlanChip,
 } from "@/lib/plan-labels";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import {
+  AddonCreditsHistoryPanel,
+  type AddonCreditsKind,
+} from "@/modules/user-analytics/addon-credits-history-panel";
 
 type SubscriptionTabProps = {
   userId: string | null;
@@ -112,21 +110,28 @@ type ProfilePayload = Omit<
   autopayEnabled?: boolean;
 };
 
-type AddonDrillKind = "listing" | "buy_req" | "builder";
+type AddonDrillKind = AddonCreditsKind;
 
 export function SubscriptionTab({ userId }: SubscriptionTabProps) {
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const canRead = hasPermission("subscriptions", "read");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const creditsParam = String(searchParams.get("credits") || "").trim();
+  const creditsKind: AddonDrillKind | null =
+    creditsParam === "listing" ||
+    creditsParam === "buy_req" ||
+    creditsParam === "builder"
+      ? creditsParam
+      : null;
 
   const [data, setData] = useState<ProfilePayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [section, setSection] = useState<"overview" | "payments" | "credits">(
+  const [section, setSection] = useState<"overview" | "payments">(
     "overview",
   );
 
-  const [drillOpen, setDrillOpen] = useState(false);
-  const [drillKind, setDrillKind] = useState<AddonDrillKind | null>(null);
   const [coinsLoading, setCoinsLoading] = useState(false);
   const [coinsError, setCoinsError] = useState("");
   const [coinsData, setCoinsData] = useState<Awaited<
@@ -153,17 +158,10 @@ export function SubscriptionTab({ userId }: SubscriptionTabProps) {
     }
   }, [userId, canRead]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const openAddonDrill = async (kind: AddonDrillKind) => {
+  const loadCoins = useCallback(async () => {
     if (!userId) return;
-    setDrillKind(kind);
-    setDrillOpen(true);
     setCoinsLoading(true);
     setCoinsError("");
-    setCoinsData(null);
     try {
       const next = await referralService.getUserCoins(userId);
       setCoinsData(next);
@@ -174,6 +172,36 @@ export function SubscriptionTab({ userId }: SubscriptionTabProps) {
     } finally {
       setCoinsLoading(false);
     }
+  }, [userId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    if (creditsKind) {
+      void loadCoins();
+    }
+  }, [creditsKind, loadCoins]);
+
+  const openAddonDrill = (kind: AddonDrillKind) => {
+    if (!userId) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("userId", userId);
+    params.set("credits", kind);
+    router.push(`/user-analytics?${params.toString()}`);
+  };
+
+  const closeCreditsPage = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("credits");
+    if (userId) params.set("userId", userId);
+    const qs = params.toString();
+    router.push(qs ? `/user-analytics?${qs}` : "/user-analytics");
+  };
+
+  const refreshCreditsPage = async () => {
+    await Promise.all([load(), loadCoins()]);
   };
 
   if (!userId) {
@@ -208,11 +236,6 @@ export function SubscriptionTab({ userId }: SubscriptionTabProps) {
       `${h.kind} ${h.title}`,
     ),
   );
-  const topups = history.filter((h) =>
-    /top.?up|coin|contact pack|addon_purchase|builder|resale/i.test(
-      `${h.kind} ${h.title}`,
-    ),
-  );
   const lots = data?.creditLots || [];
   const paid = isPaidPlanCode(data?.planCode);
   const planLabel =
@@ -230,6 +253,20 @@ export function SubscriptionTab({ userId }: SubscriptionTabProps) {
   const buyReqAddon = creditUsedTotal(lots, "buy_req");
   const builderAddon = creditUsedTotal(lots, "builder");
 
+  if (creditsKind) {
+    return (
+      <AddonCreditsHistoryPanel
+        kind={creditsKind}
+        lots={lots}
+        transactions={coinsData?.transactions || []}
+        loading={coinsLoading || (loading && !data)}
+        error={coinsError || null}
+        onBack={closeCreditsPage}
+        onRefresh={() => void refreshCreditsPage()}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
       {error ? (
@@ -245,7 +282,6 @@ export function SubscriptionTab({ userId }: SubscriptionTabProps) {
               [
                 ["overview", "Plan & usage"],
                 ["payments", "Payment transactions"],
-                ["credits", "Credits & top-ups"],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -357,7 +393,7 @@ export function SubscriptionTab({ userId }: SubscriptionTabProps) {
                       : null
                   }
                   onAddonClick={
-                    paid ? () => void openAddonDrill("listing") : undefined
+                    paid ? () => openAddonDrill("listing") : undefined
                   }
                   hint="Click addon credits to see how each pack was paid and expiry."
                 />
@@ -377,7 +413,7 @@ export function SubscriptionTab({ userId }: SubscriptionTabProps) {
                       : null
                   }
                   onAddonClick={
-                    paid ? () => void openAddonDrill("buy_req") : undefined
+                    paid ? () => openAddonDrill("buy_req") : undefined
                   }
                   hint="Click addon credits for payment source + expiry."
                 />
@@ -393,7 +429,7 @@ export function SubscriptionTab({ userId }: SubscriptionTabProps) {
                       total: builderAddon.total,
                       remaining: data.addonCredits.builderContactCredits || 0,
                     }}
-                    onAddonClick={() => void openAddonDrill("builder")}
+                    onAddonClick={() => openAddonDrill("builder")}
                     hint="Click addon credits for payment source + expiry."
                   />
                 ) : null}
@@ -447,79 +483,6 @@ export function SubscriptionTab({ userId }: SubscriptionTabProps) {
               )}
             </div>
           ) : null}
-
-          {section === "credits" ? (
-            <div className="space-y-4">
-              <div className="rounded-xl border bg-white p-5 shadow-sm">
-                <h4 className="font-semibold text-gray-900">
-                  Purchases & top-ups
-                </h4>
-                {!topups.length ? (
-                  <p className="mt-3 text-sm text-gray-500">
-                    No top-up history.
-                  </p>
-                ) : (
-                  <ul className="mt-3 divide-y divide-gray-100">
-                    {topups.map((item) => (
-                      <li key={item.id} className="py-3 text-sm">
-                        <p className="font-medium text-gray-900">
-                          {item.title}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          {fmtMoney(item.amountPaise)} ·{" "}
-                          {fmtDateTime(item.occurredAt)}
-                          {item.detail ? ` · ${item.detail}` : ""}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div className="rounded-xl border bg-white p-5 shadow-sm">
-                <h4 className="font-semibold text-gray-900">
-                  Credit lots (30-day expiry)
-                </h4>
-                {!lots.length ? (
-                  <p className="mt-3 text-sm text-gray-500">No credit lots.</p>
-                ) : (
-                  <div className="mt-3 overflow-x-auto">
-                    <table className="min-w-full text-left text-sm">
-                      <thead className="text-xs uppercase text-gray-500">
-                        <tr>
-                          <th className="py-2 pr-3">Kind</th>
-                          <th className="py-2 pr-3">Remaining</th>
-                          <th className="py-2 pr-3">Granted</th>
-                          <th className="py-2 pr-3">Expires</th>
-                          <th className="py-2 pr-3">Pack cost</th>
-                          <th className="py-2">Source</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {lots.map((lot) => (
-                          <tr key={lot.id} className="border-t border-gray-100">
-                            <td className="py-2 pr-3">{labelize(lot.kind)}</td>
-                            <td className="py-2 pr-3">
-                              {lot.amountRemaining}/{lot.amountGranted}
-                            </td>
-                            <td className="py-2 pr-3">
-                              {fmtDateTime(lot.grantedAt)}
-                            </td>
-                            <td className="py-2 pr-3">
-                              {fmtDateTime(lot.expiresAt)}
-                            </td>
-                            <td className="py-2 pr-3">
-                              {lot.walletCoinsSpent ?? "—"}
-                            </td>
-                            <td className="py-2">{labelize(lot.source)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : null}
         </>
       ) : (
         !loading && (
@@ -528,41 +491,6 @@ export function SubscriptionTab({ userId }: SubscriptionTabProps) {
           </div>
         )
       )}
-
-      <Dialog open={drillOpen} onOpenChange={setDrillOpen}>
-        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {drillKind === "builder"
-                ? "Builder credits"
-                : drillKind === "buy_req"
-                  ? "Buy-req credits"
-                  : "Listing credits"}{" "}
-              history
-            </DialogTitle>
-            <DialogDescription>
-              How each pack was bought (referral coins, cash, or both) and when
-              those credits expire.
-            </DialogDescription>
-          </DialogHeader>
-          {coinsLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
-            </div>
-          ) : (
-            <>
-              {coinsError ? (
-                <p className="mb-3 text-xs text-amber-700">{coinsError}</p>
-              ) : null}
-              <AddonCreditHistory
-                lots={lots}
-                focusAddon={drillKind}
-                transactions={coinsData?.transactions || []}
-              />
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
@@ -580,227 +508,6 @@ function creditUsedTotal(lots: CreditLot[], kind: string) {
     0,
   );
   return { used: Math.max(0, total - remaining), total, remaining };
-}
-
-function AddonCreditHistory({
-  lots,
-  focusAddon,
-  transactions,
-}: {
-  lots: CreditLot[];
-  focusAddon: AddonDrillKind | null;
-  transactions: Array<{
-    id: string;
-    type: string;
-    title: string;
-    subtitle?: string | null;
-    referralCoinsDelta: number;
-    amountPaise?: number | null;
-    addonType?: string | null;
-    paymentOrderId?: string | null;
-    meta?: Record<string, unknown> | null;
-    occurredAt: string;
-  }>;
-}) {
-  const kind = focusAddon || "listing";
-  const kindLots = useMemo(
-    () =>
-      lots
-        .filter((lot) => String(lot.kind || "").toLowerCase() === kind)
-        .slice()
-        .sort(
-          (a, b) =>
-            new Date(b.grantedAt).getTime() - new Date(a.grantedAt).getTime(),
-        ),
-    [lots, kind],
-  );
-
-  const purchases = useMemo(
-    () =>
-      transactions.filter((t) => {
-        if (!/addon_purchase|addon|purchase/i.test(String(t.type || ""))) {
-          return false;
-        }
-        const addon = String(
-          t.addonType || t.meta?.addonType || "",
-        ).toLowerCase();
-        if (kind === "listing") {
-          return !addon || /listing|resale|rent/.test(addon);
-        }
-        if (kind === "buy_req") return /buy/.test(addon);
-        return /builder/.test(addon);
-      }),
-    [transactions, kind],
-  );
-
-  const remainingCredits = kindLots.reduce(
-    (sum, lot) => sum + Number(lot.amountRemaining || 0),
-    0,
-  );
-
-  const rows = useMemo(() => {
-    const usedPurchaseIds = new Set<string>();
-    const fromLots = kindLots.map((lot) => {
-      const purchase = matchPurchaseForLot(lot, purchases, usedPurchaseIds);
-      if (purchase) usedPurchaseIds.add(purchase.id);
-      const how = howPaidLabel(purchase);
-      return {
-        id: lot.id,
-        title: `+${lot.amountGranted} credits`,
-        remaining: lot.amountRemaining,
-        grantedAt: lot.grantedAt,
-        expiresAt: lot.expiresAt,
-        expired: !!lot.expiredAt || isExpired(lot.expiresAt),
-        how,
-        subtitle: purchase?.subtitle || null,
-      };
-    });
-
-    // Purchases with no matching lot (e.g. older data) still show in history
-    const orphanPurchases = purchases
-      .filter((p) => !usedPurchaseIds.has(p.id))
-      .map((p) => ({
-        id: `txn-${p.id}`,
-        title: p.title || "Pack purchase",
-        remaining: null as number | null,
-        grantedAt: p.occurredAt,
-        expiresAt: null as string | null,
-        expired: false,
-        how: howPaidLabel(p),
-        subtitle: p.subtitle || null,
-      }));
-
-    return [...fromLots, ...orphanPurchases].sort(
-      (a, b) =>
-        new Date(b.grantedAt).getTime() - new Date(a.grantedAt).getTime(),
-    );
-  }, [kindLots, purchases]);
-
-  return (
-    <div className="space-y-3 text-sm">
-      <p className="rounded-lg bg-gray-50 px-3 py-2 font-medium text-gray-900">
-        Credits left: {remainingCredits}
-      </p>
-
-      {!rows.length ? (
-        <p className="text-gray-500">No credit history for this pack yet.</p>
-      ) : (
-        <ul className="space-y-2">
-          {rows.map((row) => (
-            <li
-              key={row.id}
-              className="rounded-lg border border-gray-100 px-3 py-2.5"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-medium text-gray-900">{row.title}</p>
-                  <p className="mt-0.5 text-xs font-medium text-primary">
-                    {row.how}
-                  </p>
-                  {row.subtitle ? (
-                    <p className="mt-0.5 text-xs text-gray-500">
-                      {row.subtitle}
-                    </p>
-                  ) : null}
-                  {row.remaining != null ? (
-                    <p className="mt-1 text-xs text-gray-500">
-                      Left in this pack: {row.remaining}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="shrink-0 text-right text-xs text-gray-500">
-                  <p>Got {fmtDate(row.grantedAt)}</p>
-                  {row.expiresAt ? (
-                    <p
-                      className={
-                        row.expired || isExpired(row.expiresAt)
-                          ? "font-medium text-red-600"
-                          : "text-gray-600"
-                      }
-                    >
-                      {row.expired || isExpired(row.expiresAt)
-                        ? "Expired"
-                        : "Expires"}{" "}
-                      {fmtDate(row.expiresAt)}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-type PurchaseTxn = {
-  id: string;
-  type: string;
-  title: string;
-  subtitle?: string | null;
-  referralCoinsDelta: number;
-  amountPaise?: number | null;
-  addonType?: string | null;
-  paymentOrderId?: string | null;
-  meta?: Record<string, unknown> | null;
-  occurredAt: string;
-};
-
-function matchPurchaseForLot(
-  lot: CreditLot,
-  purchases: PurchaseTxn[],
-  usedIds: Set<string>,
-): PurchaseTxn | null {
-  if (lot.topupOrderId) {
-    const byOrder = purchases.find(
-      (p) =>
-        !usedIds.has(p.id) &&
-        p.paymentOrderId &&
-        String(p.paymentOrderId) === String(lot.topupOrderId),
-    );
-    if (byOrder) return byOrder;
-  }
-  const grantedMs = new Date(lot.grantedAt).getTime();
-  if (Number.isNaN(grantedMs)) return null;
-  let best: PurchaseTxn | null = null;
-  let bestDiff = Infinity;
-  for (const p of purchases) {
-    if (usedIds.has(p.id)) continue;
-    const diff = Math.abs(new Date(p.occurredAt).getTime() - grantedMs);
-    if (diff < bestDiff && diff <= 5 * 60 * 1000) {
-      best = p;
-      bestDiff = diff;
-    }
-  }
-  return best;
-}
-
-function howPaidLabel(purchase: PurchaseTxn | null): string {
-  if (!purchase) return "Source unknown";
-  const coins =
-    Math.abs(Number(purchase.referralCoinsDelta || 0)) ||
-    Number(purchase.meta?.referralCoinsUsed || 0) ||
-    0;
-  const cash = Number(purchase.amountPaise ?? purchase.meta?.amountPaise ?? 0);
-  if (coins > 0 && cash > 0) {
-    return `Both — ${coins} referral coins + ${fmtMoney(cash)} cash`;
-  }
-  if (coins > 0) {
-    return `Referral coins — ${coins} coins`;
-  }
-  if (cash > 0) {
-    return `Cash only — ${fmtMoney(cash)}`;
-  }
-  if (purchase.subtitle) return purchase.subtitle;
-  return "Pack purchase";
-}
-
-function isExpired(value?: string | null) {
-  if (!value) return false;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return false;
-  return d.getTime() < Date.now();
 }
 
 function paymentStatusClass(status?: string | null) {

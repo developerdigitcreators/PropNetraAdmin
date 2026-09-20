@@ -1,21 +1,29 @@
 'use client';
 
-import { useCallback, useEffect, useState, Fragment } from 'react';
+import { useCallback, useEffect, useState, Fragment, Suspense } from 'react';
 import Link from 'next/link';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
+import { AdminDataTable } from '@/components/common/admin-data-table';
+import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   referralApiError,
   referralService,
-  type ReferralInviteItem,
   type ReferralOverview,
   type ReferralOverviewUserRow,
   type ReferralUserSummary,
 } from '@/services/referral.service';
 import { formatDisplayDateTime } from '@/lib/format-date';
-import { ChevronDown, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
+import { useClientPagedRows } from '@/hooks/use-client-paged-rows';
+import { useUrlFilters } from '@/hooks/use-url-filters';
+import {
+  InviteRewardCell,
+  InviteTimingCell,
+} from '@/modules/referral/invite-display';
+import { TableHScroll } from '@/components/ui/table-h-scroll';
+import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 
 function userLabel(user: ReferralUserSummary) {
   return user.name?.trim() || user.contact?.trim() || user.email?.trim() || 'Unknown user';
@@ -46,48 +54,6 @@ function planBadgeClass(code?: string | null) {
   }
 }
 
-function rewardText(item: {
-  coinsCredited: number;
-  monthsGranted: number;
-  status: string;
-}) {
-  if (item.coinsCredited > 0) return `+${item.coinsCredited} NetraCoins`;
-  if (item.monthsGranted > 0)
-    return `+${item.monthsGranted} month${item.monthsGranted === 1 ? '' : 's'}`;
-  if (item.status === 'pending_subscription') return 'After plan purchase';
-  if (item.status === 'pending_expired') return 'Window ended';
-  return '—';
-}
-
-function InviteTiming({ item }: { item: ReferralInviteItem }) {
-  const lines: string[] = [];
-  if (item.createdAt) {
-    lines.push(`Onboarded ${formatDisplayDateTime(item.createdAt)}`);
-  }
-  if (item.status === 'pending_subscription' && item.pendingExpiresAt) {
-    lines.push(`Plan needed by ${formatDisplayDateTime(item.pendingExpiresAt)}`);
-  } else if (item.status === 'pending_expired') {
-    lines.push(
-      item.pendingExpiresAt
-        ? `Window ended ${formatDisplayDateTime(item.pendingExpiresAt)}`
-        : 'Window ended — no benefit',
-    );
-  } else {
-    if (item.planActivatedAt) {
-      lines.push(`Plan started ${formatDisplayDateTime(item.planActivatedAt)}`);
-    }
-    if (item.rewardExpiresAt) {
-      lines.push(`Reward expiry ${formatDisplayDateTime(item.rewardExpiresAt)}`);
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-1 text-gray-600">
-      {lines.length ? lines.map((line) => <span key={line}>{line}</span>) : <span>—</span>}
-    </div>
-  );
-}
-
 function PlanBadge({ planCode }: { planCode?: string | null }) {
   return (
     <span
@@ -99,14 +65,28 @@ function PlanBadge({ planCode }: { planCode?: string | null }) {
 }
 
 export default function ReferralOverviewPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <ReferralOverviewPageInner />
+    </Suspense>
+  );
+}
+
+function ReferralOverviewPageInner() {
   const [overview, setOverview] = useState<ReferralOverview | null>(null);
   const [rows, setRows] = useState<ReferralOverviewUserRow[]>([]);
-  const [qDraft, setQDraft] = useState('');
-  const [q, setQ] = useState('');
+  const { filters, setFilters, resetFilters } = useUrlFilters({ q: '' });
+  const q = filters.q;
+  const [qDraft, setQDraft] = useState(q);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [metaTotal, setMetaTotal] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -117,7 +97,6 @@ export default function ReferralOverviewPage() {
         referralService.overview(50).catch(() => null),
       ]);
       setRows(listRes.items || []);
-      setMetaTotal(listRes.meta?.total ?? listRes.items?.length ?? 0);
       setOverview(ov);
     } catch (err) {
       setError(referralApiError(err, 'Failed to load referral overview.'));
@@ -130,6 +109,21 @@ export default function ReferralOverviewPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+    resetPage,
+  } = useClientPagedRows(rows);
+
+  useEffect(() => {
+    resetPage();
+  }, [q, resetPage]);
 
   return (
     <PermissionGuard permission="subscriptions:read">
@@ -156,16 +150,15 @@ export default function ReferralOverviewPage() {
               </Link>
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void load()}
-            disabled={loading}
-          >
-            <RefreshCw className="mr-1.5 size-3.5" />
-            Refresh
-          </Button>
+          <AdminListToolbar
+            onRefresh={() => void load()}
+            refreshBusy={loading}
+            onReset={() => {
+              setQDraft('');
+              resetFilters();
+              resetPage();
+            }}
+          />
         </div>
 
         {overview ? (
@@ -211,107 +204,104 @@ export default function ReferralOverviewPage() {
               onChange={(e) => setQDraft(e.target.value)}
               placeholder="Search name, phone, email, code…"
               onKeyDown={(e) => {
-                if (e.key === 'Enter') setQ(qDraft.trim());
+                if (e.key === 'Enter') setFilters({ q: qDraft.trim() });
               }}
             />
           </div>
-          <Button type="button" size="sm" onClick={() => setQ(qDraft.trim())}>
+          <Button type="button" size="sm" variant="outline" onClick={() => setFilters({ q: qDraft.trim() })}>
             Search
           </Button>
-          <span className="self-center text-xs text-gray-500">
-            {metaTotal} result{metaTotal === 1 ? '' : 's'}
-          </span>
         </div>
 
-        {loading ? (
-          <div className="flex justify-center py-16">
-            <Loader2 className="size-6 animate-spin text-primary" />
-          </div>
-        ) : error ? (
-          <p className="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
-            {error}
-          </p>
-        ) : !rows.length ? (
-          <p className="rounded-xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
-            No users match this search.
-          </p>
-        ) : (
-          <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-            <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-gray-100 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
-                <tr>
-                  <th className="w-10 px-3 py-3" />
-                  <th className="px-4 py-3 font-medium">User</th>
-                  <th className="px-4 py-3 font-medium">Plan</th>
-                  <th className="px-4 py-3 font-medium">Code</th>
-                  <th className="px-4 py-3 font-medium">Invited</th>
-                  <th className="px-4 py-3 font-medium">Plan start</th>
-                  <th className="px-4 py-3 font-medium">Joined via</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const id = row.user.id;
-                  const canExpand = row.kind === 'referrer' && row.items.length > 0;
-                  const open = !!expanded[id];
-                  const joinedVia =
-                    row.user.joinedViaReferral === true ||
-                    (row.user.withoutReferral === false && !!row.user.referIdUsed)
-                      ? 'With referral'
-                      : 'Without referral';
-                  return (
-                    <Fragment key={`${row.kind}-${id}`}>
-                      <tr className="border-b border-gray-50">
-                        <td className="px-3 py-3">
-                          {canExpand ? (
-                            <button
-                              type="button"
-                              className="rounded p-1 text-gray-500 hover:bg-gray-100"
-                              onClick={() =>
-                                setExpanded((prev) => ({
-                                  ...prev,
-                                  [id]: !prev[id],
-                                }))
-                              }
-                            >
-                              {open ? (
-                                <ChevronDown className="size-4" />
-                              ) : (
-                                <ChevronRight className="size-4" />
-                              )}
-                            </button>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-3 font-medium text-gray-900">
-                          {userLabel(row.user)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <PlanBadge planCode={row.user.planCode} />
-                        </td>
-                        <td className="px-4 py-3 font-mono text-xs text-gray-600">
-                          {row.user.referralCode || '—'}
-                        </td>
-                        <td className="px-4 py-3 text-gray-700">{row.invitedCount}</td>
-                        <td className="px-4 py-3 text-gray-600">
-                          {formatDisplayDateTime(
-                            row.user.planStartedAt || row.user.createdAt || null,
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                              joinedVia === 'Without referral'
-                                ? 'bg-orange-50 text-orange-800'
-                                : 'bg-emerald-50 text-emerald-800'
-                            }`}
+        <AdminDataTable
+          page={page}
+          limit={limit}
+          total={total}
+          totalPages={totalPages}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
+          loading={loading}
+          error={error || null}
+          isEmpty={!rows.length}
+          emptyMessage="No users match this search."
+          syncKey={pageRows.length}
+        >
+          <table className="min-w-full text-left text-sm">
+            <thead className="border-b border-gray-100 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+              <tr>
+                <th className="w-10 px-3 py-3" />
+                <th className="px-4 py-3 font-medium">User</th>
+                <th className="px-4 py-3 font-medium">Plan</th>
+                <th className="px-4 py-3 font-medium">Code</th>
+                <th className="px-4 py-3 font-medium">Invited</th>
+                <th className="px-4 py-3 font-medium">Plan start</th>
+                <th className="px-4 py-3 font-medium">Joined via</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageRows.map((row) => {
+                const id = row.user.id;
+                const canExpand = row.kind === 'referrer' && row.items.length > 0;
+                const open = !!expanded[id];
+                const joinedVia =
+                  row.user.joinedViaReferral === true ||
+                  (row.user.withoutReferral === false && !!row.user.referIdUsed)
+                    ? 'With referral'
+                    : 'Without referral';
+                return (
+                  <Fragment key={`${row.kind}-${id}`}>
+                    <tr className="border-b border-gray-50">
+                      <td className="px-3 py-3">
+                        {canExpand ? (
+                          <button
+                            type="button"
+                            className="rounded p-1 text-gray-500 hover:bg-gray-100"
+                            onClick={() =>
+                              setExpanded((prev) => ({
+                                ...prev,
+                                [id]: !prev[id],
+                              }))
+                            }
                           >
-                            {joinedVia}
-                          </span>
-                        </td>
-                      </tr>
-                      {open && canExpand ? (
-                        <tr className="border-b border-gray-50 bg-gray-50/70">
-                          <td colSpan={7} className="px-6 py-4">
+                            {open ? (
+                              <ChevronDown className="size-4" />
+                            ) : (
+                              <ChevronRight className="size-4" />
+                            )}
+                          </button>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-gray-900">
+                        {userLabel(row.user)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <PlanBadge planCode={row.user.planCode} />
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-gray-600">
+                        {row.user.referralCode || '—'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">{row.invitedCount}</td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {formatDisplayDateTime(
+                          row.user.planStartedAt || row.user.createdAt || null,
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                            joinedVia === 'Without referral'
+                              ? 'bg-orange-50 text-orange-800'
+                              : 'bg-emerald-50 text-emerald-800'
+                          }`}
+                        >
+                          {joinedVia}
+                        </span>
+                      </td>
+                    </tr>
+                    {open && canExpand ? (
+                      <tr className="border-b border-gray-50 bg-gray-50/70">
+                        <td colSpan={7} className="px-6 py-4">
+                          <TableHScroll syncKey={row.items.length} stickyScrollbar>
                             <table className="min-w-full text-left text-xs">
                               <thead className="text-gray-500">
                                 <tr>
@@ -338,26 +328,26 @@ export default function ReferralOverviewPage() {
                                     <td className="py-3 pr-3">
                                       <PlanBadge planCode={item.referrerPlanAtBenefit} />
                                     </td>
-                                    <td className="py-3 pr-3 text-gray-700">
-                                      {rewardText(item)}
+                                    <td className="py-3 pr-3">
+                                      <InviteRewardCell item={item} />
                                     </td>
-                                    <td className="py-3">
-                                      <InviteTiming item={item} />
+                                    <td className="py-3 text-xs">
+                                      <InviteTimingCell item={item} />
                                     </td>
                                   </tr>
                                 ))}
                               </tbody>
                             </table>
-                          </td>
-                        </tr>
-                      ) : null}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                          </TableHScroll>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </AdminDataTable>
       </div>
     </PermissionGuard>
   );

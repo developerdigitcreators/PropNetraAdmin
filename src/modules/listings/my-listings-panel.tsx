@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   listingsService,
@@ -12,7 +12,8 @@ import {
   type MyListingsTab,
 } from "@/services/listings.service";
 import { PermissionGuard } from "@/components/common/permission-guard";
-import { PaginationBar } from "@/components/common/pagination-bar";
+import { AdminDataTable } from "@/components/common/admin-data-table";
+import { AdminListToolbar } from "@/components/common/admin-list-toolbar";
 import { newFirstCellClass, NewTag } from "@/components/common/new-row-marker";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -33,21 +34,72 @@ import {
 import { useAuthStore } from "@/store/use-auth-store";
 import { formatDisplayDateTime } from "@/lib/format-date";
 import { isSuperAdmin } from "@/lib/super-admin";
+import { planLabelFromCode, resolvePlanChip } from "@/lib/plan-labels";
+import { useUrlFilters } from "@/hooks/use-url-filters";
+import { useDialogUnsavedGuard } from "@/hooks/use-unsaved-changes-guard";
 import {
-  Inbox,
+  ExternalLink,
   Loader2,
   MessageSquare,
   Plus,
-  RefreshCw,
-  Users,
+  X,
 } from "lucide-react";
 
 function formatDateTime(value?: string | Date | null) {
   return formatDisplayDateTime(value);
 }
 
-function stopRowClick(event: React.MouseEvent) {
+function stopRowClick(event: React.SyntheticEvent) {
   event.stopPropagation();
+}
+
+function isAdminVerifiedRow(item: MyListingItem) {
+  return Boolean(
+    item.connectedStaff || item.leadContactName || item.leadContactPhone,
+  );
+}
+
+function ownerAnalyticsHref(item: MyListingItem) {
+  const ownerId = item.ownerUser?.id?.trim();
+  if (!ownerId) return null;
+  const today = new Date();
+  const start = new Date(today);
+  start.setDate(start.getDate() - 30);
+  const toYmd = (d: Date) => d.toISOString().slice(0, 10);
+  const params = new URLSearchParams({
+    userId: ownerId,
+    tab: "analytics",
+    aTab: "leads",
+    from: toYmd(start),
+    to: toYmd(today),
+  });
+  return `/user-analytics?${params.toString()}`;
+}
+
+function InterestCell({ item }: { item: MyListingItem }) {
+  const views = item.viewCount ?? 0;
+  const leads = item.leadCount ?? item.interestCount ?? 0;
+  const href = ownerAnalyticsHref(item);
+
+  return (
+    <div className="flex items-center gap-2" onPointerDown={stopRowClick}>
+      <div className="flex flex-col items-start text-left text-xs leading-snug text-gray-700">
+        <span>View {views}</span>
+        <span>Lead {leads}</span>
+      </div>
+      {href ? (
+        <Link
+          href={href}
+          title="Open owner analytics (leads)"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-primary"
+          onPointerDown={stopRowClick}
+          onClick={stopRowClick}
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </Link>
+      ) : null}
+    </div>
+  );
 }
 
 function DetailField({
@@ -62,6 +114,22 @@ function DetailField({
       <p className="text-xs uppercase tracking-wide text-gray-400">{label}</p>
       <p className="text-sm font-medium text-gray-900">{value || "—"}</p>
     </div>
+  );
+}
+
+function InterestPlanBadge({ planCode }: { planCode?: string | null }) {
+  const chip = resolvePlanChip(null, planCode);
+  if (!chip && !planCode) return null;
+  return (
+    <span
+      className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${
+        chip?.className || "bg-slate-100 text-slate-700"
+      }`}
+    >
+      {chip?.label ||
+        planLabelFromCode(planCode) ||
+        String(planCode).replace(/_/g, " ")}
+    </span>
   );
 }
 
@@ -85,19 +153,69 @@ export function MyListingsPanel() {
     [user, permissions, activeRole, accessToken],
   );
 
-  const [tab, setTab] = useState<MyListingsTab>("admin_verified");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [companyNameInput, setCompanyNameInput] = useState("");
-  const [usernameInput, setUsernameInput] = useState("");
-  const [leadInput, setLeadInput] = useState("");
-  const [companyNameFilter, setCompanyNameFilter] = useState("");
-  const [usernameFilter, setUsernameFilter] = useState("");
-  const [leadFilter, setLeadFilter] = useState("");
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
-  const [selectedBuildingTypeId, setSelectedBuildingTypeId] =
-    useState<string>("");
-  const [selectedPropertyTypeId, setSelectedPropertyTypeId] =
-    useState<string>("__ALL__");
+  const {
+    filters: urlFilters,
+    setFilters: setUrlFilters,
+    resetFilters,
+  } = useUrlFilters({
+    tab: "all",
+    status: "all",
+    companyName: "",
+    username: "",
+    lead: "",
+    listingId: "",
+    focus: "",
+    categoryId: "",
+    buildingTypeId: "",
+    propertyTypeId: "__ALL__",
+  });
+
+  const tab = (
+    urlFilters.tab === "app_postings"
+      ? "app_postings"
+      : urlFilters.tab === "admin_verified"
+        ? "admin_verified"
+        : "all"
+  ) as MyListingsTab;
+
+  useEffect(() => {
+    if (tab === "app_postings" && !superAdmin) {
+      setUrlFilters({ tab: "all" });
+    }
+  }, [tab, superAdmin, setUrlFilters]);
+  const statusFilter = (
+    ["all", "active", "expired", "inactive"].includes(urlFilters.status)
+      ? urlFilters.status
+      : "all"
+  ) as StatusFilter;
+  const companyNameFilter = urlFilters.companyName;
+  const usernameFilter = urlFilters.username;
+  const leadFilter = urlFilters.lead;
+  const listingIdFilter = (urlFilters.listingId || urlFilters.focus).trim();
+  const selectedCategoryId = urlFilters.categoryId;
+  const selectedBuildingTypeId = urlFilters.buildingTypeId;
+  const selectedPropertyTypeId = urlFilters.propertyTypeId || "__ALL__";
+
+  const setTab = (value: MyListingsTab) => setUrlFilters({ tab: value });
+  const setStatusFilter = (value: StatusFilter) =>
+    setUrlFilters({ status: value });
+  const setCompanyNameFilter = (value: string) =>
+    setUrlFilters({ companyName: value });
+  const setUsernameFilter = (value: string) =>
+    setUrlFilters({ username: value });
+  const setLeadFilter = (value: string) => setUrlFilters({ lead: value });
+  const clearListingIdFilter = () =>
+    setUrlFilters({ listingId: "", focus: "" });
+  const setSelectedCategoryId = (value: string) =>
+    setUrlFilters({ categoryId: value });
+  const setSelectedBuildingTypeId = (value: string) =>
+    setUrlFilters({ buildingTypeId: value });
+  const setSelectedPropertyTypeId = (value: string) =>
+    setUrlFilters({ propertyTypeId: value });
+
+  const [companyNameInput, setCompanyNameInput] = useState(companyNameFilter);
+  const [usernameInput, setUsernameInput] = useState(usernameFilter);
+  const [leadInput, setLeadInput] = useState(leadFilter);
   const [items, setItems] = useState<MyListingItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -128,7 +246,12 @@ export function MyListingsPanel() {
   >([]);
   const [remarkText, setRemarkText] = useState("");
   const [remarksLoading, setRemarksLoading] = useState(false);
+  const {
+    requestClose: requestRemarksClose,
+    dialog: remarksUnsavedDialog,
+  } = useDialogUnsavedGuard(remarkText.trim().length > 0);
   const [interestOpen, setInterestOpen] = useState(false);
+  const interestDismissLock = useRef(false);
   const [interestListing, setInterestListing] = useState<MyListingItem | null>(
     null,
   );
@@ -149,8 +272,8 @@ export function MyListingsPanel() {
     try {
       const result = await listingsService.getMyListings({
         tab,
-        page,
-        limit: pageSize,
+        page: listingIdFilter ? 1 : page,
+        limit: listingIdFilter ? 100 : pageSize,
         categoryId: selectedCategoryId || undefined,
         buildingTypeId: selectedBuildingTypeId || undefined,
         propertyTypeId:
@@ -159,14 +282,39 @@ export function MyListingsPanel() {
             : selectedPropertyTypeId,
         status: statusFilter === "all" ? undefined : statusFilter,
         companyName:
-          tab === "app_postings" ? companyNameFilter || undefined : undefined,
+          tab === "app_postings" || tab === "all"
+            ? companyNameFilter || undefined
+            : undefined,
         username:
-          tab === "app_postings" ? usernameFilter || undefined : undefined,
-        lead: tab === "admin_verified" ? leadFilter || undefined : undefined,
+          tab === "app_postings" || tab === "all"
+            ? usernameFilter || undefined
+            : undefined,
+        lead:
+          tab === "admin_verified" || tab === "all"
+            ? leadFilter || undefined
+            : undefined,
+        listingId: listingIdFilter || undefined,
       });
-      setItems(result.items);
-      setTotal(result.total);
-      setTotalPages(result.totalPages);
+      let rows = result.items;
+      if (listingIdFilter) {
+        rows = rows.filter((item) => item.id === listingIdFilter);
+        if (rows.length === 0) {
+          try {
+            const detail =
+              await listingsService.getMyListingDetail(listingIdFilter);
+            rows = [detail];
+          } catch {
+            rows = [];
+          }
+        }
+        setItems(rows);
+        setTotal(rows.length);
+        setTotalPages(1);
+      } else {
+        setItems(rows);
+        setTotal(result.total);
+        setTotalPages(result.totalPages);
+      }
       setFilters(result.filters);
     } catch (err) {
       console.error(err);
@@ -185,6 +333,7 @@ export function MyListingsPanel() {
     companyNameFilter,
     usernameFilter,
     leadFilter,
+    listingIdFilter,
   ]);
 
   useEffect(() => {
@@ -220,21 +369,33 @@ export function MyListingsPanel() {
     }
   };
 
-  const openInterestDetails = async (item: MyListingItem) => {
-    if (item.interestCount <= 0) return;
+  const openInterestDetails = (item: MyListingItem) => {
+    const leads = item.leadCount ?? item.interestCount ?? 0;
+    if (leads <= 0) return;
+    setDetailOpen(false);
+    setRemarksOpen(false);
     setInterestListing(item);
-    setInterestOpen(true);
     setInterestLoading(true);
     setInterestDetails(null);
-    try {
-      const details = await listingsService.getListingInterestDetails(item.id);
-      setInterestDetails(details);
-      await listingsService.markMyListingInterestSeen(item.id);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setInterestLoading(false);
-    }
+    interestDismissLock.current = true;
+    window.setTimeout(() => {
+      setInterestOpen(true);
+      window.setTimeout(() => {
+        interestDismissLock.current = false;
+      }, 400);
+    }, 0);
+    void listingsService
+      .getListingInterestDetails(item.id)
+      .then(async (details) => {
+        setInterestDetails(details);
+        await listingsService.markMyListingInterestSeen(item.id);
+      })
+      .catch((err) => {
+        console.error(err);
+      })
+      .finally(() => {
+        setInterestLoading(false);
+      });
   };
 
   const openListingDetail = async (item: MyListingItem) => {
@@ -308,6 +469,14 @@ export function MyListingsPanel() {
     }
   };
 
+  const handleResetFilters = () => {
+    resetFilters();
+    setCompanyNameInput("");
+    setUsernameInput("");
+    setLeadInput("");
+    setPage(1);
+  };
+
   const categorySum = filters.categories.reduce((a, c) => a + c.total, 0);
   const buildingSum = filters.buildingTypes.reduce((a, c) => a + c.total, 0);
   const propertySum = filters.propertyTypes.reduce((a, c) => a + c.total, 0);
@@ -333,7 +502,7 @@ export function MyListingsPanel() {
       permission="admin_my_listings:read"
       fallback={
         <div className="p-12 text-center text-gray-500">
-          You do not have permission to view My Listings.
+          You do not have permission to view Property listing.
         </div>
       }
     >
@@ -341,26 +510,18 @@ export function MyListingsPanel() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-              My Listings
+              Property listing
             </h1>
             <p className="mt-1 text-gray-500">
-              Admin-posted verified listings assigned to you
-              {superAdmin
-                ? ", plus all admin posts and app user postings."
-                : "."}
+              Verified admin posts assigned to you
+              {superAdmin ? ", plus all admin posts and user listings." : "."}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void fetchList()}
-              disabled={loading}
-            >
-              <RefreshCw className="mr-1.5 size-3.5" />
-              Refresh
-            </Button>
+          <AdminListToolbar
+            onRefresh={() => void fetchList()}
+            refreshBusy={loading}
+            onReset={handleResetFilters}
+          >
             <Link
               href="/add-post"
               className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
@@ -368,7 +529,7 @@ export function MyListingsPanel() {
               <Plus className="mr-2 h-4 w-4" />
               Add Post
             </Link>
-          </div>
+          </AdminListToolbar>
         </div>
 
         <Tabs
@@ -379,20 +540,23 @@ export function MyListingsPanel() {
           }}
         >
           <TabsList className="mb-4 h-auto border bg-white p-1 shadow-sm">
-            <TabsTrigger
-              value="admin_verified"
-              className="rounded-md px-6 text-sm"
-            >
-              Admin Verified
+            <TabsTrigger value="all" className="rounded-md px-6 text-sm">
+              All
             </TabsTrigger>
             {superAdmin ? (
               <TabsTrigger
                 value="app_postings"
                 className="rounded-md px-6 text-sm"
               >
-                App Postings
+                User listing
               </TabsTrigger>
             ) : null}
+            <TabsTrigger
+              value="admin_verified"
+              className="rounded-md px-6 text-sm"
+            >
+              Verified listing
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent
@@ -527,7 +691,8 @@ export function MyListingsPanel() {
                     onChange={(e) => setLeadInput(e.target.value)}
                   />
                 </div>
-              ) : (
+              ) : null}
+              {tab === "app_postings" || tab === "all" ? (
                 <>
                   <div className="min-w-[180px]">
                     <p className="mb-1 text-xs text-gray-500">Company name</p>
@@ -546,64 +711,101 @@ export function MyListingsPanel() {
                     />
                   </div>
                 </>
-              )}
+              ) : null}
+              {tab === "all" ? (
+                <div className="min-w-[200px]">
+                  <p className="mb-1 text-xs text-gray-500">Lead</p>
+                  <Input
+                    value={leadInput}
+                    placeholder="Search lead name or phone"
+                    onChange={(e) => setLeadInput(e.target.value)}
+                  />
+                </div>
+              ) : null}
             </div>
 
-            {loading ? (
-              <div className="flex justify-center py-20">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            {listingIdFilter ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/20 bg-primary-light px-3 py-2 text-sm text-gray-800">
+                <span>Showing the selected listing only.</span>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-white"
+                  onClick={clearListingIdFilter}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Clear
+                </button>
               </div>
-            ) : items.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-gray-200 py-16 text-center text-gray-500">
-                <Inbox className="mx-auto mb-3 h-10 w-10 text-gray-300" />
-                No listings match your filters.
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-                <table className="min-w-full text-sm">
+            ) : null}
+
+            <AdminDataTable
+              page={page}
+              limit={pageSize}
+              total={total}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                setPage(1);
+              }}
+              loading={loading}
+              isEmpty={!items.length}
+              emptyMessage="No listings match your filters."
+              syncKey={items.length}
+            >
+              <table className="min-w-full text-sm">
                   <thead className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
                     <tr>
-                      <th className="px-4 py-3">Listing</th>
+                      <th className="px-4 py-3">Project name</th>
                       <th className="px-4 py-3">Category</th>
                       <th className="px-4 py-3">Price</th>
-                      {tab === "admin_verified" ? (
-                        <>
-                          <th className="px-4 py-3">Lead contact</th>
-                          <th className="px-4 py-3">Connected staff</th>
-                        </>
-                      ) : (
+                      {tab === "app_postings" ? (
                         <th className="px-4 py-3">Owner</th>
+                      ) : (
+                        <>
+                          <th className="px-4 py-3">Owner detail</th>
+                          <th className="px-4 py-3">Team member</th>
+                          <th className="px-4 py-3">Remark added by</th>
+                        </>
                       )}
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Interest</th>
-                      {tab === "admin_verified" ? (
+                      {tab !== "app_postings" ? (
                         <th className="px-4 py-3 text-right">Actions</th>
                       ) : null}
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((item) => (
+                    {items.map((item) => {
+                      const verifiedStyle =
+                        tab !== "app_postings" &&
+                        (tab === "admin_verified" || isAdminVerifiedRow(item));
+                      return (
                       <tr
                         key={item.id}
-                        className="cursor-pointer border-b transition-colors last:border-0 hover:bg-gray-50/80"
+                        className={`cursor-pointer border-b transition-colors last:border-0 hover:bg-gray-50/80 ${
+                          listingIdFilter && item.id === listingIdFilter
+                            ? "bg-primary-light/40"
+                            : ""
+                        }`}
                         onClick={() => void openListingDetail(item)}
                       >
                         <td
                           className={
-                            tab === "admin_verified"
+                            verifiedStyle
                               ? newFirstCellClass(item.isNew, "px-4 py-3")
                               : "px-4 py-3"
                           }
                         >
                           <div className="flex items-start gap-1.5">
-                            {tab === "admin_verified" ? (
+                            {verifiedStyle ? (
                               <NewTag show={item.isNew} />
                             ) : null}
                             <div>
                               <div className="font-medium text-gray-900">
                                 {item.title}
                               </div>
-                              {tab === "admin_verified" ? (
+                              {verifiedStyle ? (
                                 <div className="text-xs text-gray-500">
                                   {item.expiresAt
                                     ? `Expires ${new Date(item.expiresAt).toLocaleDateString()}`
@@ -619,20 +821,7 @@ export function MyListingsPanel() {
                         <td className="px-4 py-3 text-gray-600">
                           {item.priceLabel}
                         </td>
-                        {tab === "admin_verified" ? (
-                          <>
-                            <td className="px-4 py-3 text-gray-600">
-                              {item.leadContactName || "—"}
-                              <br />
-                              <span className="text-xs">
-                                {item.leadContactPhone || ""}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-gray-600">
-                              {item.connectedStaff?.name || "—"}
-                            </td>
-                          </>
-                        ) : (
+                        {tab === "app_postings" ? (
                           <td className="px-4 py-3 text-gray-600">
                             <div className="font-medium text-gray-900">
                               {item.ownerUser?.companyName?.trim() || "—"}
@@ -641,6 +830,36 @@ export function MyListingsPanel() {
                               {item.ownerUser?.name?.trim() || "—"}
                             </div>
                           </td>
+                        ) : (
+                          <>
+                            <td className="px-4 py-3 text-gray-600">
+                              {verifiedStyle ? (
+                                <>
+                                  {item.leadContactName || "—"}
+                                  <br />
+                                  <span className="text-xs">
+                                    {item.leadContactPhone || ""}
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="font-medium text-gray-900">
+                                    {item.ownerUser?.companyName?.trim() ||
+                                      "—"}
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    {item.ownerUser?.name?.trim() || "—"}
+                                  </div>
+                                </>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-gray-600">
+                              {item.connectedStaff?.name || "—"}
+                            </td>
+                            <td className="px-4 py-3 text-gray-600">
+                              {item.remarksAddedBy || "—"}
+                            </td>
+                          </>
                         )}
                         <td className="px-4 py-3">
                           <span
@@ -657,80 +876,78 @@ export function MyListingsPanel() {
                             {statusBadge(item)}
                           </span>
                         </td>
-                        <td className="px-4 py-3" onClick={stopRowClick}>
-                          {item.interestCount > 0 ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-8 border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100"
-                              onClick={() => void openInterestDetails(item)}
-                            >
-                              <Users className="mr-1.5 h-3.5 w-3.5" />
-                              View {item.interestCount} interest
-                              {item.interestCount === 1 ? "" : "s"}
-                            </Button>
-                          ) : (
-                            <span className="text-xs text-gray-400">
-                              No interest
-                            </span>
-                          )}
+                        <td
+                          className="px-4 py-3"
+                          onPointerDown={stopRowClick}
+                          onClick={stopRowClick}
+                        >
+                          <InterestCell item={item} />
                         </td>
-                        {tab === "admin_verified" ? (
-                          <td className="px-4 py-3" onClick={stopRowClick}>
-                            <div className="flex justify-end gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => void openRemarks(item)}
-                              >
-                                <MessageSquare className="mr-1 h-3.5 w-3.5" />
-                                Remarks
-                              </Button>
-                              {item.actions.canToggleActive ? (
+                        {tab !== "app_postings" ? (
+                          <td
+                            className="px-4 py-3"
+                            onPointerDown={stopRowClick}
+                            onClick={stopRowClick}
+                          >
+                            {verifiedStyle ? (
+                              <div className="flex justify-end gap-2">
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  disabled={actionId === item.id}
-                                  onClick={() => void toggleActive(item)}
+                                  onClick={() => void openRemarks(item)}
                                 >
-                                  {item.isActive ? "Inactive" : "Active"}
+                                  <MessageSquare className="mr-1 h-3.5 w-3.5" />
+                                  Remarks
                                 </Button>
-                              ) : null}
-                              {item.actions.canRenew ? (
-                                <Button
-                                  size="sm"
-                                  disabled={actionId === item.id}
-                                  onClick={() => void renewListing(item)}
-                                >
-                                  Renew
-                                </Button>
-                              ) : null}
-                            </div>
+                                {item.actions.canToggleActive ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={actionId === item.id}
+                                    onClick={() => void toggleActive(item)}
+                                  >
+                                    {item.isActive ? "Inactive" : "Active"}
+                                  </Button>
+                                ) : null}
+                                {item.actions.canRenew ? (
+                                  <Button
+                                    size="sm"
+                                    disabled={actionId === item.id}
+                                    onClick={() => void renewListing(item)}
+                                  >
+                                    Renew
+                                  </Button>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-400">—</span>
+                            )}
                           </td>
                         ) : null}
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
-              </div>
-            )}
-
-            <PaginationBar
-              currentPage={page}
-              totalItems={total}
-              pageSize={pageSize}
-              totalPages={totalPages}
-              onPageChange={setPage}
-              onPageSizeChange={(size) => {
-                setPageSize(size);
-                setPage(1);
-              }}
-            />
+            </AdminDataTable>
           </TabsContent>
         </Tabs>
 
-        <Dialog open={remarksOpen} onOpenChange={setRemarksOpen}>
+        <Dialog
+          open={remarksOpen}
+          onOpenChange={(open) => {
+            if (open) {
+              setRemarksOpen(true);
+              return;
+            }
+            void requestRemarksClose().then((ok) => {
+              if (ok) {
+                setRemarksOpen(false);
+                setRemarkText("");
+              }
+            });
+          }}
+        >
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>Remarks — {remarksListing?.title}</DialogTitle>
@@ -829,7 +1046,7 @@ export function MyListingsPanel() {
                       label="Status"
                       value={statusBadge(listingDetail)}
                     />
-                    {tab === "admin_verified" ? (
+                    {tab !== "app_postings" ? (
                       <DetailField
                         label="Expires"
                         value={
@@ -839,18 +1056,22 @@ export function MyListingsPanel() {
                         }
                       />
                     ) : null}
-                    {tab === "admin_verified" ? (
+                    {tab !== "app_postings" &&
+                    isAdminVerifiedRow(listingDetail) ? (
                       <>
                         <DetailField
-                          label="Lead name"
-                          value={listingDetail.leadContactName}
+                          label="Owner detail"
+                          value={
+                            [
+                              listingDetail.leadContactName,
+                              listingDetail.leadContactPhone,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ") || null
+                          }
                         />
                         <DetailField
-                          label="Lead phone"
-                          value={listingDetail.leadContactPhone}
-                        />
-                        <DetailField
-                          label="Connected staff"
+                          label="Team member"
                           value={
                             listingDetail.connectedStaff
                               ? `${listingDetail.connectedStaff.name} (${listingDetail.connectedStaff.contact})`
@@ -895,22 +1116,11 @@ export function MyListingsPanel() {
                 </div>
 
                 <div className="flex shrink-0 flex-wrap gap-2 border-t border-gray-100 pt-4">
-                  {listingDetail.interestCount > 0 ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100"
-                      onClick={() => {
-                        setDetailOpen(false);
-                        void openInterestDetails(listingDetail);
-                      }}
-                    >
-                      <Users className="mr-1.5 h-4 w-4" />
-                      View {listingDetail.interestCount} interest
-                      {listingDetail.interestCount === 1 ? "" : "s"}
-                    </Button>
-                  ) : null}
-                  {tab === "admin_verified" ? (
+                  <div onPointerDown={stopRowClick} onClick={stopRowClick}>
+                    <InterestCell item={listingDetail} />
+                  </div>
+                  {tab !== "app_postings" &&
+                  isAdminVerifiedRow(listingDetail) ? (
                     <>
                       <Button
                         type="button"
@@ -956,8 +1166,14 @@ export function MyListingsPanel() {
           </DialogContent>
         </Dialog>
 
-        <Dialog open={interestOpen} onOpenChange={setInterestOpen}>
-          <DialogContent className="w-full sm:max-w-6xl">
+        <Dialog
+          open={interestOpen}
+          onOpenChange={(open) => {
+            if (!open && interestDismissLock.current) return;
+            setInterestOpen(open);
+          }}
+        >
+          <DialogContent className="w-full max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-6xl">
             <DialogHeader>
               <DialogTitle>Interest — {interestListing?.title}</DialogTitle>
             </DialogHeader>
@@ -986,9 +1202,16 @@ export function MyListingsPanel() {
                           >
                             <div className="flex items-start justify-between gap-2">
                               <div>
-                                <p className="font-medium text-gray-900">
-                                  {user.name}
-                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="font-medium text-gray-900">
+                                    {user.name}
+                                  </p>
+                                  {user.actorPlanCodeAtEvent ? (
+                                    <InterestPlanBadge
+                                      planCode={user.actorPlanCodeAtEvent}
+                                    />
+                                  ) : null}
+                                </div>
                                 {user.contact ? (
                                   <p className="text-sm text-gray-600">
                                     {user.contact}
@@ -1022,12 +1245,16 @@ export function MyListingsPanel() {
 
                   <div className="space-y-3">
                     <h3 className="text-sm font-semibold text-gray-900">
-                      {tab === "admin_verified"
-                        ? "Lead contact (form)"
+                      {tab !== "app_postings" &&
+                      interestListing &&
+                      isAdminVerifiedRow(interestListing)
+                        ? "Owner detail (form)"
                         : "Listing owner"}
                     </h3>
                     <div className="rounded-lg border border-gray-100 bg-gray-50/80 p-4 space-y-3">
-                      {tab === "admin_verified" ? (
+                      {tab !== "app_postings" &&
+                      interestListing &&
+                      isAdminVerifiedRow(interestListing) ? (
                         <>
                           <div>
                             <p className="text-xs uppercase tracking-wide text-gray-400">
@@ -1052,7 +1279,7 @@ export function MyListingsPanel() {
                           {interestDetails.connectedStaff ? (
                             <div>
                               <p className="text-xs uppercase tracking-wide text-gray-400">
-                                Connected staff
+                                Team member
                               </p>
                               <p className="text-sm font-medium text-gray-900">
                                 {interestDetails.connectedStaff.name}
@@ -1126,6 +1353,7 @@ export function MyListingsPanel() {
             )}
           </DialogContent>
         </Dialog>
+        {remarksUnsavedDialog}
       </div>
     </PermissionGuard>
   );

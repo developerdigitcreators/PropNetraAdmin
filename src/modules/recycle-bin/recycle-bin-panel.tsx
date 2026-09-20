@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { PermissionGuard } from "@/components/common/permission-guard";
 import { Breadcrumb } from "@/components/common/breadcrumb";
+import { AdminDataTable } from "@/components/common/admin-data-table";
+import { AdminListToolbar } from "@/components/common/admin-list-toolbar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,10 +19,10 @@ import {
   recycleBinService,
   type RecycleBinItem,
 } from "@/services/recycle-bin.service";
+import { useClientPagedRows } from "@/hooks/use-client-paged-rows";
 import {
   AlertTriangle,
   Loader2,
-  RefreshCw,
   RotateCcw,
   Trash2,
   UserRound,
@@ -53,6 +55,16 @@ export function RecycleBinPanel() {
   const [toPurge, setToPurge] = useState<RecycleBinItem | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
+
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+  } = useClientPagedRows(items);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,158 +142,140 @@ export function RecycleBinPanel() {
               Staff see items they deleted for 1 month.
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void refreshList()}
-            disabled={loading}
-          >
-            <RefreshCw className="mr-1.5 size-3.5" />
-            Refresh
-          </Button>
+          <AdminListToolbar
+            onRefresh={() => void refreshList()}
+            refreshDisabled={loading}
+          />
         </div>
 
-        {(error || actionError) && (
+        {actionError ? (
           <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
-            {actionError || error}
+            {actionError}
           </div>
-        )}
+        ) : null}
 
-        <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-gray-100 bg-gray-50/80">
-                <tr>
-                  <th className="px-5 py-3 font-semibold text-gray-700">
-                    Module
-                  </th>
-                  <th className="px-5 py-3 font-semibold text-gray-700">
-                    Deleted by
-                  </th>
-                  <th className="px-5 py-3 font-semibold text-gray-700">
-                    Remark
-                  </th>
-                  <th className="px-5 py-3 font-semibold text-gray-700">
-                    Deleted at
-                  </th>
-                  <th className="px-5 py-3 font-semibold text-gray-700">
-                    Hard delete at
-                  </th>
-                  <th className="px-5 py-3 text-right font-semibold text-gray-700">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              {loading ? (
-                <tbody>
-                  <tr>
-                    <td colSpan={6} className="px-6 py-16 text-center">
-                      <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />
-                    </td>
-                  </tr>
-                </tbody>
-              ) : items.length === 0 ? (
-                <tbody>
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="px-6 py-16 text-center text-gray-500"
+        <AdminDataTable
+          page={page}
+          limit={limit}
+          total={total}
+          totalPages={totalPages}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
+          loading={loading}
+          error={error || null}
+          isEmpty={!pageRows.length}
+          emptyMessage="No deleted items in the current window."
+          syncKey={pageRows.length}
+        >
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-gray-100 bg-gray-50/80">
+              <tr>
+                <th className="px-5 py-3 font-semibold text-gray-700">
+                  Module
+                </th>
+                <th className="px-5 py-3 font-semibold text-gray-700">
+                  Deleted by
+                </th>
+                <th className="px-5 py-3 font-semibold text-gray-700">
+                  Remark
+                </th>
+                <th className="px-5 py-3 font-semibold text-gray-700">
+                  Deleted at
+                </th>
+                <th className="px-5 py-3 font-semibold text-gray-700">
+                  Hard delete at
+                </th>
+                <th className="px-5 py-3 text-right font-semibold text-gray-700">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageRows.map((row) => (
+                <tr
+                  key={row.id}
+                  className="border-b border-gray-50 last:border-0"
+                >
+                  <td className="px-5 py-4">
+                    <Badge
+                      variant="secondary"
+                      className="bg-gray-100 text-gray-700"
                     >
-                      <Trash2 className="mx-auto mb-3 h-8 w-8 text-gray-300" />
-                      No deleted items in the current window.
-                    </td>
-                  </tr>
-                </tbody>
-              ) : (
-                <tbody>
-                  {items.map((row) => (
-                    <tr
-                      key={row.id}
-                      className="border-b border-gray-50 last:border-0"
-                    >
-                      <td className="px-5 py-4">
-                        <Badge
-                          variant="secondary"
-                          className="bg-gray-100 text-gray-700"
-                        >
-                          {row.displayModule}
-                        </Badge>
-                        {row.entityLabel ? (
-                          <p className="mt-1 max-w-[220px] truncate text-xs text-gray-500">
-                            {row.entityLabel}
-                          </p>
+                      {row.displayModule}
+                    </Badge>
+                    {row.entityLabel ? (
+                      <p className="mt-1 max-w-[220px] truncate text-xs text-gray-500">
+                        {row.entityLabel}
+                      </p>
+                    ) : null}
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="flex items-center gap-3">
+                      {row.deletedBy?.profilePhotoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={row.deletedBy.profilePhotoUrl}
+                          alt=""
+                          className="h-9 w-9 rounded-full object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-gray-400">
+                          <UserRound className="h-4 w-4" />
+                        </span>
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-gray-900">
+                          {row.deletedBy?.name || "Unknown"}
+                        </p>
+                        <p className="truncate text-xs text-gray-500">
+                          {row.deletedBy?.email || "—"}
+                        </p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="max-w-[260px] px-5 py-4 text-gray-600">
+                    <p className="line-clamp-2">{row.remark || "—"}</p>
+                  </td>
+                  <td className="whitespace-nowrap px-5 py-4 text-xs text-gray-500">
+                    {formatDateTime(row.revokeUntil)}
+                  </td>
+                  <td className="whitespace-nowrap px-5 py-4 text-xs text-gray-500">
+                    {formatDateTime(row.hardDeleteAt)}
+                  </td>
+                  <td className="px-5 py-4 text-right">
+                    {row.canRestore || row.canPermanentDelete ? (
+                      <div className="flex items-center justify-end gap-1">
+                        {row.canRestore ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setToRestore(row)}
+                            title="Restore"
+                          >
+                            <RotateCcw className="h-4 w-4 text-primary" />
+                          </Button>
                         ) : null}
-                      </td>
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          {row.deletedBy?.profilePhotoUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={row.deletedBy.profilePhotoUrl}
-                              alt=""
-                              className="h-9 w-9 rounded-full object-cover"
-                            />
-                          ) : (
-                            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-gray-400">
-                              <UserRound className="h-4 w-4" />
-                            </span>
-                          )}
-                          <div className="min-w-0">
-                            <p className="truncate font-medium text-gray-900">
-                              {row.deletedBy?.name || "Unknown"}
-                            </p>
-                            <p className="truncate text-xs text-gray-500">
-                              {row.deletedBy?.email || "—"}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="max-w-[260px] px-5 py-4 text-gray-600">
-                        <p className="line-clamp-2">{row.remark || "—"}</p>
-                      </td>
-                      <td className="whitespace-nowrap px-5 py-4 text-xs text-gray-500">
-                        {formatDateTime(row.revokeUntil)}
-                      </td>
-                      <td className="whitespace-nowrap px-5 py-4 text-xs text-gray-500">
-                        {formatDateTime(row.hardDeleteAt)}
-                      </td>
-                      <td className="px-5 py-4 text-right">
-                        {row.canRestore || row.canPermanentDelete ? (
-                          <div className="flex items-center justify-end gap-1">
-                            {row.canRestore ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setToRestore(row)}
-                                title="Restore"
-                              >
-                                <RotateCcw className="h-4 w-4 text-primary" />
-                              </Button>
-                            ) : null}
-                            {row.canPermanentDelete ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-red-500 hover:bg-red-50 hover:text-red-600"
-                                onClick={() => setToPurge(row)}
-                                title="Delete permanently"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-gray-300">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              )}
-            </table>
-          </div>
-        </div>
+                        {row.canPermanentDelete ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-500 hover:bg-red-50 hover:text-red-600"
+                            onClick={() => setToPurge(row)}
+                            title="Delete permanently"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-300">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </AdminDataTable>
       </div>
 
       <Dialog

@@ -34,8 +34,16 @@ import {
 } from "@/services/admin-users.service";
 import { withCount } from "@/lib/filter-label";
 import { newFirstCellClass, NewTag } from "@/components/common/new-row-marker";
+import { AdminDataTable } from "@/components/common/admin-data-table";
 import { useAuthStore } from "@/store/use-auth-store";
-import { moduleForAppUsersTab, APP_USERS_REFRESH_EVENT } from "@/modules/app-users/app-users-access";
+import { useDialogUnsavedGuard } from "@/hooks/use-unsaved-changes-guard";
+import {
+  moduleForAppUsersTab,
+  APP_USERS_REFRESH_EVENT,
+  APP_USERS_RESET_EVENT,
+} from "@/modules/app-users/app-users-access";
+import { useClientPagedRows } from "@/hooks/use-client-paged-rows";
+import { useUrlFilters } from "@/hooks/use-url-filters";
 import {
   Loader2,
   Plus,
@@ -49,7 +57,6 @@ import {
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
-import { TableHScroll } from "@/components/ui/table-h-scroll";
 import { OtpVerifiedAddUserModal } from "@/modules/app-users/otp-verified-add-user-modal";
 import { VerificationDocsSection } from "@/modules/user-analytics/verification-docs-section";
 
@@ -853,6 +860,9 @@ function RemarksModal({
 }) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(
+    draft.trim().length > 0,
+  );
 
   useEffect(() => {
     if (open) setDraft("");
@@ -883,8 +893,19 @@ function RemarksModal({
     }
   };
 
+  const handleOpenChange = async (next: boolean) => {
+    if (busy) return;
+    if (!next) {
+      const ok = await requestClose();
+      if (ok) onOpenChange(false);
+      return;
+    }
+    onOpenChange(true);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open} onOpenChange={(next) => void handleOpenChange(next)}>
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-lg font-bold">Remarks</DialogTitle>
@@ -972,6 +993,8 @@ function RemarksModal({
         </div>
       </DialogContent>
     </Dialog>
+    {unsavedDialog}
+    </>
   );
 }
 
@@ -994,9 +1017,14 @@ export function AppUsersTable({ tab }: Props) {
   const [users, setUsers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [approvingId, setApprovingId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<AccountStatusFilter>("");
-  const [cityFilter, setCityFilter] = useState("");
+  const { filters, setFilters, resetFilters } = useUrlFilters({
+    q: "",
+    status: "",
+    city: "",
+  });
+  const search = filters.q;
+  const statusFilter = filters.status as AccountStatusFilter;
+  const cityFilter = filters.city;
 
   const [roles, setRoles] = useState<any[]>([]);
   const [formUser, setFormUser] = useState<any>(null);
@@ -1103,6 +1131,30 @@ export function AppUsersTable({ tab }: Props) {
       return matchStatus && matchCity && matchSearch;
     });
   }, [users, search, statusFilter, cityFilter, tab]);
+
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+    resetPage,
+  } = useClientPagedRows(filteredUsers);
+
+  useEffect(() => {
+    resetPage();
+  }, [search, statusFilter, cityFilter, resetPage]);
+
+  useEffect(() => {
+    const onReset = () => {
+      resetFilters();
+      resetPage();
+    };
+    window.addEventListener(APP_USERS_RESET_EVENT, onReset);
+    return () => window.removeEventListener(APP_USERS_RESET_EVENT, onReset);
+  }, [resetFilters, resetPage]);
 
   const statusCounts = useMemo(() => {
     const counts = {
@@ -1227,7 +1279,6 @@ export function AppUsersTable({ tab }: Props) {
     }
   };
 
-  const colSpan = tab === "otp_issued" ? 6 : tab === "otp_verified" ? 6 : 8;
   const selectedCity = cityBreakdown.options.find(
     (c) => c.label.toLowerCase() === cityFilter.toLowerCase(),
   );
@@ -1246,7 +1297,7 @@ export function AppUsersTable({ tab }: Props) {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <Input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => setFilters({ q: e.target.value })}
             placeholder="Search name, email, phone..."
             className="pl-9 bg-white"
           />
@@ -1254,7 +1305,7 @@ export function AppUsersTable({ tab }: Props) {
 
         <Select
           value={cityFilter}
-          onValueChange={(v) => setCityFilter(v ?? "")}
+          onValueChange={(v) => setFilters({ city: v ?? "" })}
         >
           <SelectTrigger className="w-48 bg-white">
             <span>
@@ -1285,9 +1336,7 @@ export function AppUsersTable({ tab }: Props) {
         {tab === "master" && (
           <Select
             value={statusFilter}
-            onValueChange={(v) =>
-              setStatusFilter((v ?? "") as AccountStatusFilter)
-            }
+            onValueChange={(v) => setFilters({ status: v ?? "" })}
           >
             <SelectTrigger className="w-52 bg-white">
               <span>
@@ -1341,17 +1390,19 @@ export function AppUsersTable({ tab }: Props) {
         )}
       </div>
 
-      <div
-        className={`bg-white rounded-2xl shadow-sm border border-gray-100 ${
-          tab === "otp_verified"
-            ? "flex min-h-0 flex-1 flex-col overflow-hidden"
-            : "overflow-hidden"
-        }`}
+      <AdminDataTable
+        page={page}
+        limit={limit}
+        total={total}
+        totalPages={totalPages}
+        onPageChange={onPageChange}
+        onPageSizeChange={onPageSizeChange}
+        loading={isLoading}
+        isEmpty={!filteredUsers.length}
+        emptyMessage="No users found."
+        syncKey={filteredUsers.length}
+        className={tab === "otp_verified" ? "min-h-0 flex-1" : undefined}
       >
-        <TableHScroll
-          enabled={tab === "otp_verified"}
-          syncKey={filteredUsers.length}
-        >
           <table
             className={`w-full text-sm text-left ${
               tab === "otp_verified" ? "min-w-[1080px]" : ""
@@ -1428,23 +1479,7 @@ export function AppUsersTable({ tab }: Props) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={colSpan} className="px-6 py-12 text-center">
-                    <Loader2 className="w-6 h-6 text-primary animate-spin mx-auto" />
-                  </td>
-                </tr>
-              ) : filteredUsers.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={colSpan}
-                    className="px-6 py-12 text-center text-gray-500"
-                  >
-                    No users found.
-                  </td>
-                </tr>
-              ) : (
-                filteredUsers.map((user) => {
+              {pageRows.map((user) => {
                   const stepMeta = STEP_CHIP[user.signupStep] || null;
                   const isRegistered = user.kind === "registered";
                   const canApprove =
@@ -1794,12 +1829,10 @@ export function AppUsersTable({ tab }: Props) {
                       ))}
                     </Fragment>
                   );
-                })
-              )}
+                })}
             </tbody>
           </table>
-        </TableHScroll>
-      </div>
+      </AdminDataTable>
       </div>
 
       <ViewOnlyModal

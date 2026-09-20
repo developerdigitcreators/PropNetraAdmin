@@ -25,6 +25,8 @@ export type PersonRow = {
   bhk: string;
   occurredAt: string | null;
   channels: string[];
+  /** Plan code snapshot at contact-reveal time (contacted / leads). */
+  actorPlanCodeAtEvent?: string | null;
 };
 
 export type DayBucket<T> = {
@@ -254,6 +256,13 @@ function normalizePerson(raw: unknown, index: number): PersonRow | null {
     pickString(row.id, row.userId, row.user_id, person.id) ||
     `${name || contact || 'person'}-${occurredAt || index}`;
   if (!name && !contact && !project) return null;
+  const actorPlanCodeAtEvent =
+    pickString(
+      row.actorPlanCodeAtEvent,
+      row.actor_plan_code_at_event,
+      person.actorPlanCodeAtEvent,
+      person.actor_plan_code_at_event,
+    ) || null;
   return {
     id,
     name: name || 'Unknown',
@@ -264,6 +273,7 @@ function normalizePerson(raw: unknown, index: number): PersonRow | null {
     bhk: pickString(row.bhk, row.BHK),
     occurredAt,
     channels: normalizeChannels(row),
+    actorPlanCodeAtEvent,
   };
 }
 

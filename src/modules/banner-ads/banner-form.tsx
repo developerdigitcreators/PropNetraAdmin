@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   bannerAdsService,
   detectMediaType,
@@ -22,6 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/u
 import { Badge } from '@/components/ui/badge';
 import { SearchableSelect } from '@/components/common/searchable-select';
 import { ImageUrlOrUpload } from '@/components/image-url-or-upload';
+import { useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 import { Loader2, Image as ImageIcon, Video } from 'lucide-react';
 
 export type BannerFormProps = {
@@ -79,8 +81,32 @@ export function BannerForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<{ mediaUrl?: string; link?: string }>({});
+  const [baseline, setBaseline] = useState('');
 
   const mediaType = useMemo(() => detectMediaType(mediaUrl), [mediaUrl]);
+
+  const formSnapshot = useMemo(
+    () =>
+      JSON.stringify({
+        mediaUrl,
+        placement,
+        section,
+        isActive,
+        addLink,
+        linkKind,
+        listingId,
+        pageKey,
+      }),
+    [mediaUrl, placement, section, isActive, addLink, linkKind, listingId, pageKey],
+  );
+
+  useEffect(() => {
+    // Capture baseline once helpers settle so default placement/section don't mark dirty.
+    if (helpersLoading || baseline) return;
+    setBaseline(formSnapshot);
+  }, [helpersLoading, formSnapshot, baseline]);
+
+  const dirty = Boolean(baseline) && formSnapshot !== baseline;
 
   useEffect(() => {
     let cancelled = false;
@@ -206,11 +232,11 @@ export function BannerForm({
     };
   };
 
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const onSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!placement || !section) {
       setError('Page and section are required.');
-      return;
+      throw new Error('Page and section are required.');
     }
     const validationErrors = validate();
     if (validationErrors) {
@@ -220,7 +246,7 @@ export function BannerForm({
           validationErrors.link ||
           'Please fill all mandatory fields.',
       );
-      return;
+      throw new Error('Validation failed');
     }
     setFieldErrors({});
     setError('');
@@ -232,18 +258,26 @@ export function BannerForm({
       } else {
         await bannerAdsService.createBanner(payload);
       }
+      setBaseline(formSnapshot);
       router.push('/banner-ads');
     } catch (err: any) {
       console.error(err);
       const msg = err?.response?.data?.message;
       setError(Array.isArray(msg) ? msg.join(', ') : msg || err?.message || 'Failed to save banner.');
+      throw err;
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const { dialog } = useUnsavedChangesGuard({
+    dirty,
+    onSave: () => onSubmit(),
+  });
+
   return (
-    <form onSubmit={onSubmit} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-6 max-w-2xl">
+    <>
+    <form onSubmit={(e) => void onSubmit(e)} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-6 max-w-2xl">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
           <label className="text-sm font-medium text-gray-700">State</label>
@@ -436,14 +470,19 @@ export function BannerForm({
       )}
 
       <div className="flex justify-end gap-3 pt-2">
-        <Button type="button" variant="outline" onClick={() => router.push('/banner-ads')}>
+        <Link
+          href="/banner-ads"
+          className="inline-flex h-8 items-center justify-center rounded-lg border border-border bg-background px-2.5 text-sm font-medium hover:bg-muted"
+        >
           Cancel
-        </Button>
+        </Link>
         <Button type="submit" disabled={isSubmitting} className="bg-primary text-white hover:bg-primary/90">
           {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
           {mode === 'edit' ? 'Save Changes' : 'Create Banner'}
         </Button>
       </div>
     </form>
+    {dialog}
+    </>
   );
 }

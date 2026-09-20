@@ -39,6 +39,7 @@ const ACTION_KEYS: DashboardUnreadKey[] = [
   'supportTickets',
   'accountDeletions',
   'myListingsActionable',
+  'adminVerifiedLeads',
   'subscriptionTracking',
 ];
 
@@ -123,10 +124,17 @@ export default function DashboardHome() {
       },
       {
         key: 'myListingsActionable',
-        label: 'My Listings',
+        label: 'Property listing',
         href: '/my-listings',
         icon: ClipboardList,
         show: can('admin_my_listings', 'read'),
+      },
+      {
+        key: 'adminVerifiedLeads',
+        label: 'Admin Verified My Leads',
+        href: '/admin-verified-leads',
+        icon: ClipboardList,
+        show: can('admin_verified_leads', 'read'),
       },
       {
         key: 'feedbacks',

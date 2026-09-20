@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { AssignRoleSchema, AssignRoleFormData } from '@/validators/rbac.schema';
@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
 import { Loader2 } from 'lucide-react';
 
 interface AssignRoleModalProps {
@@ -39,7 +40,7 @@ export function AssignRoleModal({ user, roles, open, onOpenChange, onSuccess }: 
     setValue,
     watch,
     reset,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<AssignRoleFormData>({
     resolver: zodResolver(AssignRoleSchema),
     defaultValues: {
@@ -48,8 +49,14 @@ export function AssignRoleModal({ user, roles, open, onOpenChange, onSuccess }: 
   });
 
   const selectedRoleId = watch('roleId');
+  const { requestClose, dialog } = useDialogUnsavedGuard(open && isDirty);
 
-  // Ensure the user's currently assigned role is available in the options 
+  useEffect(() => {
+    if (!open) return;
+    reset({ roleId: user?.userRoles?.[0]?.role_id || '' });
+  }, [open, user, reset]);
+
+  // Ensure the user's currently assigned role is available in the options
   // just in case the global roles fetch hasn't completed or missed it.
   const allRolesMap = new Map();
   if (Array.isArray(roles)) {
@@ -64,6 +71,16 @@ export function AssignRoleModal({ user, roles, open, onOpenChange, onSuccess }: 
 
   const oldRoleId = user?.userRoles?.[0]?.role_id;
 
+  const handleOpenChange = async (next: boolean) => {
+    if (isSubmitting) return;
+    if (!next) {
+      const ok = await requestClose();
+      if (ok) onOpenChange(false);
+      return;
+    }
+    onOpenChange(true);
+  };
+
   const onSubmit = async (data: AssignRoleFormData) => {
     setIsSubmitting(true);
     try {
@@ -74,7 +91,7 @@ export function AssignRoleModal({ user, roles, open, onOpenChange, onSuccess }: 
         // First time assignment (POST)
         await rbacService.assignRole(user.id, data.roleId);
       }
-      
+
       reset();
       onSuccess();
       onOpenChange(false);
@@ -92,47 +109,59 @@ export function AssignRoleModal({ user, roles, open, onOpenChange, onSuccess }: 
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
-        <DialogHeader>
-          <DialogTitle>Assign Role</DialogTitle>
-          <DialogDescription>
-            Assign a new role to {user?.name}. This will grant them the permissions associated with the role.
-          </DialogDescription>
-        </DialogHeader>
-        
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 pt-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Select Role</label>
-            <Select value={selectedRoleId || ''} onValueChange={(val: string | null) => { if (val) setValue('roleId', val, { shouldValidate: true }) }}>
-              <SelectTrigger className={errors.roleId ? 'border-red-500' : ''}>
-                <SelectValue placeholder="Choose a role...">
-                  {displayRoles.find(r => r.id === selectedRoleId)?.name || "Choose a role..."}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {displayRoles.map((role: any) => (
-                  <SelectItem key={role.id} value={role.id}>
-                    {role.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {errors.roleId && (
-              <p className="text-red-500 text-xs mt-1">{errors.roleId.message}</p>
-            )}
-          </div>
+    <>
+      <Dialog open={open} onOpenChange={(next) => void handleOpenChange(next)}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Assign Role</DialogTitle>
+            <DialogDescription>
+              Assign a new role to {user?.name}. This will grant them the permissions associated with the role.
+            </DialogDescription>
+          </DialogHeader>
 
-          <div className="flex justify-end space-x-3">
-            <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSubmitting || !selectedRoleId}>
-              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Assign Role'}
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 pt-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Select Role</label>
+              <Select
+                value={selectedRoleId || ''}
+                onValueChange={(val: string | null) => {
+                  if (val) setValue('roleId', val, { shouldValidate: true, shouldDirty: true });
+                }}
+              >
+                <SelectTrigger className={errors.roleId ? 'border-red-500' : ''}>
+                  <SelectValue placeholder="Choose a role...">
+                    {displayRoles.find(r => r.id === selectedRoleId)?.name || "Choose a role..."}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {displayRoles.map((role: any) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors.roleId && (
+                <p className="text-red-500 text-xs mt-1">{errors.roleId.message}</p>
+              )}
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => void handleOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSubmitting || !selectedRoleId}>
+                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Assign Role'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+      {dialog}
+    </>
   );
 }

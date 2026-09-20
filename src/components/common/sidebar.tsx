@@ -61,11 +61,11 @@ const MENU_ITEMS: MenuItem[] = [
     icon: LayoutDashboard,
   },
   {
-    name: "User Profile",
+    name: "User Profile master data",
     path: "/user-analytics",
     icon: BarChart3,
     permission: [...USER_PROFILE_READ_PERMISSIONS],
-    // Document verification (+ without-referral approval) live on User Profile now.
+    // Document verification (+ without-referral approval) live on User Profile master data now.
     badgeKey: "documentsPending",
   },
   {
@@ -94,11 +94,18 @@ const MENU_ITEMS: MenuItem[] = [
     badgeKey: "reviewPending",
   },
   {
-    name: "My Listings",
+    name: "Property listing",
     path: "/my-listings",
     icon: ClipboardList,
     permission: "admin_my_listings:read",
     badgeKey: "myListingsActionable",
+  },
+  {
+    name: "Admin Verified My Leads",
+    path: "/admin-verified-leads",
+    icon: ClipboardList,
+    permission: "admin_verified_leads:read",
+    badgeKey: "adminVerifiedLeads",
   },
   {
     name: "Add Post",
@@ -178,6 +185,12 @@ const MENU_ITEMS: MenuItem[] = [
     path: "/referral-overview",
     icon: Gift,
     permission: "subscriptions:read",
+  },
+  {
+    name: "Referral Sale",
+    path: "/referral-sale",
+    icon: Gift,
+    permission: "referral_sale:read",
   },
   {
     name: "Feedback",

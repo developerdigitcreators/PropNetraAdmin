@@ -1,21 +1,26 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { Suspense, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { locationService } from '@/services/location.service';
 import { listingConfigService } from '@/services/listing-config.service';
 import { PermissionGuard } from '@/components/common/permission-guard';
+import { AdminDataTable } from '@/components/common/admin-data-table';
+import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Plus, Edit2, Trash2, Search, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Loader2, Plus, Edit2, Trash2, Search, AlertTriangle } from 'lucide-react';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { withCount } from '@/lib/filter-label';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 import { ImageUrlOrUpload } from '@/components/image-url-or-upload';
 import { MultiSelect } from '@/components/common/multi-select';
+import { useClientPagedRows } from '@/hooks/use-client-paged-rows';
+import { useUrlFilters } from '@/hooks/use-url-filters';
+import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
 
 type NameSuggestion = {
   id: string;
@@ -147,16 +152,35 @@ function DeleteModal({ isOpen, onClose, onConfirm, name, isSubmitting }: {
 }
 
 export default function PropertyNamesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <PropertyNamesPageInner />
+    </Suspense>
+  );
+}
+
+function PropertyNamesPageInner() {
   const { permissions } = useAuthStore();
   const [states, setStates] = useState<any[]>([]);
   const [cities, setCities] = useState<any[]>([]);
   const [microMarkets, setMicroMarkets] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [propertyNames, setPropertyNames] = useState<any[]>([]);
-  const [filterCityId, setFilterCityId] = useState('');
-  const [filterMmId, setFilterMmId] = useState('');
+  const { filters, setFilters, resetFilters } = useUrlFilters({
+    q: '',
+    cityId: '',
+    mmId: '',
+  });
+  const search = filters.q;
+  const filterCityId = filters.cityId;
+  const filterMmId = filters.mmId;
   const [isLoading, setIsLoading] = useState(true);
-  const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
@@ -174,8 +198,26 @@ export default function PropertyNamesPage() {
     image_url: '',
     location_ids: [] as string[],
   });
+  const baselineRef = useRef('');
   const [propertyTypes, setPropertyTypes] = useState<any[]>([]);
   const uniqueTypes = uniquePropertyTypes(propertyTypes);
+
+  const formSnapshot = useMemo(() => JSON.stringify(form), [form]);
+  const dirty =
+    isModalOpen &&
+    baselineRef.current !== '' &&
+    formSnapshot !== baselineRef.current;
+  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(dirty);
+
+  const handleModalOpenChange = async (next: boolean) => {
+    if (isSubmitting) return;
+    if (!next) {
+      const ok = await requestClose();
+      if (ok) setIsModalOpen(false);
+      return;
+    }
+    setIsModalOpen(true);
+  };
 
   useEffect(() => {
     if (!isModalOpen) {
@@ -275,9 +317,10 @@ export default function PropertyNamesPage() {
   const open = (item: any = null) => {
     setEditing(item);
     setFormError('');
+    let nextForm;
     if (item) {
       const cityId = item.city_id || item.city?.id || '';
-      setForm({
+      nextForm = {
         name: item.name,
         state_id: resolveStateId(cityId),
         city_id: cityId,
@@ -293,22 +336,24 @@ export default function PropertyNamesPage() {
               )
               .filter(Boolean),
           ),
-        ),
+        ) as string[],
         image_url: pickStr(item.image_url, item.imageUrl),
         location_ids: (item.locations || []).map((l: any) => l.id),
-      });
+      };
     } else {
       const cityId = filterCityId;
-      setForm({
+      nextForm = {
         name: '',
         state_id: cityId ? resolveStateId(cityId) : '',
         city_id: cityId,
         micro_market_id: filterMmId,
-        property_type_ids: [],
+        property_type_ids: [] as string[],
         image_url: '',
-        location_ids: [],
-      });
+        location_ids: [] as string[],
+      };
     }
+    setForm(nextForm);
+    baselineRef.current = JSON.stringify(nextForm);
     setIsModalOpen(true);
   };
 
@@ -375,6 +420,21 @@ export default function PropertyNamesPage() {
     return matchCity && matchMM && matchSearch;
   });
 
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+    resetPage,
+  } = useClientPagedRows(filtered);
+
+  useEffect(() => {
+    resetPage();
+  }, [search, filterCityId, filterMmId, resetPage]);
+
   const approvedNames = propertyNames.filter((p) => isApproved(p.status));
   const countByCity = (cityId: string) =>
     approvedNames.filter((p) => p.city_id === cityId || p.city?.id === cityId).length;
@@ -405,16 +465,25 @@ export default function PropertyNamesPage() {
             <h1 className="text-2xl font-bold tracking-tight text-gray-900">Project Names</h1>
             <p className="text-gray-500 mt-1">Manage approved property / project names and linked locations.</p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void fetchAll()}
-            disabled={isLoading}
+          <AdminListToolbar
+            onRefresh={() => void fetchAll()}
+            refreshBusy={isLoading}
+            onReset={() => {
+              resetFilters();
+              resetPage();
+            }}
           >
-            <RefreshCw className="mr-1.5 size-3.5" />
-            Refresh
-          </Button>
+            {canWrite ? (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => open()}
+                className="bg-primary text-white hover:bg-primary/90"
+              >
+                <Plus className="mr-1.5 size-3.5" /> Add Property Name
+              </Button>
+            ) : null}
+          </AdminListToolbar>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
@@ -422,7 +491,7 @@ export default function PropertyNamesPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <Input
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => setFilters({ q: e.target.value })}
               placeholder="Search project names..."
               className="pl-9"
             />
@@ -430,8 +499,7 @@ export default function PropertyNamesPage() {
           <Select
             value={filterCityId}
             onValueChange={(v) => {
-              setFilterCityId(v ?? '');
-              setFilterMmId('');
+              setFilters({ cityId: v ?? '', mmId: '' });
             }}
           >
             <SelectTrigger className="w-44">
@@ -450,7 +518,11 @@ export default function PropertyNamesPage() {
               ))}
             </SelectContent>
           </Select>
-          <Select value={filterMmId} onValueChange={(v) => setFilterMmId(v ?? '')} disabled={!filterCityId}>
+          <Select
+            value={filterMmId}
+            onValueChange={(v) => setFilters({ mmId: v ?? '' })}
+            disabled={!filterCityId}
+          >
             <SelectTrigger className="w-52">
               <span>
                 {filterMmName
@@ -467,14 +539,20 @@ export default function PropertyNamesPage() {
               ))}
             </SelectContent>
           </Select>
-          {canWrite && (
-            <Button onClick={() => open()} className="bg-primary text-white hover:bg-primary/90 ml-auto">
-              <Plus className="w-4 h-4 mr-2" /> Add Property Name
-            </Button>
-          )}
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <AdminDataTable
+          page={page}
+          limit={limit}
+          total={total}
+          totalPages={totalPages}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
+          loading={isLoading}
+          isEmpty={!filtered.length}
+          emptyMessage="No property names found."
+          syncKey={pageRows.length}
+        >
           <table className="w-full text-sm text-left">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -489,96 +567,84 @@ export default function PropertyNamesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center">
-                    <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
+              {pageRows.map((item) => (
+                <tr key={item.id} className="hover:bg-gray-50/50">
+                  <td className="px-6 py-4 font-medium text-gray-900">{item.name}</td>
+                  <td className="px-6 py-4 text-gray-500">
+                    {(item.property_types || []).length ? (
+                      <div className="flex flex-wrap gap-1">
+                        {(item.property_types as any[]).map((t) => (
+                          <Badge key={t.id || t.name} variant="outline" className="text-xs">
+                            {t.name}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      item.property_type?.name || '—'
+                    )}
+                  </td>
+                  <td className="px-6 py-4">
+                    {item.image_url ? (
+                      <img src={item.image_url} alt="" className="h-10 w-16 object-cover rounded border bg-gray-50" />
+                    ) : (
+                      <span className="text-gray-400 text-xs italic">Uses type default</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 text-gray-500">{item.micro_market?.name || '—'}</td>
+                  <td className="px-6 py-4 text-gray-500">{item.city?.name || '—'}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-1">
+                      {(item.locations || []).length === 0 ? (
+                        <span className="text-gray-400 text-xs">None</span>
+                      ) : (
+                        (item.locations || []).slice(0, 2).map((l: any) => (
+                          <Badge key={l.id} variant="outline" className="text-xs">{l.name}</Badge>
+                        ))
+                      )}
+                      {(item.locations || []).length > 2 && (
+                        <Badge variant="outline" className="text-xs">
+                          +{(item.locations || []).length - 2} more
+                        </Badge>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    {isApproved(item.status) ? (
+                      <Badge className="bg-green-100 text-green-700">Approved</Badge>
+                    ) : item.status === 'pending_review' ? (
+                      <Badge className="bg-orange-100 text-orange-700">Pending</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-red-500">Rejected</Badge>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      {canWrite && (
+                        <Button variant="ghost" size="sm" onClick={() => open(item)}>
+                          <Edit2 className="w-4 h-4 text-gray-500" />
+                        </Button>
+                      )}
+                      {canDelete && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setEditing(item);
+                            setIsDeleteOpen(true);
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 </tr>
-              ) : filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500">No property names found.</td>
-                </tr>
-              ) : (
-                filtered.map((item) => (
-                  <tr key={item.id} className="hover:bg-gray-50/50">
-                    <td className="px-6 py-4 font-medium text-gray-900">{item.name}</td>
-                    <td className="px-6 py-4 text-gray-500">
-                      {(item.property_types || []).length ? (
-                        <div className="flex flex-wrap gap-1">
-                          {(item.property_types as any[]).map((t) => (
-                            <Badge key={t.id || t.name} variant="outline" className="text-xs">
-                              {t.name}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : (
-                        item.property_type?.name || '—'
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      {item.image_url ? (
-                        <img src={item.image_url} alt="" className="h-10 w-16 object-cover rounded border bg-gray-50" />
-                      ) : (
-                        <span className="text-gray-400 text-xs italic">Uses type default</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-gray-500">{item.micro_market?.name || '—'}</td>
-                    <td className="px-6 py-4 text-gray-500">{item.city?.name || '—'}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-wrap gap-1">
-                        {(item.locations || []).length === 0 ? (
-                          <span className="text-gray-400 text-xs">None</span>
-                        ) : (
-                          (item.locations || []).slice(0, 2).map((l: any) => (
-                            <Badge key={l.id} variant="outline" className="text-xs">{l.name}</Badge>
-                          ))
-                        )}
-                        {(item.locations || []).length > 2 && (
-                          <Badge variant="outline" className="text-xs">
-                            +{(item.locations || []).length - 2} more
-                          </Badge>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      {isApproved(item.status) ? (
-                        <Badge className="bg-green-100 text-green-700">Approved</Badge>
-                      ) : item.status === 'pending_review' ? (
-                        <Badge className="bg-orange-100 text-orange-700">Pending</Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-red-500">Rejected</Badge>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {canWrite && (
-                          <Button variant="ghost" size="sm" onClick={() => open(item)}>
-                            <Edit2 className="w-4 h-4 text-gray-500" />
-                          </Button>
-                        )}
-                        {canDelete && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setEditing(item);
-                              setIsDeleteOpen(true);
-                            }}
-                          >
-                            <Trash2 className="w-4 h-4 text-red-500" />
-                          </Button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
+              ))}
             </tbody>
           </table>
-        </div>
+        </AdminDataTable>
 
-        <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <Dialog open={isModalOpen} onOpenChange={(next) => void handleModalOpenChange(next)}>
           <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editing ? 'Edit' : 'Add'} Property Name</DialogTitle>
@@ -777,7 +843,7 @@ export default function PropertyNamesPage() {
               )}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => void handleModalOpenChange(false)}>Cancel</Button>
               <Button
                 onClick={save}
                 disabled={
@@ -794,6 +860,7 @@ export default function PropertyNamesPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        {unsavedDialog}
 
         <DeleteModal
           isOpen={isDeleteOpen}

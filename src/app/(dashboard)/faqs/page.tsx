@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
+import { AdminDataTable } from '@/components/common/admin-data-table';
+import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
@@ -15,14 +17,7 @@ import {
   faqsService,
   type FaqItem,
 } from '@/services/faqs.service';
-import {
-  CircleHelp,
-  Edit2,
-  Loader2,
-  Plus,
-  RefreshCw,
-  Trash2,
-} from 'lucide-react';
+import { Edit2, Plus, Trash2 } from 'lucide-react';
 
 export default function FaqsPage() {
   const hasPermission = useAuthStore((s) => s.hasPermission);
@@ -153,127 +148,111 @@ export default function FaqsPage() {
               Questions shown in the app drawer. Drag the sort handle to change the order users see.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void fetchFaqs()}
-              disabled={loading}
-            >
-              <RefreshCw className="mr-1.5 size-3.5" />
-              Refresh
-            </Button>
-            {canCreate && (
+          <AdminListToolbar
+            onRefresh={() => void fetchFaqs()}
+            refreshDisabled={loading}
+          >
+            {canCreate ? (
               <Button onClick={openCreate} className="bg-primary text-white hover:bg-primary/90">
                 <Plus className="mr-1.5 h-4 w-4" />
                 Add FAQ
               </Button>
-            )}
-          </div>
+            ) : null}
+          </AdminListToolbar>
         </div>
 
-        {error && (
+        {error ? (
           <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</div>
-        )}
+        ) : null}
 
-        <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-gray-100 bg-gray-50/80">
-                <tr>
-                  <th className="px-5 py-3 font-semibold text-gray-700">Question</th>
-                  <th className="px-5 py-3 font-semibold text-gray-700">Answer</th>
-                  <th className="px-5 py-3 font-semibold text-gray-700">Sort</th>
-                  <th className="px-5 py-3 font-semibold text-gray-700">Status</th>
-                  <th className="px-5 py-3 text-right font-semibold text-gray-700">Actions</th>
-                </tr>
-              </thead>
-              {loading ? (
-                <tbody>
-                  <tr>
-                    <td colSpan={5} className="px-6 py-16 text-center">
-                      <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />
-                    </td>
-                  </tr>
-                </tbody>
-              ) : faqs.length === 0 ? (
-                <tbody>
-                  <tr>
-                    <td colSpan={5} className="px-6 py-16 text-center text-gray-500">
-                      <CircleHelp className="mx-auto mb-3 h-8 w-8 text-gray-300" />
-                      No FAQs yet. Add the first question for the app.
-                    </td>
-                  </tr>
-                </tbody>
-              ) : (
-                <SortableTableBody
-                  items={faqs}
-                  disabled={!canUpdate}
-                  onReorder={handleReorder}
-                  renderRow={(faq, { dragHandle }) => (
-                    <>
-                      <td className="max-w-[280px] px-5 py-4">
-                        <p className="font-medium text-gray-900">{faq.question}</p>
-                      </td>
-                      <td className="max-w-[360px] px-5 py-4">
-                        <p className="line-clamp-2 text-xs text-gray-500">{faq.answer}</p>
-                      </td>
-                      <td className="px-5 py-4">{dragHandle}</td>
-                      <td className="px-5 py-4">
-                        {canUpdate ? (
-                          <div className="flex items-center gap-2">
-                            <Switch
-                              checked={faq.isActive}
-                              disabled={statusBusyId === faq.id}
-                              onCheckedChange={(checked) =>
-                                handleToggleActive(faq, Boolean(checked))
-                              }
-                            />
-                            <span className="text-xs text-gray-500">
-                              {faq.isActive ? 'Visible' : 'Hidden'}
-                            </span>
-                          </div>
-                        ) : faq.isActive ? (
-                          <Badge className="bg-green-100 text-green-700">Visible</Badge>
-                        ) : (
-                          <Badge variant="secondary" className="bg-gray-100 text-gray-700">
-                            Hidden
-                          </Badge>
-                        )}
-                      </td>
-                      <td className="px-5 py-4 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          {canUpdate && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openEdit(faq)}
-                              title="Edit"
-                            >
-                              <Edit2 className="h-4 w-4 text-gray-500" />
-                            </Button>
-                          )}
-                          {canDelete && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setToDelete(faq)}
-                              className="text-red-500 hover:bg-red-50 hover:text-red-600"
-                              title="Delete"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </>
-                  )}
-                />
+        <AdminDataTable
+          page={1}
+          limit={Math.max(faqs.length, 1)}
+          total={faqs.length}
+          totalPages={1}
+          onPageChange={() => {}}
+          onPageSizeChange={() => {}}
+          loading={loading}
+          isEmpty={!faqs.length}
+          emptyMessage="No FAQs yet. Add the first question for the app."
+          syncKey={faqs.length}
+          hidePaginationWhenEmpty
+        >
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-gray-100 bg-gray-50/80">
+              <tr>
+                <th className="px-5 py-3 font-semibold text-gray-700">Question</th>
+                <th className="px-5 py-3 font-semibold text-gray-700">Answer</th>
+                <th className="px-5 py-3 font-semibold text-gray-700">Sort</th>
+                <th className="px-5 py-3 font-semibold text-gray-700">Status</th>
+                <th className="px-5 py-3 text-right font-semibold text-gray-700">Actions</th>
+              </tr>
+            </thead>
+            <SortableTableBody
+              items={faqs}
+              disabled={!canUpdate}
+              onReorder={handleReorder}
+              renderRow={(faq, { dragHandle }) => (
+                <>
+                  <td className="max-w-[280px] px-5 py-4">
+                    <p className="font-medium text-gray-900">{faq.question}</p>
+                  </td>
+                  <td className="max-w-[360px] px-5 py-4">
+                    <p className="line-clamp-2 text-xs text-gray-500">{faq.answer}</p>
+                  </td>
+                  <td className="px-5 py-4">{dragHandle}</td>
+                  <td className="px-5 py-4">
+                    {canUpdate ? (
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={faq.isActive}
+                          disabled={statusBusyId === faq.id}
+                          onCheckedChange={(checked) =>
+                            handleToggleActive(faq, Boolean(checked))
+                          }
+                        />
+                        <span className="text-xs text-gray-500">
+                          {faq.isActive ? 'Visible' : 'Hidden'}
+                        </span>
+                      </div>
+                    ) : faq.isActive ? (
+                      <Badge className="bg-green-100 text-green-700">Visible</Badge>
+                    ) : (
+                      <Badge variant="secondary" className="bg-gray-100 text-gray-700">
+                        Hidden
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="px-5 py-4 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      {canUpdate && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openEdit(faq)}
+                          title="Edit"
+                        >
+                          <Edit2 className="h-4 w-4 text-gray-500" />
+                        </Button>
+                      )}
+                      {canDelete && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setToDelete(faq)}
+                          className="text-red-500 hover:bg-red-50 hover:text-red-600"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </td>
+                </>
               )}
-            </table>
-          </div>
-        </div>
+            />
+          </table>
+        </AdminDataTable>
       </div>
 
       <FaqFormDialog

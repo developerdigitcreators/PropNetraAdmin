@@ -13,7 +13,13 @@ type TokenExpiryInput = {
 };
 
 interface AuthState {
-  user: { id: string; email: string; roleScope?: string; name?: string } | null;
+  user: {
+    id: string;
+    email: string;
+    roleScope?: string;
+    name?: string;
+    contact?: string;
+  } | null;
   activeRole: string | null;
   accessToken: string | null;
   tokenExpiresAt: number | null;

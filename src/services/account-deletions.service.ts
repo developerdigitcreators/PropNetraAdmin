@@ -114,7 +114,9 @@ export function normalizeAccountDeletion(raw: unknown): AccountDeletionRequest |
     id,
     status: asStatus(row.status),
     reason: pickString(row.reason, row.deleteReason, row.delete_reason),
-    channel: asChannel(row.channel, row.otpChannel, row.otp_channel),
+    channel: asChannel(
+      pickString(row.channel, row.otpChannel, row.otp_channel),
+    ),
     createdAt:
       pickString(row.createdAt, row.created_at, row.requestedAt, row.requested_at) || null,
     completedAt:

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -17,6 +17,7 @@ import {
   type SearchSuggestion,
   type SearchSuggestionPostOption,
 } from '@/services/search-suggestions.service';
+import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
 import { Loader2 } from 'lucide-react';
 
 type SuggestionFormDialogProps = {
@@ -50,14 +51,22 @@ export function SuggestionFormDialog({
   const [postsLoading, setPostsLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [localError, setLocalError] = useState('');
+  const baselineRef = useRef('');
 
   useEffect(() => {
     if (!open) return;
     setLocalError('');
-    setListingId(suggestion?.listingId || '');
-    setListingLabel(suggestion?.listing?.title || '');
-    setIsActive(suggestion?.isActive !== false);
+    const nextListingId = suggestion?.listingId || '';
+    const nextLabel = suggestion?.listing?.title || '';
+    const nextActive = suggestion?.isActive !== false;
+    setListingId(nextListingId);
+    setListingLabel(nextLabel);
+    setIsActive(nextActive);
     setSearch('');
+    baselineRef.current = JSON.stringify({
+      listingId: nextListingId,
+      isActive: nextActive,
+    });
   }, [open, suggestion]);
 
   useEffect(() => {
@@ -99,6 +108,22 @@ export function SuggestionFormDialog({
     return mapped;
   }, [posts, listingId, listingLabel]);
 
+  const dirty =
+    open &&
+    baselineRef.current !== '' &&
+    JSON.stringify({ listingId, isActive }) !== baselineRef.current;
+  const { requestClose, dialog } = useDialogUnsavedGuard(dirty);
+
+  const handleOpenChange = async (next: boolean) => {
+    if (submitting) return;
+    if (!next) {
+      const ok = await requestClose();
+      if (ok) onOpenChange(false);
+      return;
+    }
+    onOpenChange(true);
+  };
+
   const handleSubmit = () => {
     if (!stateId || !cityId) {
       setLocalError('Select state and city first.');
@@ -113,7 +138,8 @@ export function SuggestionFormDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open} onOpenChange={(next) => void handleOpenChange(next)}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit suggestion' : 'Add suggestion'}</DialogTitle>
@@ -163,7 +189,11 @@ export function SuggestionFormDialog({
           )}
 
           <div className="flex justify-end gap-2 pt-1">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+            <Button
+              variant="outline"
+              onClick={() => void handleOpenChange(false)}
+              disabled={submitting}
+            >
               Cancel
             </Button>
             <Button onClick={handleSubmit} disabled={submitting || !cityId}>
@@ -174,5 +204,7 @@ export function SuggestionFormDialog({
         </div>
       </DialogContent>
     </Dialog>
+    {dialog}
+    </>
   );
 }

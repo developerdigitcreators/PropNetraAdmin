@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   listingsService,
@@ -13,26 +13,59 @@ import {
 } from "@/services/listings.service";
 import { ListingReviewTable } from "@/modules/listings/listing-review-table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Inbox, Plus, RefreshCw } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { PermissionGuard } from "@/components/common/permission-guard";
-import { PaginationBar } from "@/components/common/pagination-bar";
+import { AdminDataTable } from "@/components/common/admin-data-table";
+import { AdminListToolbar } from "@/components/common/admin-list-toolbar";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/use-auth-store";
 import { permissionSetHas } from "@/lib/super-admin";
+import { useUrlFilters } from "@/hooks/use-url-filters";
 
 export default function ReviewListingPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <ReviewListingPageInner />
+    </Suspense>
+  );
+}
+
+function ReviewListingPageInner() {
   const canCreatePost = useAuthStore(
     (s) =>
       permissionSetHas(s.permissions, "locations:read") ||
       permissionSetHas(s.permissions, "listings:create"),
   );
-  const [tab, setTab] = useState<ReviewTab>("unverified");
+
+  const {
+    filters: urlFilters,
+    setFilters: setUrlFilters,
+    resetFilters,
+  } = useUrlFilters({
+    tab: "unverified",
+    categoryId: "",
+    buildingTypeId: "",
+    propertyTypeId: "",
+  });
+
+  const tab = (
+    ["unverified", "verified", "rejected"].includes(urlFilters.tab)
+      ? urlFilters.tab
+      : "unverified"
+  ) as ReviewTab;
+  const setTab = (value: ReviewTab) => setUrlFilters({ tab: value });
+
   const [unverified, setUnverified] = useState<ListingReviewItem[]>([]);
   const [verified, setVerified] = useState<ListingReviewItem[]>([]);
   const [rejected, setRejected] = useState<ListingReviewItem[]>([]);
@@ -54,15 +87,18 @@ export default function ReviewListingPage() {
 
   // Defaults are applied by backend when these are undefined / omitted:
   // Resale + Residential, and propertyTypeId stays null (All).
-  const [selectedCategoryId, setSelectedCategoryId] = useState<
-    string | undefined
-  >(undefined);
-  const [selectedBuildingTypeId, setSelectedBuildingTypeId] = useState<
-    string | undefined
-  >(undefined);
-  const [selectedPropertyTypeId, setSelectedPropertyTypeId] = useState<
-    string | null
-  >(null);
+  const selectedCategoryId = urlFilters.categoryId || undefined;
+  const selectedBuildingTypeId = urlFilters.buildingTypeId || undefined;
+  const selectedPropertyTypeId = urlFilters.propertyTypeId
+    ? urlFilters.propertyTypeId
+    : null;
+
+  const setSelectedCategoryId = (value: string | undefined) =>
+    setUrlFilters({ categoryId: value || "" });
+  const setSelectedBuildingTypeId = (value: string | undefined) =>
+    setUrlFilters({ buildingTypeId: value || "" });
+  const setSelectedPropertyTypeId = (value: string | null) =>
+    setUrlFilters({ propertyTypeId: value || "" });
 
   const [isLoading, setIsLoading] = useState(true);
 
@@ -182,6 +218,11 @@ export default function ReviewListingPage() {
     setRejectedPage(1);
   }, []);
 
+  const handleResetFilters = useCallback(() => {
+    resetFilters();
+    resetPagesToFirst();
+  }, [resetFilters, resetPagesToFirst]);
+
   const handleCategoryChange = (categoryId: string) => {
     setSelectedCategoryId(categoryId);
     // Let backend resolve defaults for building type based on category.
@@ -262,18 +303,12 @@ export default function ReviewListingPage() {
               other agents.
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void refreshAll()}
-              disabled={isLoading}
-            >
-              <RefreshCw className="mr-1.5 size-3.5" />
-              Refresh
-            </Button>
-            {canCreatePost && (
+          <AdminListToolbar
+            onRefresh={() => void refreshAll()}
+            refreshBusy={isLoading}
+            onReset={handleResetFilters}
+          >
+            {canCreatePost ? (
               <Link
                 href="/add-post"
                 className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
@@ -281,8 +316,8 @@ export default function ReviewListingPage() {
                 <Plus className="w-4 h-4 mr-2" />
                 Add Post
               </Link>
-            )}
-          </div>
+            ) : null}
+          </AdminListToolbar>
         </div>
 
         <Tabs
@@ -324,142 +359,118 @@ export default function ReviewListingPage() {
             value="unverified"
             className="focus-visible:outline-none"
           >
-            {isLoading ? (
-              <div className="py-20 flex justify-center">
-                <Loader2 className="w-8 h-8 text-primary animate-spin" />
-              </div>
-            ) : unverified.length === 0 ? (
-              <EmptyState message="No unverified listings pending review." />
-            ) : (
-              (() => {
-                const filters = filtersByTab.unverified;
-                return (
-                  <div className="space-y-4">
-                    <FiltersBar
-                      filters={filters}
-                      selectedCategoryId={selectedCategoryId}
-                      selectedBuildingTypeId={selectedBuildingTypeId}
-                      selectedPropertyTypeId={selectedPropertyTypeId}
-                      totalForAllPropertyTypes={unverifiedTotal}
-                      onCategoryChange={handleCategoryChange}
-                      onBuildingTypeChange={handleBuildingTypeChange}
-                      onPropertyTypeChange={handlePropertyTypeChange}
-                    />
-
-                    <ListingReviewTable
-                      items={unverified}
-                      mode="unverified"
-                      onApprove={handleApprove}
-                      onReject={handleReject}
-                      onSaveToDb={handleSaveToDb}
-                      onToggleForSale={handleToggleForSale}
-                    />
-
-                    <PaginationBar
-                      currentPage={unverifiedPage}
-                      totalItems={unverifiedTotal}
-                      pageSize={pageSize}
-                      totalPages={unverifiedTotalPages}
-                      onPageChange={(p) => handlePageChange("unverified", p)}
-                      onPageSizeChange={handlePageSizeChange}
-                    />
-                  </div>
-                );
-              })()
-            )}
+            <div className="space-y-4">
+              {!isLoading ? (
+                <FiltersBar
+                  filters={filtersByTab.unverified}
+                  selectedCategoryId={selectedCategoryId}
+                  selectedBuildingTypeId={selectedBuildingTypeId}
+                  selectedPropertyTypeId={selectedPropertyTypeId}
+                  totalForAllPropertyTypes={unverifiedTotal}
+                  onCategoryChange={handleCategoryChange}
+                  onBuildingTypeChange={handleBuildingTypeChange}
+                  onPropertyTypeChange={handlePropertyTypeChange}
+                />
+              ) : null}
+              <AdminDataTable
+                page={unverifiedPage}
+                limit={pageSize}
+                total={unverifiedTotal}
+                totalPages={unverifiedTotalPages}
+                onPageChange={(p) => handlePageChange("unverified", p)}
+                onPageSizeChange={handlePageSizeChange}
+                loading={isLoading}
+                isEmpty={!unverified.length}
+                emptyMessage="No unverified listings pending review."
+                syncKey={unverified.length}
+              >
+                <ListingReviewTable
+                  items={unverified}
+                  mode="unverified"
+                  onApprove={handleApprove}
+                  onReject={handleReject}
+                  onSaveToDb={handleSaveToDb}
+                  onToggleForSale={handleToggleForSale}
+                />
+              </AdminDataTable>
+            </div>
           </TabsContent>
 
           <TabsContent value="verified" className="focus-visible:outline-none">
-            {isLoading ? (
-              <div className="py-20 flex justify-center">
-                <Loader2 className="w-8 h-8 text-primary animate-spin" />
-              </div>
-            ) : verified.length === 0 ? (
-              <EmptyState message="No verified (published) listings yet." />
-            ) : (
-              (() => {
-                const filters = filtersByTab.verified;
-                return (
-                  <div className="space-y-4">
-                    <FiltersBar
-                      filters={filters}
-                      selectedCategoryId={selectedCategoryId}
-                      selectedBuildingTypeId={selectedBuildingTypeId}
-                      selectedPropertyTypeId={selectedPropertyTypeId}
-                      totalForAllPropertyTypes={verifiedTotal}
-                      onCategoryChange={handleCategoryChange}
-                      onBuildingTypeChange={handleBuildingTypeChange}
-                      onPropertyTypeChange={handlePropertyTypeChange}
-                    />
-
-                    <ListingReviewTable
-                      items={verified}
-                      mode="verified"
-                      onApprove={handleApprove}
-                      onReject={handleReject}
-                      onSaveToDb={handleSaveToDb}
-                      onToggleForSale={handleToggleForSale}
-                      onToggleActive={handleToggleActive}
-                    />
-
-                    <PaginationBar
-                      currentPage={verifiedPage}
-                      totalItems={verifiedTotal}
-                      pageSize={pageSize}
-                      totalPages={verifiedTotalPages}
-                      onPageChange={(p) => handlePageChange("verified", p)}
-                      onPageSizeChange={handlePageSizeChange}
-                    />
-                  </div>
-                );
-              })()
-            )}
+            <div className="space-y-4">
+              {!isLoading ? (
+                <FiltersBar
+                  filters={filtersByTab.verified}
+                  selectedCategoryId={selectedCategoryId}
+                  selectedBuildingTypeId={selectedBuildingTypeId}
+                  selectedPropertyTypeId={selectedPropertyTypeId}
+                  totalForAllPropertyTypes={verifiedTotal}
+                  onCategoryChange={handleCategoryChange}
+                  onBuildingTypeChange={handleBuildingTypeChange}
+                  onPropertyTypeChange={handlePropertyTypeChange}
+                />
+              ) : null}
+              <AdminDataTable
+                page={verifiedPage}
+                limit={pageSize}
+                total={verifiedTotal}
+                totalPages={verifiedTotalPages}
+                onPageChange={(p) => handlePageChange("verified", p)}
+                onPageSizeChange={handlePageSizeChange}
+                loading={isLoading}
+                isEmpty={!verified.length}
+                emptyMessage="No verified (published) listings yet."
+                syncKey={verified.length}
+              >
+                <ListingReviewTable
+                  items={verified}
+                  mode="verified"
+                  onApprove={handleApprove}
+                  onReject={handleReject}
+                  onSaveToDb={handleSaveToDb}
+                  onToggleForSale={handleToggleForSale}
+                  onToggleActive={handleToggleActive}
+                />
+              </AdminDataTable>
+            </div>
           </TabsContent>
 
           <TabsContent value="rejected" className="focus-visible:outline-none">
-            {isLoading ? (
-              <div className="py-20 flex justify-center">
-                <Loader2 className="w-8 h-8 text-primary animate-spin" />
-              </div>
-            ) : rejected.length === 0 ? (
-              <EmptyState message="No rejected listings yet." />
-            ) : (
-              (() => {
-                const filters = filtersByTab.rejected;
-                return (
-                  <div className="space-y-4">
-                    <FiltersBar
-                      filters={filters}
-                      selectedCategoryId={selectedCategoryId}
-                      selectedBuildingTypeId={selectedBuildingTypeId}
-                      selectedPropertyTypeId={selectedPropertyTypeId}
-                      totalForAllPropertyTypes={rejectedTotal}
-                      onCategoryChange={handleCategoryChange}
-                      onBuildingTypeChange={handleBuildingTypeChange}
-                      onPropertyTypeChange={handlePropertyTypeChange}
-                    />
-
-                    <ListingReviewTable
-                      items={rejected}
-                      mode="rejected"
-                      onApprove={handleApprove}
-                      onReject={handleReject}
-                      onSaveToDb={handleSaveToDb}
-                      onToggleForSale={handleToggleForSale}
-                    />
-
-                    <PaginationBar
-                      currentPage={rejectedPage}
-                      totalItems={rejectedTotal}
-                      pageSize={pageSize}
-                      totalPages={rejectedTotalPages}
-                      onPageChange={(p) => handlePageChange("rejected", p)}
-                      onPageSizeChange={handlePageSizeChange}
-                    />
-                  </div>
-                );
-              })()
-            )}
+            <div className="space-y-4">
+              {!isLoading ? (
+                <FiltersBar
+                  filters={filtersByTab.rejected}
+                  selectedCategoryId={selectedCategoryId}
+                  selectedBuildingTypeId={selectedBuildingTypeId}
+                  selectedPropertyTypeId={selectedPropertyTypeId}
+                  totalForAllPropertyTypes={rejectedTotal}
+                  onCategoryChange={handleCategoryChange}
+                  onBuildingTypeChange={handleBuildingTypeChange}
+                  onPropertyTypeChange={handlePropertyTypeChange}
+                />
+              ) : null}
+              <AdminDataTable
+                page={rejectedPage}
+                limit={pageSize}
+                total={rejectedTotal}
+                totalPages={rejectedTotalPages}
+                onPageChange={(p) => handlePageChange("rejected", p)}
+                onPageSizeChange={handlePageSizeChange}
+                loading={isLoading}
+                isEmpty={!rejected.length}
+                emptyMessage="No rejected listings yet."
+                syncKey={rejected.length}
+              >
+                <ListingReviewTable
+                  items={rejected}
+                  mode="rejected"
+                  onApprove={handleApprove}
+                  onReject={handleReject}
+                  onSaveToDb={handleSaveToDb}
+                  onToggleForSale={handleToggleForSale}
+                />
+              </AdminDataTable>
+            </div>
           </TabsContent>
         </Tabs>
       </div>
@@ -533,7 +544,7 @@ function FiltersBar({
         <Select
           value={selectedCategoryId ?? ""}
           disabled={categories.length === 0}
-          onValueChange={(v) => onCategoryChange(v)}
+          onValueChange={(v) => onCategoryChange(v ?? "")}
         >
           <SelectTrigger>
             <span className="truncate">{categoryLabel}</span>
@@ -556,7 +567,7 @@ function FiltersBar({
         <Select
           value={selectedBuildingTypeId ?? ""}
           disabled={!selectedCategoryId || buildingTypes.length === 0}
-          onValueChange={(v) => onBuildingTypeChange(v)}
+          onValueChange={(v) => onBuildingTypeChange(v ?? "")}
         >
           <SelectTrigger>
             <span className="truncate">{buildingTypeLabel}</span>
@@ -580,7 +591,9 @@ function FiltersBar({
           value={propertyTypeValue}
           disabled={!selectedBuildingTypeId || propertyTypes.length === 0}
           onValueChange={(v) =>
-            onPropertyTypeChange(v === "__ALL__" ? "__ALL__" : (v as string))
+            onPropertyTypeChange(
+              !v || v === "__ALL__" ? "__ALL__" : v,
+            )
           }
         >
           <SelectTrigger>
@@ -602,18 +615,6 @@ function FiltersBar({
           </SelectContent>
         </Select>
       </div>
-    </div>
-  );
-}
-
-function EmptyState({ message }: { message: string }) {
-  return (
-    <div className="bg-gray-50/50 border border-dashed border-gray-200 rounded-2xl p-16 flex flex-col items-center justify-center text-center">
-      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4 text-gray-400">
-        <Inbox className="w-8 h-8" />
-      </div>
-      <h3 className="text-lg font-medium text-gray-900 mb-1">All caught up!</h3>
-      <p className="text-sm text-gray-500">{message}</p>
     </div>
   );
 }

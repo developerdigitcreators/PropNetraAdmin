@@ -22,6 +22,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatDisplayDateTime } from '@/lib/format-date';
+import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
 import { Loader2 } from 'lucide-react';
 
 interface UserFormModalProps {
@@ -70,7 +71,7 @@ export function UserFormModal({
     setValue,
     setError,
     watch,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, isDirty },
   } = useForm<AdminUserFormData>({
     resolver: zodResolver(AdminUserSchema),
     mode: 'onBlur',
@@ -83,6 +84,20 @@ export function UserFormModal({
       role_id: '',
     },
   });
+
+  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(
+    open && isDirty,
+  );
+
+  const handleOpenChange = async (next: boolean) => {
+    if (isSubmitting) return;
+    if (!next) {
+      const ok = await requestClose();
+      if (ok) onOpenChange(false);
+      return;
+    }
+    onOpenChange(true);
+  };
 
   const selectedRoleId = watch('role_id');
   const nameReg = register('name');
@@ -147,7 +162,8 @@ export function UserFormModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open} onOpenChange={(next) => void handleOpenChange(next)}>
       <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
@@ -232,7 +248,7 @@ export function UserFormModal({
           {!isEdit && (
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700">Assign Role (Optional)</label>
-              <Select value={selectedRoleId} onValueChange={(val) => setValue('role_id', val || undefined, { shouldValidate: true })}>
+              <Select value={selectedRoleId} onValueChange={(val) => setValue('role_id', val || undefined, { shouldValidate: true, shouldDirty: true })}>
                 <SelectTrigger className={errors.role_id ? 'border-red-500' : ''}>
                   <SelectValue placeholder="Choose a role..." />
                 </SelectTrigger>
@@ -251,7 +267,7 @@ export function UserFormModal({
           {formError && <p className="text-red-500 text-xs">{formError}</p>}
 
           <div className="pt-4 flex justify-end gap-3">
-            <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>
+            <Button variant="outline" type="button" onClick={() => void handleOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={isSubmitting} className="bg-primary hover:bg-primary/90 text-white">
@@ -303,5 +319,7 @@ export function UserFormModal({
         )}
       </DialogContent>
     </Dialog>
+    {unsavedDialog}
+    </>
   );
 }

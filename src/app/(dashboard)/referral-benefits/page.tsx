@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useAuthStore } from "@/store/use-auth-store";
 import { PermissionGuard } from "@/components/common/permission-guard";
@@ -13,6 +13,7 @@ import {
   type ReferralSettings,
   type ReferralTier,
 } from "@/services/referral.service";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import {
   Gift,
   Loader2,
@@ -62,6 +63,8 @@ export default function ReferralBenefitsPage() {
 
   const [settings, setSettings] = useState<ReferralSettings | null>(null);
   const [tiers, setTiers] = useState<EditableTier[]>([]);
+  const [baselineSettings, setBaselineSettings] = useState("");
+  const [baselineTiers, setBaselineTiers] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingTiers, setSavingTiers] = useState(false);
@@ -76,8 +79,11 @@ export default function ReferralBenefitsPage() {
         referralService.getSettings(),
         referralService.listTiers(),
       ]);
+      const editable = toEditable(t);
       setSettings(s);
-      setTiers(toEditable(t));
+      setTiers(editable);
+      setBaselineSettings(JSON.stringify(s));
+      setBaselineTiers(JSON.stringify(editable));
     } catch (err) {
       setError(referralApiError(err, "Failed to load referral config."));
     } finally {
@@ -88,6 +94,14 @@ export default function ReferralBenefitsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const dirty = useMemo(() => {
+    if (!settings || !baselineSettings) return false;
+    return (
+      JSON.stringify(settings) !== baselineSettings ||
+      JSON.stringify(tiers) !== baselineTiers
+    );
+  }, [baselineSettings, baselineTiers, settings, tiers]);
 
   const saveSettings = async () => {
     if (!settings || !canUpdate) return;
@@ -108,7 +122,6 @@ export default function ReferralBenefitsPage() {
         paidMilestoneWindowDays: Number(settings.paidMilestoneWindowDays),
         paidStandardPercent: Number(settings.paidStandardPercent),
         paidStandardCoins: null,
-        paidMilestoneResetDays: Number(settings.paidMilestoneResetDays),
         paidPendingExpiryDays: Number(settings.paidPendingExpiryDays),
         paidReferralCoinExpiryDays: Number(
           settings.paidReferralCoinExpiryDays ?? 365,
@@ -120,9 +133,11 @@ export default function ReferralBenefitsPage() {
         renewResetsMilestones: settings.renewResetsMilestones !== false,
       });
       setSettings(updated);
+      setBaselineSettings(JSON.stringify(updated));
       setMessage("Program settings saved.");
     } catch (err) {
       setError(referralApiError(err, "Failed to save settings."));
+      throw err;
     } finally {
       setSavingSettings(false);
     }
@@ -139,14 +154,27 @@ export default function ReferralBenefitsPage() {
         sortOrder: i + 1,
       }));
       const saved = await referralService.replaceTiers(normalized);
-      setTiers(toEditable(saved));
+      const editable = toEditable(saved);
+      setTiers(editable);
+      setBaselineTiers(JSON.stringify(editable));
       setMessage("Reward tiers saved.");
     } catch (err) {
       setError(referralApiError(err, "Failed to save tiers."));
+      throw err;
     } finally {
       setSavingTiers(false);
     }
   };
+
+  const saveAllRules = async () => {
+    await saveSettings();
+    await saveTiers();
+  };
+
+  const { dialog: unsavedDialog } = useUnsavedChangesGuard({
+    dirty,
+    onSave: canUpdate ? () => saveAllRules() : undefined,
+  });
 
   const addTier = (track: EditableTier["track"]) => {
     const sameTrack = tiers.filter((t) => t.track === track);
@@ -353,7 +381,7 @@ export default function ReferralBenefitsPage() {
                   {canUpdate ? (
                     <Button
                       className="mt-4"
-                      onClick={saveSettings}
+                      onClick={() => void saveSettings().catch(() => undefined)}
                       disabled={savingSettings}
                     >
                       {savingSettings ? (
@@ -414,7 +442,7 @@ export default function ReferralBenefitsPage() {
                       {
                         key: "renewResetsMilestones",
                         label: "Renew resets milestones",
-                        hint: "ON → at next subscription renew/end, milestone cycle resets to 0. Referral coins still expire on plan end or by coin expiry days below.",
+                        hint: "ON → at next subscription renew/end, milestone cycle counters reset to 0. Transaction history is never deleted — all referral/payment ledger rows stay in the DB. Referral coins still expire on plan end or by coin expiry days below.",
                         accent: "amber",
                       },
                     ]}
@@ -428,16 +456,9 @@ export default function ReferralBenefitsPage() {
                           s.paidMilestonesEnabledForNewUsers === false,
                       },
                       {
-                        key: "paidMilestoneResetDays",
-                        label: "Yearly reset days",
-                        hint: "Legacy calendar reset window (read-only; gated by Renew toggle).",
-                        suffix: "days",
-                        lockedWhen: () => true,
-                      },
-                      {
                         key: "paidPendingExpiryDays",
                         label: "Unsubscribed Referral Benefits Expiry",
-                        hint: "Days to wait for referee to subscribe before referral benefits expires.",
+                        hint: "Days to wait for the referral to buy a paid subscription and credit to refree",
                         suffix: "days",
                       },
                       {
@@ -459,12 +480,12 @@ export default function ReferralBenefitsPage() {
                 {canUpdate ? (
                   <div className="sticky bottom-4 z-10 flex justify-end">
                     <Button
-                      onClick={saveSettings}
-                      disabled={savingSettings}
+                      onClick={() => void saveAllRules().catch(() => undefined)}
+                      disabled={savingSettings || savingTiers}
                       size="lg"
                       className="shadow-lg ring-2 ring-primary/40 ring-offset-2"
                     >
-                      {savingSettings ? (
+                      {savingSettings || savingTiers ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : null}
                       Save all rules
@@ -513,7 +534,7 @@ export default function ReferralBenefitsPage() {
                 <p className="text-sm text-gray-600">
                   Save after adding or editing reward tiers above.
                 </p>
-                <Button onClick={saveTiers} disabled={savingTiers}>
+                <Button onClick={() => void saveTiers().catch(() => undefined)} disabled={savingTiers}>
                   {savingTiers ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : null}
@@ -543,6 +564,7 @@ export default function ReferralBenefitsPage() {
           </>
         )}
       </div>
+      {unsavedDialog}
     </PermissionGuard>
   );
 }

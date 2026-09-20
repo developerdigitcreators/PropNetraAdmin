@@ -6,12 +6,19 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { RoleSchema, RoleFormData } from '@/validators/rbac.schema';
 import { rbacService } from '@/services/rbac.service';
 import { PermissionMatrix } from '@/modules/rbac/permission-matrix';
+import { AdminDataTable } from '@/components/common/admin-data-table';
+import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Edit2, Plus, Trash2 } from 'lucide-react';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { DeleteRoleAlert } from '@/modules/rbac/delete-role-alert';
+import { useClientPagedRows } from '@/hooks/use-client-paged-rows';
+import {
+  useDialogUnsavedGuard,
+  useUnsavedChangesGuard,
+} from '@/hooks/use-unsaved-changes-guard';
 
 export default function RolesPage() {
   const [roles, setRoles] = useState<any[]>([]);
@@ -24,6 +31,16 @@ export default function RolesPage() {
   
   const [deleteRoleTarget, setDeleteRoleTarget] = useState<any>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+  } = useClientPagedRows(roles);
   
   const {
     register,
@@ -31,7 +48,7 @@ export default function RolesPage() {
     setValue,
     watch,
     reset,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<RoleFormData>({
     resolver: zodResolver(RoleSchema),
     defaultValues: {
@@ -41,6 +58,12 @@ export default function RolesPage() {
   });
 
   const selectedPermissions = watch('permissions');
+  const formDirty = isFormVisible && isDirty;
+  const { dialog: navUnsavedDialog } = useUnsavedChangesGuard({
+    dirty: formDirty,
+  });
+  const { requestClose, dialog: cancelUnsavedDialog } =
+    useDialogUnsavedGuard(formDirty);
 
   const fetchRoles = async () => {
     setIsLoadingRoles(true);
@@ -72,7 +95,9 @@ export default function RolesPage() {
     setIsFormVisible(true);
   };
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
+    const ok = await requestClose();
+    if (!ok) return;
     setEditingRole(null);
     reset({ name: '', permissions: [] });
     setIsFormVisible(false);
@@ -115,15 +140,31 @@ export default function RolesPage() {
             <h1 className="text-2xl font-bold tracking-tight text-gray-900">Role Management</h1>
             <p className="text-gray-500 mt-1">Create custom roles and define their granular permission access.</p>
           </div>
-          {!isFormVisible && (
-            <Button onClick={handleCreateNew} className="bg-primary text-white hover:bg-primary/90">
-              <Plus className="w-4 h-4 mr-2" /> Create Role
-            </Button>
-          )}
+          {!isFormVisible ? (
+            <AdminListToolbar
+              onRefresh={() => void fetchRoles()}
+              refreshDisabled={isLoadingRoles}
+            >
+              <Button onClick={handleCreateNew} className="bg-primary text-white hover:bg-primary/90">
+                <Plus className="w-4 h-4 mr-2" /> Create Role
+              </Button>
+            </AdminListToolbar>
+          ) : null}
         </div>
 
         {!isFormVisible && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <AdminDataTable
+            page={page}
+            limit={limit}
+            total={total}
+            totalPages={totalPages}
+            onPageChange={onPageChange}
+            onPageSizeChange={onPageSizeChange}
+            loading={isLoadingRoles}
+            isEmpty={!pageRows.length}
+            emptyMessage="No roles found."
+            syncKey={pageRows.length}
+          >
             <table className="w-full text-sm text-left">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
@@ -134,53 +175,41 @@ export default function RolesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {isLoadingRoles ? (
-                  <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center">
-                      <Loader2 className="w-6 h-6 text-primary animate-spin mx-auto" />
+                {pageRows.map((role) => (
+                  <tr key={role.id} className="hover:bg-gray-50/50 transition-colors">
+                    <td className="px-6 py-4 font-medium text-gray-900">{role.name}</td>
+                    <td className="px-6 py-4 text-gray-500">
+                      {role.permissions?.length || role.rolePermissions?.length || 0} permissions
+                    </td>
+                    <td className="px-6 py-4">
+                      {role.is_active ? (
+                        <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-200">Active</Badge>
+                      ) : (
+                        <Badge variant="secondary" className="bg-gray-100 text-gray-700 hover:bg-gray-200">Inactive</Badge>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <Button variant="ghost" size="sm" onClick={() => handleEdit(role)} className="text-gray-500 hover:text-gray-700">
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => handleDeleteClick(role)} className="text-red-500 hover:text-red-600 hover:bg-red-50">
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
-                ) : roles.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-gray-500">No roles found.</td>
-                  </tr>
-                ) : (
-                  roles.map((role) => (
-                    <tr key={role.id} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="px-6 py-4 font-medium text-gray-900">{role.name}</td>
-                      <td className="px-6 py-4 text-gray-500">
-                        {role.permissions?.length || role.rolePermissions?.length || 0} permissions
-                      </td>
-                      <td className="px-6 py-4">
-                        {role.is_active ? (
-                          <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-200">Active</Badge>
-                        ) : (
-                          <Badge variant="secondary" className="bg-gray-100 text-gray-700 hover:bg-gray-200">Inactive</Badge>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => handleEdit(role)} className="text-gray-500 hover:text-gray-700">
-                            <Edit2 className="w-4 h-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => handleDeleteClick(role)} className="text-red-500 hover:text-red-600 hover:bg-red-50">
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
+                ))}
               </tbody>
             </table>
-          </div>
+          </AdminDataTable>
         )}
         
         {isFormVisible && (
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
             <div className="flex items-center justify-between mb-6 border-b border-gray-100 pb-4">
               <h2 className="text-lg font-semibold">{editingRole ? 'Edit Role' : 'Create New Role'}</h2>
-              <Button variant="ghost" size="sm" onClick={handleCancel}>Cancel</Button>
+              <Button variant="ghost" size="sm" onClick={() => void handleCancel()}>Cancel</Button>
             </div>
             
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
@@ -205,7 +234,7 @@ export default function RolesPage() {
                 
                 <PermissionMatrix 
                   selectedPermissions={selectedPermissions || []}
-                  onChange={(perms) => setValue('permissions', perms, { shouldValidate: true })}
+                  onChange={(perms) => setValue('permissions', perms, { shouldValidate: true, shouldDirty: true })}
                 />
                 {errors.permissions && (
                   <p className="text-red-500 text-xs mt-1">{errors.permissions.message}</p>
@@ -242,6 +271,8 @@ export default function RolesPage() {
           onSuccess={fetchRoles}
         />
       )}
+      {navUnsavedDialog}
+      {cancelUnsavedDialog}
     </PermissionGuard>
   );
 }

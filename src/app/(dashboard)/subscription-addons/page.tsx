@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
+import { AdminDataTable } from '@/components/common/admin-data-table';
+import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { AddonFormDialog } from '@/modules/subscriptions/addon-form-dialog';
@@ -13,7 +15,8 @@ import {
   type AddonCatalogItem,
   type UpdateAddonPayload,
 } from '@/services/subscriptions.service';
-import { Package, Edit2, Loader2, RefreshCw } from 'lucide-react';
+import { useClientPagedRows } from '@/hooks/use-client-paged-rows';
+import { Package, Edit2 } from 'lucide-react';
 
 const AUTOMATIC_ADDON_TYPES = new Set(['LISTING_PRIORITY']);
 
@@ -32,6 +35,16 @@ export default function SubscriptionAddonsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+  } = useClientPagedRows(addons);
 
   const fetchAddons = useCallback(async () => {
     setLoading(true);
@@ -93,98 +106,85 @@ export default function SubscriptionAddonsPage() {
               paid referrers (not a purchasable add-on).
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void fetchAddons()}
-            disabled={loading}
-          >
-            <RefreshCw className="mr-1.5 size-3.5" />
-            Refresh
-          </Button>
+          <AdminListToolbar
+            onRefresh={() => void fetchAddons()}
+            refreshDisabled={loading}
+          />
         </div>
 
-        {error ? (
-          <div className="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        ) : null}
-
-        {loading ? (
-          <div className="flex justify-center py-20">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
-        ) : (
-          <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b bg-gray-50 text-xs uppercase text-gray-500">
-                <tr>
-                  <th className="px-4 py-3">Type</th>
-                  <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Coins</th>
-                  <th className="px-4 py-3">Quantity</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
+        <AdminDataTable
+          page={page}
+          limit={limit}
+          total={total}
+          totalPages={totalPages}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
+          loading={loading}
+          error={error || null}
+          isEmpty={!pageRows.length}
+          emptyMessage="No add-ons found."
+          syncKey={pageRows.length}
+        >
+          <table className="w-full text-left text-sm">
+            <thead className="border-b bg-gray-50 text-xs uppercase text-gray-500">
+              <tr>
+                <th className="px-4 py-3">Type</th>
+                <th className="px-4 py-3">Name</th>
+                <th className="px-4 py-3">Coins</th>
+                <th className="px-4 py-3">Quantity</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageRows.map((addon) => (
+                <tr key={addon.id} className="border-b last:border-0">
+                  <td className="px-4 py-3 font-mono text-xs">{addon.type}</td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-gray-900">{addon.displayName}</div>
+                    {addon.description ? (
+                      <div className="mt-0.5 text-xs text-gray-500">{addon.description}</div>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    {isAutomaticAddon(addon.type) ? (
+                      <span className="text-gray-400">—</span>
+                    ) : (
+                      addon.coinCost
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {isAutomaticAddon(addon.type) ? (
+                      <span className="text-gray-400">—</span>
+                    ) : (
+                      addon.quantity
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge variant={addon.enabled ? 'default' : 'outline'}>
+                      {addon.enabled ? 'Enabled' : 'Disabled'}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {canUpdate ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1"
+                        onClick={() => openEdit(addon)}
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                        Edit
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-gray-400">No edit access</span>
+                    )}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {addons.map((addon) => (
-                  <tr key={addon.id} className="border-b last:border-0">
-                    <td className="px-4 py-3 font-mono text-xs">{addon.type}</td>
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900">{addon.displayName}</div>
-                      {addon.description ? (
-                        <div className="mt-0.5 text-xs text-gray-500">{addon.description}</div>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-3">
-                      {isAutomaticAddon(addon.type) ? (
-                        <span className="text-gray-400">—</span>
-                      ) : (
-                        addon.coinCost
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {isAutomaticAddon(addon.type) ? (
-                        <span className="text-gray-400">—</span>
-                      ) : (
-                        addon.quantity
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={addon.enabled ? 'default' : 'outline'}>
-                        {addon.enabled ? 'Enabled' : 'Disabled'}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {canUpdate ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="gap-1"
-                          onClick={() => openEdit(addon)}
-                        >
-                          <Edit2 className="h-3.5 w-3.5" />
-                          Edit
-                        </Button>
-                      ) : (
-                        <span className="text-xs text-gray-400">No edit access</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {!addons.length ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-gray-500">
-                      No add-ons found.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        )}
+              ))}
+            </tbody>
+          </table>
+        </AdminDataTable>
 
         <AddonFormDialog
           open={formOpen}

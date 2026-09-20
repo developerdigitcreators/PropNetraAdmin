@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dialog';
 import { Loader2, Upload } from 'lucide-react';
 import { InstagramIcon } from '@/modules/netra-reels/platform-icons';
+import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
 
 type ReelFormMode = 'instagram' | 'upload';
 
@@ -52,6 +53,7 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
   const [uploadingThumb, setUploadingThumb] = useState(false);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const thumbInputRef = useRef<HTMLInputElement | null>(null);
+  const baselineRef = useRef('');
 
   const parsed = useMemo(() => parseReelSource(sourceUrl), [sourceUrl]);
   const urlLooksValid = isSupportedReelUrl(sourceUrl);
@@ -76,6 +78,15 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
       setThumbnailUrl(reel.thumbnailUrl);
       setIsActive(reel.isActive);
       setPreviewedUrl(reel.platform === 'upload' ? '' : reel.sourceUrl);
+      baselineRef.current = JSON.stringify({
+        sourceUrl: reel.platform === 'upload' ? '' : reel.sourceUrl,
+        title: reel.title,
+        caption: reel.caption,
+        thumbnailUrl: reel.thumbnailUrl,
+        isActive: reel.isActive,
+        hasVideoFile: false,
+        hasThumbFile: false,
+      });
     } else {
       setSourceUrl('');
       setTitle('');
@@ -83,8 +94,41 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
       setThumbnailUrl('');
       setIsActive(true);
       setPreviewedUrl('');
+      baselineRef.current = JSON.stringify({
+        sourceUrl: '',
+        title: '',
+        caption: '',
+        thumbnailUrl: '',
+        isActive: true,
+        hasVideoFile: false,
+        hasThumbFile: false,
+      });
     }
   }, [open, reel]);
+
+  const dirty =
+    open &&
+    baselineRef.current !== '' &&
+    JSON.stringify({
+      sourceUrl,
+      title,
+      caption,
+      thumbnailUrl,
+      isActive,
+      hasVideoFile: Boolean(videoFile),
+      hasThumbFile: Boolean(thumbnailFile),
+    }) !== baselineRef.current;
+  const { requestClose, dialog } = useDialogUnsavedGuard(dirty);
+
+  const handleOpenChange = async (next: boolean) => {
+    if (submitting || uploadingThumb) return;
+    if (!next) {
+      const ok = await requestClose();
+      if (ok) onOpenChange(false);
+      return;
+    }
+    onOpenChange(true);
+  };
 
   useEffect(() => {
     if (!thumbnailFile) {
@@ -196,7 +240,8 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
   const displayThumbnail = thumbnailPreview || thumbnailUrl;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open} onOpenChange={(next) => void handleOpenChange(next)}>
       <DialogContent className="flex max-h-[90vh] w-full flex-col gap-0 overflow-hidden p-0 font-sans sm:max-w-xl">
         <DialogHeader className="shrink-0 space-y-1 px-6 pt-6 pr-12 pb-4 text-left">
           <DialogTitle className="text-lg font-semibold text-gray-900">
@@ -409,7 +454,12 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
           </div>
 
           <div className="flex shrink-0 justify-end gap-2 border-t border-gray-100 bg-gray-50 px-6 py-4">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleOpenChange(false)}
+              disabled={submitting}
+            >
               Cancel
             </Button>
             <Button
@@ -428,5 +478,7 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
         </form>
       </DialogContent>
     </Dialog>
+    {dialog}
+    </>
   );
 }

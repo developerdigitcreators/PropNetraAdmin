@@ -406,7 +406,7 @@ export type StaffAssignee = {
   contact: string;
 };
 
-export type MyListingsTab = "admin_verified" | "app_postings";
+export type MyListingsTab = "all" | "admin_verified" | "app_postings";
 
 export type MyListingItem = {
   id: string;
@@ -421,10 +421,13 @@ export type MyListingItem = {
   expiresAt: string | null;
   daysLeft: number | null;
   expiringSoon: boolean;
+  viewCount?: number;
+  leadCount?: number;
   interestCount: number;
   leadContactName: string | null;
   leadContactPhone: string | null;
   connectedStaff: { id: string; name: string; contact: string } | null;
+  remarksAddedBy?: string | null;
   ownerUser: {
     id: string;
     name: string;
@@ -477,6 +480,8 @@ export type ListingInterestUser = {
   email: string | null;
   profilePhotoUrl: string | null;
   kinds: string[];
+  /** Plan code at contact-reveal time when this user contacted the listing. */
+  actorPlanCodeAtEvent?: string | null;
   firstInterestedAt: string;
   lastInterestedAt: string;
 };
@@ -1154,7 +1159,7 @@ export const listingsService = {
     status?: "active" | "expired" | "inactive";
     companyName?: string;
     username?: string;
-    lead?: string;
+    listingId?: string;
     page?: number;
     limit?: number;
   }): Promise<MyListingsResponse> => {

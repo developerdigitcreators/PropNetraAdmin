@@ -3,7 +3,13 @@ import { deleteWithRemark } from '@/lib/delete-with-remark';
 
 export type AppUserAudience = 'admin_panel' | 'app';
 export type AppUserBucket = 'otp_issued' | 'otp_verified' | 'master' | 'rejected';
-export type AppUserFilterType = 'plan' | 'role' | 'documents' | 'status';
+export type AppUserFilterType =
+  | 'plan'
+  | 'role'
+  | 'documents'
+  | 'kyc_documents'
+  | 'referral'
+  | 'status';
 
 export type GetUsersParams = {
   audience?: AppUserAudience;

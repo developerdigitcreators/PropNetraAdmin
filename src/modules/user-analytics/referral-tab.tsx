@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { AdminDataTable } from '@/components/common/admin-data-table';
 import {
   referralApiError,
   referralService,
@@ -11,6 +12,12 @@ import {
 } from '@/services/referral.service';
 import { formatDisplayDateTime } from '@/lib/format-date';
 import { planLabelFromCode, resolvePlanChip } from '@/lib/plan-labels';
+import { useClientPagedRows } from '@/hooks/use-client-paged-rows';
+import {
+  InviteRewardCell,
+  InviteTimingCell,
+  inviteRewardPrimary,
+} from '@/modules/referral/invite-display';
 import { GitBranch, Loader2 } from 'lucide-react';
 
 function PlanBadge({ planCode }: { planCode?: string | null }) {
@@ -55,6 +62,8 @@ type InviteRow = {
   inviteePlanAtBenefit?: string | null;
   referrerPlanAtBenefit?: string | null;
   reward: string;
+  coinsCredited?: number | null;
+  monthsGranted?: number | null;
   onboardedAt?: string | null;
   planActivatedAt?: string | null;
   rewardExpiresAt?: string | null;
@@ -117,32 +126,37 @@ export function ReferralTab({ userId }: { userId: string }) {
       referrerPlanAtBenefit?: string | null;
     }>;
 
-    const fromInvites: InviteRow[] = invited.map((u) => {
-      let reward = '—';
-      if ((u.coinsCredited ?? 0) > 0) reward = `+${u.coinsCredited} NetraCoins`;
-      else if ((u.monthsGranted ?? 0) > 0)
-        reward = `+${u.monthsGranted} month${u.monthsGranted === 1 ? '' : 's'}`;
-      else if (u.eventStatus === 'pending_subscription') reward = 'After plan purchase';
-      else if (u.eventStatus === 'pending_expired') reward = 'Window ended';
-
-      return {
-        key: u.id,
-        name: u.name?.trim() || u.id,
-        inviteePlanAtBenefit: u.inviteePlanAtBenefit,
-        referrerPlanAtBenefit: u.referrerPlanAtBenefit,
-        reward,
-        onboardedAt: u.onboardedAt,
-        planActivatedAt: u.planActivatedAt,
-        rewardExpiresAt: u.rewardExpiresAt,
-        pendingExpiresAt: u.pendingExpiresAt,
-        eventStatus: u.eventStatus,
-      };
-    });
+    const fromInvites: InviteRow[] = invited.map((u) => ({
+      key: u.id,
+      name: u.name?.trim() || u.id,
+      inviteePlanAtBenefit: u.inviteePlanAtBenefit,
+      referrerPlanAtBenefit: u.referrerPlanAtBenefit,
+      reward: inviteRewardPrimary(u),
+      coinsCredited: u.coinsCredited,
+      monthsGranted: u.monthsGranted,
+      onboardedAt: u.onboardedAt,
+      planActivatedAt: u.planActivatedAt,
+      rewardExpiresAt: u.rewardExpiresAt,
+      pendingExpiresAt: u.pendingExpiresAt,
+      eventStatus: u.eventStatus,
+    }));
 
     const covered = new Set(invited.map((u) => u.id));
-    const orphanGrants = (graph.benefitHistory || []).filter(
-      (g) => !g.triggerRefereeId || !covered.has(g.triggerRefereeId),
-    );
+    // Invites table = real invitees only — never system ledger (cycle_reset, etc.).
+    const orphanGrants = (graph.benefitHistory || []).filter((g) => {
+      if (!g.triggerRefereeId) return false;
+      if (covered.has(g.triggerRefereeId)) return false;
+      const reason = String(g.reason || '').toLowerCase();
+      if (
+        reason === 'cycle_reset' ||
+        reason === 'leftover_free_extension' ||
+        reason.startsWith('became_') ||
+        reason === 'renew_reset'
+      ) {
+        return false;
+      }
+      return true;
+    });
 
     for (const g of orphanGrants) {
       let reward = '—';
@@ -157,18 +171,34 @@ export function ReferralTab({ userId }: { userId: string }) {
 
       fromInvites.push({
         key: `grant-${g.createdAt}-${g.reason || g.rewardType}`,
-        name: g.triggerRefereeId ? 'Invitee' : 'System',
+        name: 'Invitee',
         inviteePlanAtBenefit: g.inviteePlanAtBenefit,
         referrerPlanAtBenefit: g.referrerPlanAtBenefit,
         reward,
+        coinsCredited: g.coinsCredited,
+        monthsGranted: g.monthsGranted,
         onboardedAt: g.createdAt,
         rewardExpiresAt: g.rewardExpiresAt,
         eventStatus: null,
       });
     }
 
-    return fromInvites;
+    return fromInvites.sort((a, b) => {
+      const ta = a.onboardedAt ? new Date(a.onboardedAt).getTime() : 0;
+      const tb = b.onboardedAt ? new Date(b.onboardedAt).getTime() : 0;
+      return tb - ta;
+    });
   }, [graph]);
+
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+  } = useClientPagedRows(inviteRows);
 
   if (loading) {
     return (
@@ -289,71 +319,64 @@ export function ReferralTab({ userId }: { userId: string }) {
         {inviteRows.length === 0 ? (
           <p className="text-sm text-muted-foreground">None yet</p>
         ) : (
-          <div className="overflow-x-auto">
+          <AdminDataTable
+            page={page}
+            limit={limit}
+            total={total}
+            totalPages={totalPages}
+            onPageChange={onPageChange}
+            onPageSizeChange={onPageSizeChange}
+            isEmpty={!inviteRows.length}
+            emptyMessage="None yet"
+            syncKey={pageRows.length}
+          >
             <table className="min-w-full text-left text-sm">
-              <thead className="text-xs uppercase tracking-wide text-muted-foreground">
+              <thead className="border-b border-gray-100 bg-gray-50 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th className="pb-2 pr-3 font-medium">Invited user</th>
-                  <th className="pb-2 pr-3 font-medium">Invitee plan at benefit</th>
-                  <th className="pb-2 pr-3 font-medium">Referrer plan at benefit</th>
-                  <th className="pb-2 pr-3 font-medium">Reward</th>
-                  <th className="pb-2 font-medium">Timing</th>
+                  <th className="px-3 pb-2 pr-3 pt-2 font-medium">Invited user</th>
+                  <th className="px-3 pb-2 pr-3 pt-2 font-medium">Invitee plan at benefit</th>
+                  <th className="px-3 pb-2 pr-3 pt-2 font-medium">Referrer plan at benefit</th>
+                  <th className="px-3 pb-2 pr-3 pt-2 font-medium">Reward</th>
+                  <th className="px-3 pb-2 pt-2 font-medium">Timing</th>
                 </tr>
               </thead>
               <tbody>
-                {inviteRows.map((row) => {
-                  const lines: string[] = [];
-                  if (row.onboardedAt) {
-                    lines.push(`Onboarded ${formatDisplayDateTime(row.onboardedAt)}`);
-                  }
-                  if (
-                    row.eventStatus === 'pending_subscription' &&
-                    row.pendingExpiresAt
-                  ) {
-                    lines.push(
-                      `Plan needed by ${formatDisplayDateTime(row.pendingExpiresAt)}`,
-                    );
-                  } else if (row.eventStatus === 'pending_expired' && row.pendingExpiresAt) {
-                    lines.push(
-                      `Window ended ${formatDisplayDateTime(row.pendingExpiresAt)}`,
-                    );
-                  } else {
-                    if (row.planActivatedAt) {
-                      lines.push(
-                        `Plan started ${formatDisplayDateTime(row.planActivatedAt)}`,
-                      );
-                    }
-                    if (row.rewardExpiresAt) {
-                      lines.push(
-                        `Reward expiry ${formatDisplayDateTime(row.rewardExpiresAt)}`,
-                      );
-                    }
-                  }
-                  return (
-                    <tr key={row.key} className="border-t border-gray-100">
-                      <td className="py-3 pr-3 font-medium text-gray-900">{row.name}</td>
-                      <td className="py-3 pr-3">
-                        <PlanBadge planCode={row.inviteePlanAtBenefit} />
-                      </td>
-                      <td className="py-3 pr-3">
-                        <PlanBadge planCode={row.referrerPlanAtBenefit} />
-                      </td>
-                      <td className="py-3 pr-3 text-gray-700">{row.reward}</td>
-                      <td className="py-3">
-                        <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                          {lines.length ? (
-                            lines.map((line) => <span key={line}>{line}</span>)
-                          ) : (
-                            <span>—</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {pageRows.map((row) => (
+                  <tr key={row.key} className="border-t border-gray-100">
+                    <td className="px-3 py-3 font-medium text-gray-900">{row.name}</td>
+                    <td className="px-3 py-3">
+                      <PlanBadge planCode={row.inviteePlanAtBenefit} />
+                    </td>
+                    <td className="px-3 py-3">
+                      <PlanBadge planCode={row.referrerPlanAtBenefit} />
+                    </td>
+                    <td className="px-3 py-3">
+                      <InviteRewardCell
+                        item={{
+                          eventStatus: row.eventStatus,
+                          coinsCredited: row.coinsCredited,
+                          monthsGranted: row.monthsGranted,
+                          rewardExpiresAt: row.rewardExpiresAt,
+                        }}
+                        primaryOverride={row.reward}
+                      />
+                    </td>
+                    <td className="px-3 py-3 text-xs">
+                      <InviteTimingCell
+                        item={{
+                          eventStatus: row.eventStatus,
+                          onboardedAt: row.onboardedAt,
+                          planActivatedAt: row.planActivatedAt,
+                          pendingExpiresAt: row.pendingExpiresAt,
+                          rewardExpiresAt: row.rewardExpiresAt,
+                        }}
+                      />
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
-          </div>
+          </AdminDataTable>
         )}
       </section>
 

@@ -16,7 +16,6 @@ import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 import {
   notificationsService,
   notificationApiError,
-  DEFAULT_POPUP_TIMER_DISPLAYS,
   flattenPopupAudiences,
   type BroadcastCity,
   type BroadcastKeyLabel,
@@ -119,9 +118,6 @@ export function PopupsPanel({
   const [listLoading, setListLoading] = useState(true);
   const [pages, setPages] = useState<BroadcastKeyLabel[]>([]);
   const [audiences, setAudiences] = useState<BroadcastKeyLabel[]>([]);
-  const [timerDisplays, setTimerDisplays] = useState<BroadcastKeyLabel[]>(
-    DEFAULT_POPUP_TIMER_DISPLAYS,
-  );
   const [states, setStates] = useState<NamedPlace[]>([]);
   const [allCities, setAllCities] = useState<NamedPlace[]>([]);
   const [placesLoading, setPlacesLoading] = useState(true);
@@ -164,7 +160,6 @@ export function PopupsPanel({
         if (cancelled) return;
         setPages(options.pageKeys);
         setAudiences(flattenPopupAudiences(options.audiences));
-        setTimerDisplays(options.timerDisplays?.length ? options.timerDisplays : DEFAULT_POPUP_TIMER_DISPLAYS);
       })
       .catch(() => {
         if (!cancelled) setPages([]);
@@ -472,70 +467,12 @@ export function PopupsPanel({
 
                 <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
                   <div>
-                    <p className="text-xs font-medium text-gray-700">Story appearance</p>
+                    <p className="text-xs font-medium text-gray-700">Popup appearance</p>
                     <p className="text-[11px] text-gray-500">
-                      Full-screen popup with timer progress bar — like Instagram/WhatsApp stories.
+                      White card with border — button shows when a post or page is linked.
                     </p>
                   </div>
-                  {/* Color pickers hidden from admin for now.
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <label className="space-y-1 text-xs text-gray-600">
-                      Background
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={draft.backgroundColor}
-                          disabled={readOnly}
-                          onChange={(e) => patch({ backgroundColor: e.target.value.toUpperCase() })}
-                          className="h-9 w-12 cursor-pointer rounded border border-gray-200 bg-white p-0.5"
-                        />
-                        <Input
-                          value={draft.backgroundColor}
-                          disabled={readOnly}
-                          onChange={(e) => patch({ backgroundColor: e.target.value })}
-                          className="h-9 font-mono text-xs"
-                        />
-                      </div>
-                    </label>
-                    <label className="space-y-1 text-xs text-gray-600">
-                      Text color
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={draft.textColor}
-                          disabled={readOnly}
-                          onChange={(e) => patch({ textColor: e.target.value.toUpperCase() })}
-                          className="h-9 w-12 cursor-pointer rounded border border-gray-200 bg-white p-0.5"
-                        />
-                        <Input
-                          value={draft.textColor}
-                          disabled={readOnly}
-                          onChange={(e) => patch({ textColor: e.target.value })}
-                          className="h-9 font-mono text-xs"
-                        />
-                      </div>
-                    </label>
-                    <label className="space-y-1 text-xs text-gray-600">
-                      Button color
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={draft.ctaColor}
-                          disabled={readOnly}
-                          onChange={(e) => patch({ ctaColor: e.target.value.toUpperCase() })}
-                          className="h-9 w-12 cursor-pointer rounded border border-gray-200 bg-white p-0.5"
-                        />
-                        <Input
-                          value={draft.ctaColor}
-                          disabled={readOnly}
-                          onChange={(e) => patch({ ctaColor: e.target.value })}
-                          className="h-9 font-mono text-xs"
-                        />
-                      </div>
-                    </label>
-                  </div>
-                  */}
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-3 sm:grid-cols-1">
                     <label className="space-y-1 text-xs text-gray-600">
                       Auto-close after (seconds)
                       <Input
@@ -550,37 +487,11 @@ export function PopupsPanel({
                               60,
                               Math.max(0, Number(e.target.value) || 0),
                             ),
+                            timerDisplay: 'none',
                           })
                         }
                       />
                       <span className="text-[10px] text-gray-400">0 = user closes manually</span>
-                    </label>
-                    <label className="space-y-1 text-xs text-gray-600">
-                      Timer indicator
-                      <Select
-                        value={draft.timerDisplay}
-                        disabled={readOnly || draft.displayDurationSec <= 0}
-                        onValueChange={(v) => {
-                          if (!v) return;
-                          patch({ timerDisplay: v as PopupDraft['timerDisplay'] });
-                        }}
-                      >
-                        <SelectTrigger className="h-9 bg-white">
-                          <SelectValue placeholder="Choose indicator" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {timerDisplays.map((item) => (
-                            <SelectItem key={item.key} value={item.key}>
-                              {item.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <span className="text-[10px] text-gray-400">
-                        {draft.displayDurationSec <= 0
-                          ? 'Set seconds above to enable timer UI'
-                          : 'Progress bar, countdown, or both'}
-                      </span>
                     </label>
                   </div>
                 </div>

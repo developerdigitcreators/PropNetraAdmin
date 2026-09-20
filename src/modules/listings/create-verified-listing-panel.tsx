@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PermissionGuard } from "@/components/common/permission-guard";
 import { Breadcrumb } from "@/components/common/breadcrumb";
@@ -26,9 +27,9 @@ import {
   type CreateFormProperty,
   type CreateFormSchema,
 } from "@/services/listings.service";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import { Loader2 } from "lucide-react";
 import { useAuthStore } from "@/store/use-auth-store";
-import type { StaffAssignee } from "@/services/listings.service";
 
 const SKIP_DETAIL_KEYS = new Set([
   "category",
@@ -116,9 +117,7 @@ export function CreateVerifiedListingPanel() {
   const [propertySearch, setPropertySearch] = useState("");
   const [leadContactName, setLeadContactName] = useState("");
   const [leadContactPhone, setLeadContactPhone] = useState("");
-  const [connectedStaffUserId, setConnectedStaffUserId] = useState("");
-  const [staffAssignees, setStaffAssignees] = useState<StaffAssignee[]>([]);
-  const [loadingStaff, setLoadingStaff] = useState(true);
+  const connectedStaffUserId = authUser?.id?.trim() || "";
 
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [loadingBuildingTypes, setLoadingBuildingTypes] = useState(false);
@@ -129,38 +128,55 @@ export function CreateVerifiedListingPanel() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [baseline, setBaseline] = useState("");
+
+  const formSnapshot = useMemo(
+    () =>
+      JSON.stringify({
+        categoryId,
+        buildingTypeId,
+        propertyTypeId,
+        cityId,
+        propertyNameId,
+        locationId,
+        microMarketId,
+        microMarketName,
+        price,
+        priceOnRequest,
+        details,
+        floorPricing,
+        propertySearch,
+        leadContactName,
+        leadContactPhone,
+      }),
+    [
+      categoryId,
+      buildingTypeId,
+      propertyTypeId,
+      cityId,
+      propertyNameId,
+      locationId,
+      microMarketId,
+      microMarketName,
+      price,
+      priceOnRequest,
+      details,
+      floorPricing,
+      propertySearch,
+      leadContactName,
+      leadContactPhone,
+    ],
+  );
 
   useEffect(() => {
-    let cancelled = false;
-    void listingsService
-      .getStaffAssignees()
-      .then((rows) => {
-        if (cancelled) return;
-        setStaffAssignees(rows);
-        if (authUser?.id && rows.some((r) => r.id === authUser.id)) {
-          setConnectedStaffUserId(authUser.id);
-        } else if (rows.length === 1) {
-          setConnectedStaffUserId(rows[0].id);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setStaffAssignees([]);
-          setError(
-            listingCreateApiError(
-              err,
-              "Failed to load admin panel users for assignment.",
-            ),
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingStaff(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [authUser?.id]);
+    // Capture empty baseline once categories finish loading.
+    if (loadingCategories || baseline) return;
+    setBaseline(formSnapshot);
+  }, [loadingCategories, formSnapshot, baseline]);
+
+  const dirty = Boolean(baseline) && formSnapshot !== baseline;
+
+  const { dialog } = useUnsavedChangesGuard({ dirty });
 
   useEffect(() => {
     let cancelled = false;
@@ -403,12 +419,11 @@ export function CreateVerifiedListingPanel() {
   const selectedBuildingType = buildingTypes.find(
     (b) => b.id === buildingTypeId,
   );
-  const selectedStaffUser = staffAssignees.find(
-    (s) => s.id === connectedStaffUserId,
-  );
   const selectedPropertyType = propertyTypes.find(
     (p) => p.id === propertyTypeId,
   );
+  const connectedStaffName = authUser?.name?.trim() || authUser?.email || "—";
+  const connectedStaffPhone = authUser?.contact?.trim() || "—";
   const selectedProperty = properties.find((p) => p.id === propertyNameId);
   const selectedLocation =
     prefill?.locations.find((l) => l.id === locationId) ||
@@ -558,7 +573,10 @@ export function CreateVerifiedListingPanel() {
           : undefined,
       });
 
-      setSuccess("Verified listing created. It will appear under My Listings.");
+      setSuccess(
+        "Verified listing created. It will appear under Property listing.",
+      );
+      setBaseline(formSnapshot);
       setTimeout(() => router.push("/my-listings"), 800);
     } catch (err) {
       setError(
@@ -879,41 +897,29 @@ export function CreateVerifiedListingPanel() {
                 Connect admin panel user <span className="text-red-500">*</span>
               </label>
               <p className="text-xs text-gray-500">
-                This user will see the listing in My Listings and their contact
-                will show on app reveal.
+                Auto-assigned to you. This listing appears under Property
+                listing and your contact shows on app reveal.
               </p>
-              {loadingStaff ? (
-                <div className="flex items-center gap-2 text-sm text-gray-500">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading staff
-                  users…
-                </div>
-              ) : staffAssignees.length === 0 ? (
+              {!connectedStaffUserId ? (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                  No admin panel users found. Add staff under RBAC → Staff Users
-                  with a contact number.
+                  Could not resolve the logged-in admin user. Sign out and sign
+                  in again, then retry.
                 </p>
               ) : (
-                <Select
-                  value={connectedStaffUserId}
-                  onValueChange={(v) => setConnectedStaffUserId(v ?? "")}
-                >
-                  <SelectTrigger>
-                    {selectedStaffUser ? (
-                      <span>
-                        {selectedStaffUser.name} ({selectedStaffUser.contact})
-                      </span>
-                    ) : (
-                      <SelectValue placeholder="Select admin panel user" />
-                    )}
-                  </SelectTrigger>
-                  <SelectContent>
-                    {staffAssignees.map((staff) => (
-                      <SelectItem key={staff.id} value={staff.id}>
-                        {staff.name} ({staff.contact})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <p className="text-xs uppercase tracking-wide text-gray-400">
+                      Name
+                    </p>
+                    <Input value={connectedStaffName} disabled readOnly />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs uppercase tracking-wide text-gray-400">
+                      Phone
+                    </p>
+                    <Input value={connectedStaffPhone} disabled readOnly />
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -1058,13 +1064,18 @@ export function CreateVerifiedListingPanel() {
           ) : null}
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button
-              variant="outline"
-              onClick={() => router.push("/moderation")}
-              disabled={submitting}
+            <Link
+              href="/moderation"
+              className={`inline-flex h-8 items-center justify-center rounded-lg border border-border bg-background px-2.5 text-sm font-medium hover:bg-muted ${
+                submitting ? "pointer-events-none opacity-50" : ""
+              }`}
+              aria-disabled={submitting}
+              onClick={(e) => {
+                if (submitting) e.preventDefault();
+              }}
             >
               Cancel
-            </Button>
+            </Link>
             <Button
               onClick={() => void handleSubmit()}
               disabled={!canSubmit}
@@ -1076,6 +1087,7 @@ export function CreateVerifiedListingPanel() {
           </div>
         </div>
       </div>
+      {dialog}
     </PermissionGuard>
   );
 }

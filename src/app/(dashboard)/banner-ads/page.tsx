@@ -1,13 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   bannerAdsService,
   formatBannerLinkLabel,
   normalizeAutoslideValue,
   isBannerActive,
-  BANNER_FILTER_STORAGE_KEY,
   DEFAULT_SECTIONS,
   DEFAULT_AUTOSLIDE,
   type AdBanner,
@@ -21,10 +20,14 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import { Breadcrumb } from '@/components/common/breadcrumb';
+import { AdminDataTable } from '@/components/common/admin-data-table';
+import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { AutoslideTimePicker } from '@/components/common/autoslide-time-picker';
 import { SortableTableBody } from '@/components/common/sortable-list';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 import { withCount } from '@/lib/filter-label';
+import { useClientPagedRows } from '@/hooks/use-client-paged-rows';
+import { useUrlFilters } from '@/hooks/use-url-filters';
 import {
   Loader2,
   Plus,
@@ -34,30 +37,9 @@ import {
   Video,
   ChevronDown,
   ChevronRight,
-  RefreshCw,
 } from 'lucide-react';
 
 type LocItem = { id: string; name: string; state_id?: string; state?: { id: string } };
-
-function readStoredFilters(): { stateId: string; cityId: string; placement: string } {
-  if (typeof window === 'undefined') return { stateId: '', cityId: '', placement: '' };
-  try {
-    const raw = sessionStorage.getItem(BANNER_FILTER_STORAGE_KEY);
-    if (!raw) return { stateId: '', cityId: '', placement: '' };
-    const parsed = JSON.parse(raw);
-    return {
-      stateId: parsed.stateId || '',
-      cityId: parsed.cityId || '',
-      placement: parsed.placement || '',
-    };
-  } catch {
-    return { stateId: '', cityId: '', placement: '' };
-  }
-}
-
-function writeStoredFilters(stateId: string, cityId: string, placement: string) {
-  sessionStorage.setItem(BANNER_FILTER_STORAGE_KEY, JSON.stringify({ stateId, cityId, placement }));
-}
 
 function sortBanners(rows: AdBanner[]) {
   return [...rows].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
@@ -94,6 +76,30 @@ function SectionBlock({
   onDelete,
   emptyHint,
 }: SectionBlockProps) {
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+    resetPage,
+  } = useClientPagedRows(banners);
+
+  useEffect(() => {
+    resetPage();
+  }, [banners, resetPage]);
+
+  const handleReorder = async (ordered: Array<AdBanner & { sortOrder: number }>) => {
+    const start = (page - 1) * limit;
+    const merged = [...banners];
+    merged.splice(start, ordered.length, ...ordered);
+    await onReorder(
+      merged.map((item, index) => ({ ...item, sortOrder: index + 1 })),
+    );
+  };
+
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
       <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 bg-gray-50/80">
@@ -116,39 +122,35 @@ function SectionBlock({
       </div>
 
       {open && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-white border-b border-gray-100">
-              <tr>
-                <th className="px-5 py-3 font-semibold text-gray-700">Preview</th>
-                <th className="px-5 py-3 font-semibold text-gray-700">Media type</th>
-                <th className="px-5 py-3 font-semibold text-gray-700">Page / Post link</th>
-                <th className="px-5 py-3 font-semibold text-gray-700">Sort order</th>
-                <th className="px-5 py-3 font-semibold text-gray-700">Status</th>
-                <th className="px-5 py-3 font-semibold text-gray-700 text-right">Actions</th>
-              </tr>
-            </thead>
-            {isLoading ? (
-              <tbody className="divide-y divide-gray-100">
+        <div className="p-4">
+          <AdminDataTable
+            page={page}
+            limit={limit}
+            total={total}
+            totalPages={totalPages}
+            onPageChange={onPageChange}
+            onPageSizeChange={onPageSizeChange}
+            loading={isLoading}
+            isEmpty={!banners.length}
+            emptyMessage={emptyHint}
+            syncKey={pageRows.length}
+            className="pb-0"
+          >
+            <table className="w-full text-sm text-left">
+              <thead className="bg-white border-b border-gray-100">
                 <tr>
-                  <td colSpan={6} className="px-6 py-10 text-center">
-                    <Loader2 className="w-6 h-6 text-primary animate-spin mx-auto" />
-                  </td>
+                  <th className="px-5 py-3 font-semibold text-gray-700">Preview</th>
+                  <th className="px-5 py-3 font-semibold text-gray-700">Media type</th>
+                  <th className="px-5 py-3 font-semibold text-gray-700">Page / Post link</th>
+                  <th className="px-5 py-3 font-semibold text-gray-700">Sort order</th>
+                  <th className="px-5 py-3 font-semibold text-gray-700">Status</th>
+                  <th className="px-5 py-3 font-semibold text-gray-700 text-right">Actions</th>
                 </tr>
-              </tbody>
-            ) : banners.length === 0 ? (
-              <tbody className="divide-y divide-gray-100">
-                <tr>
-                  <td colSpan={6} className="px-6 py-10 text-center text-gray-500">
-                    {emptyHint}
-                  </td>
-                </tr>
-              </tbody>
-            ) : (
+              </thead>
               <SortableTableBody
-                items={banners}
+                items={pageRows}
                 disabled={!canUpdate}
-                onReorder={onReorder}
+                onReorder={handleReorder}
                 renderRow={(banner, { dragHandle }) => (
                   <>
                     <td className="px-5 py-4 w-40">
@@ -213,8 +215,8 @@ function SectionBlock({
                   </>
                 )}
               />
-            )}
-          </table>
+            </table>
+          </AdminDataTable>
         </div>
       )}
     </div>
@@ -222,6 +224,20 @@ function SectionBlock({
 }
 
 export default function BannerAdsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <BannerAdsPageInner />
+    </Suspense>
+  );
+}
+
+function BannerAdsPageInner() {
   const router = useRouter();
   const { permissions } = useAuthStore();
   const canCreate = permissions.has('ads:create') || permissions.has('ALL:ALL');
@@ -232,10 +248,14 @@ export default function BannerAdsPage() {
   const [cities, setCities] = useState<LocItem[]>([]);
   const [placements, setPlacements] = useState<AdPlacementOption[]>([]);
   const [sectionsMeta, setSectionsMeta] = useState<AdSectionOption[]>(DEFAULT_SECTIONS);
-  const [stateId, setStateId] = useState('');
-  const [cityId, setCityId] = useState('');
-  const [placement, setPlacement] = useState('');
-  const [filtersReady, setFiltersReady] = useState(false);
+  const { filters, setFilters, resetFilters } = useUrlFilters({
+    stateId: '',
+    cityId: '',
+    placement: '',
+  });
+  const stateId = filters.stateId;
+  const cityId = filters.cityId;
+  const placement = filters.placement;
 
   const [sectionMap, setSectionMap] = useState<Record<string, AdBanner[]>>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -312,28 +332,35 @@ export default function BannerAdsPage() {
         setCities(nextCities);
         setPlacements(Array.isArray(p) && p.length ? p : []);
         setSectionsMeta(Array.isArray(sec) && sec.length ? sec : DEFAULT_SECTIONS);
-        const stored = readStoredFilters();
-        const stateExists = nextStates.some((st) => st.id === stored.stateId);
-        const nextStateId = stateExists ? stored.stateId : '';
-        const storedCity = nextCities.find((city) => city.id === stored.cityId);
+
+        // Drop invalid URL filter values after locations load.
+        const stateExists = nextStates.some((st) => st.id === stateId);
+        const cityMatch = nextCities.find((city) => city.id === cityId);
         const cityMatchesState = !!(
-          storedCity &&
-          nextStateId &&
-          (storedCity.state_id === nextStateId || storedCity.state?.id === nextStateId)
+          cityMatch &&
+          stateExists &&
+          (cityMatch.state_id === stateId || cityMatch.state?.id === stateId)
         );
-        if (nextStateId) setStateId(nextStateId);
-        if (cityMatchesState) setCityId(stored.cityId);
-        if (stored.placement && (p || []).some((opt: AdPlacementOption) => opt.key === stored.placement)) {
-          setPlacement(stored.placement);
+        const placementOk =
+          !!placement &&
+          (p || []).some((opt: AdPlacementOption) => opt.key === placement);
+        if (!stateExists || !cityMatchesState || !placementOk) {
+          setFilters({
+            stateId: stateExists ? stateId : '',
+            cityId: cityMatchesState ? cityId : '',
+            placement: placementOk ? placement : '',
+          });
         }
+
         const open: Record<string, boolean> = {};
         (sec?.length ? sec : DEFAULT_SECTIONS).forEach((item) => {
           open[item.key] = true;
         });
         setOpenSections(open);
       })
-      .catch(console.error)
-      .finally(() => setFiltersReady(true));
+      .catch(console.error);
+    // Hydrate locations once; URL filters already come from useUrlFilters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Refresh section meta when page (placement) changes — popup has General only
@@ -351,11 +378,6 @@ export default function BannerAdsPage() {
       })
       .catch(console.error);
   }, [placement]);
-
-  useEffect(() => {
-    if (!filtersReady) return;
-    writeStoredFilters(stateId, cityId, placement);
-  }, [stateId, cityId, placement, filtersReady]);
 
   const fetchBanners = useCallback(async () => {
     if (!stateId || !cityId || !placement) {
@@ -395,8 +417,7 @@ export default function BannerAdsPage() {
   }, [fetchBanners]);
 
   const onStateChange = (id: string) => {
-    setStateId(id);
-    setCityId('');
+    setFilters({ stateId: id, cityId: '', placement });
     setSectionMap({});
   };
 
@@ -494,16 +515,15 @@ export default function BannerAdsPage() {
             <h1 className="text-2xl font-bold tracking-tight text-gray-900">Banner Ads</h1>
             <p className="text-gray-500 mt-1">Manage banners by city, page, and section.</p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void fetchBanners()}
-            disabled={isLoading || !ready}
-          >
-            <RefreshCw className="mr-1.5 size-3.5" />
-            Refresh
-          </Button>
+          <AdminListToolbar
+            onRefresh={() => void fetchBanners()}
+            refreshBusy={isLoading}
+            refreshDisabled={!ready}
+            onReset={() => {
+              resetFilters();
+              setSectionMap({});
+            }}
+          />
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -524,7 +544,11 @@ export default function BannerAdsPage() {
             </SelectContent>
           </Select>
 
-          <Select value={cityId} onValueChange={(v) => setCityId(v ?? '')} disabled={!stateId}>
+          <Select
+            value={cityId}
+            onValueChange={(v) => setFilters({ cityId: v ?? '' })}
+            disabled={!stateId}
+          >
             <SelectTrigger className="w-48 bg-white">
               <span>
                 {cityName || (stateId ? 'Select City' : 'Select state first')}
@@ -537,7 +561,11 @@ export default function BannerAdsPage() {
             </SelectContent>
           </Select>
 
-          <Select value={placement} onValueChange={(v) => setPlacement(v ?? '')} disabled={!cityId}>
+          <Select
+            value={placement}
+            onValueChange={(v) => setFilters({ placement: v ?? '' })}
+            disabled={!cityId}
+          >
             <SelectTrigger className="w-56 bg-white">
               <span>
                 {pageLabel

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
-import { PaginationBar } from '@/components/common/pagination-bar';
+import { AdminDataTable } from '@/components/common/admin-data-table';
+import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,9 +21,15 @@ import {
   type AccountDeletionRequest,
   type AccountDeletionStatus,
 } from '@/services/account-deletions.service';
-import { Eye, Loader2, RefreshCw, Search, UserRound, UserX } from 'lucide-react';
+import { Eye, Loader2, Search, UserRound } from 'lucide-react';
 import { newFirstCellClass, NewTag } from '@/components/common/new-row-marker';
 import { formatDisplayDateTime } from '@/lib/format-date';
+import { useUrlFilters } from '@/hooks/use-url-filters';
+
+const DELETION_FILTER_DEFAULTS = {
+  q: '',
+  status: 'pending_otp',
+};
 
 function formatDateTime(value?: string | null) {
   return formatDisplayDateTime(value);
@@ -54,9 +61,12 @@ export function AccountDeletionsPanel() {
   const [items, setItems] = useState<AccountDeletionRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [searchDraft, setSearchDraft] = useState('');
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'' | AccountDeletionStatus>('pending_otp');
+  const { filters, setFilters, resetFilters } = useUrlFilters(DELETION_FILTER_DEFAULTS);
+  const search = filters.q;
+  const statusFilter = (
+    filters.status === 'all' ? '' : filters.status
+  ) as '' | AccountDeletionStatus;
+  const [searchDraft, setSearchDraft] = useState(search);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
@@ -160,16 +170,15 @@ export function AccountDeletionsPanel() {
               (soft-delete + inactive).
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void fetchList()}
-            disabled={loading}
-          >
-            <RefreshCw className="mr-1.5 size-3.5" />
-            Refresh
-          </Button>
+          <AdminListToolbar
+            onRefresh={() => void fetchList()}
+            refreshBusy={loading}
+            onReset={() => {
+              resetFilters();
+              setSearchDraft('');
+              setPage(1);
+            }}
+          />
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -182,7 +191,7 @@ export function AccountDeletionsPanel() {
                 if (e.key === 'Enter') {
                   setLoading(true);
                   setPage(1);
-                  setSearch(searchDraft.trim());
+                  setFilters({ q: searchDraft.trim() });
                 }
               }}
               placeholder="Search name, email, phone…"
@@ -194,7 +203,7 @@ export function AccountDeletionsPanel() {
             onClick={() => {
               setLoading(true);
               setPage(1);
-              setSearch(searchDraft.trim());
+              setFilters({ q: searchDraft.trim() });
             }}
           >
             Search
@@ -209,7 +218,7 @@ export function AccountDeletionsPanel() {
                   onClick={() => {
                     setLoading(true);
                     setPage(1);
-                    setStatusFilter(filter.id);
+                    setFilters({ status: filter.id || 'all' });
                   }}
                   className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
                     active
@@ -224,13 +233,27 @@ export function AccountDeletionsPanel() {
           </div>
         </div>
 
-        {error ? (
-          <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</div>
-        ) : null}
-
-        <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+        <AdminDataTable
+          page={page}
+          limit={pageSize}
+          total={total}
+          totalPages={totalPages}
+          onPageChange={(next) => {
+            setLoading(true);
+            setPage(next);
+          }}
+          onPageSizeChange={(size) => {
+            setLoading(true);
+            setPageSize(size);
+            setPage(1);
+          }}
+          loading={loading}
+          error={error || null}
+          isEmpty={!items.length}
+          emptyMessage="No account deletion requests found."
+          syncKey={items.length}
+        >
+          <table className="w-full text-left text-sm">
               <thead className="border-b border-gray-100 bg-gray-50/80">
                 <tr>
                   <th className="px-5 py-3 font-semibold text-gray-700">User</th>
@@ -242,25 +265,7 @@ export function AccountDeletionsPanel() {
                   <th className="px-5 py-3 text-right font-semibold text-gray-700">Actions</th>
                 </tr>
               </thead>
-              {loading ? (
-                <tbody>
-                  <tr>
-                    <td colSpan={7} className="px-6 py-16 text-center">
-                      <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />
-                    </td>
-                  </tr>
-                </tbody>
-              ) : items.length === 0 ? (
-                <tbody>
-                  <tr>
-                    <td colSpan={7} className="px-6 py-16 text-center text-gray-500">
-                      <UserX className="mx-auto mb-3 h-8 w-8 text-gray-300" />
-                      No account deletion requests found.
-                    </td>
-                  </tr>
-                </tbody>
-              ) : (
-                <tbody>
+              <tbody>
                   {items.map((row) => (
                     <tr key={row.id} className="border-b border-gray-50 last:border-0">
                       <td className={newFirstCellClass(row.isNew, 'px-5 py-4')}>
@@ -307,27 +312,9 @@ export function AccountDeletionsPanel() {
                       </td>
                     </tr>
                   ))}
-                </tbody>
-              )}
+              </tbody>
             </table>
-          </div>
-        </div>
-
-        <PaginationBar
-          currentPage={page}
-          totalItems={total}
-          pageSize={pageSize}
-          totalPages={totalPages}
-          onPageChange={(next) => {
-            setLoading(true);
-            setPage(next);
-          }}
-          onPageSizeChange={(size) => {
-            setLoading(true);
-            setPageSize(size);
-            setPage(1);
-          }}
-        />
+        </AdminDataTable>
       </div>
 
       <Dialog open={detailOpen} onOpenChange={(open) => !open && setDetailOpen(false)}>

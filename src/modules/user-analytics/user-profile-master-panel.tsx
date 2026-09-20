@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { formatDisplayDateTime } from '@/lib/format-date';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
+import { AdminDataTable } from '@/components/common/admin-data-table';
+import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { newFirstCellClass, NewTag } from '@/components/common/new-row-marker';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -26,19 +28,21 @@ import {
 import {
   USER_PROFILE_READ_PERMISSIONS,
 } from '@/modules/app-users/app-users-access';
+import { useUrlFilters } from '@/hooks/use-url-filters';
+import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
 import {
   adminUsersService,
   type AppUserFilterType,
 } from '@/services/admin-users.service';
 import { locationService } from '@/services/location.service';
 import { useAuthStore } from '@/store/use-auth-store';
+import { useClientPagedRows } from '@/hooks/use-client-paged-rows';
 import {
   CheckCircle2,
   Edit2,
   Eye,
   ExternalLink,
   Loader2,
-  RefreshCw,
   Search,
   XCircle,
 } from 'lucide-react';
@@ -70,10 +74,17 @@ const PLAN_OPTIONS = [
   { value: 'elite', label: 'Elite' },
 ] as const;
 
-const DOC_OPTIONS = [
+const KYC_OPTIONS = [
   { value: 'aadhaar', label: 'Aadhaar' },
   { value: 'rera', label: 'RERA' },
-  { value: 'both', label: 'Both' },
+  { value: 'both', label: 'Aadhaar + RERA' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'rejected', label: 'Rejected' },
+] as const;
+
+const REFERRAL_OPTIONS = [
+  { value: 'referral', label: 'Referral' },
+  { value: 'without_referral', label: 'Without referral' },
 ] as const;
 
 const STATUS_OPTIONS = [
@@ -196,10 +207,28 @@ function isWithoutReferralRow(user: any) {
 function valueOptionsFor(category: FilterCategory) {
   if (category === 'role') return ROLE_OPTIONS;
   if (category === 'plan') return PLAN_OPTIONS;
-  if (category === 'documents') return DOC_OPTIONS;
+  if (category === 'kyc_documents' || category === 'documents') return KYC_OPTIONS;
+  if (category === 'referral') return REFERRAL_OPTIONS;
   if (category === 'status') return STATUS_OPTIONS;
   return [] as ReadonlyArray<{ value: string; label: string }>;
 }
+
+function categoryLabel(category: FilterCategory) {
+  if (category === 'kyc_documents') return 'KYC documents';
+  if (category === 'referral') return 'Referral';
+  if (!category) return 'Any';
+  return category.charAt(0).toUpperCase() + category.slice(1);
+}
+
+const PROFILE_FILTER_DEFAULTS = {
+  q: '',
+  stateId: '',
+  cityId: '',
+  createdFrom: '',
+  createdTo: '',
+  filterType: '',
+  filterValue: '',
+};
 
 export function UserProfileMasterPanel() {
   const hasPermission = useAuthStore((s) => s.hasPermission);
@@ -209,14 +238,18 @@ export function UserProfileMasterPanel() {
   const [isLoading, setIsLoading] = useState(true);
   const [refreshBusy, setRefreshBusy] = useState(false);
 
-  const [q, setQ] = useState('');
-  const [appliedQ, setAppliedQ] = useState('');
-  const [stateId, setStateId] = useState('');
-  const [cityId, setCityId] = useState('');
-  const [createdFrom, setCreatedFrom] = useState('');
-  const [createdTo, setCreatedTo] = useState('');
-  const [filterType, setFilterType] = useState<FilterCategory>('');
-  const [filterValue, setFilterValue] = useState('');
+  const { filters, setFilters, resetFilters } = useUrlFilters(PROFILE_FILTER_DEFAULTS);
+  const {
+    q: appliedQ,
+    stateId,
+    cityId,
+    createdFrom,
+    createdTo,
+    filterType: filterTypeRaw,
+    filterValue,
+  } = filters;
+  const filterType = filterTypeRaw as FilterCategory;
+  const [qDraft, setQDraft] = useState(appliedQ);
 
   const [states, setStates] = useState<LocItem[]>([]);
   const [cities, setCities] = useState<LocItem[]>([]);
@@ -230,6 +263,10 @@ export function UserProfileMasterPanel() {
   const [rejectTarget, setRejectTarget] = useState<any>(null);
   const [rejectRemark, setRejectRemark] = useState('');
   const [rejectBusy, setRejectBusy] = useState(false);
+  const {
+    requestClose: requestRejectClose,
+    dialog: rejectUnsavedDialog,
+  } = useDialogUnsavedGuard(rejectRemark.trim().length > 0);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsRequired, setSettingsRequired] = useState(false);
@@ -413,11 +450,27 @@ export function UserProfileMasterPanel() {
     }
   };
 
-  const applySearch = () => setAppliedQ(q.trim());
+  const applySearch = () => setFilters({ q: qDraft.trim() });
 
   const onFilterTypeChange = (next: FilterCategory) => {
-    setFilterType(next);
-    setFilterValue('');
+    setFilters({ filterType: next, filterValue: '' });
+  };
+
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+    resetPage,
+  } = useClientPagedRows(users);
+
+  const handleReset = () => {
+    resetFilters();
+    setQDraft('');
+    resetPage();
   };
 
   return (
@@ -425,37 +478,33 @@ export function UserProfileMasterPanel() {
       permission={[...USER_PROFILE_READ_PERMISSIONS]}
       fallback={
         <div className="p-12 text-center text-gray-500">
-          You do not have permission to view User Profile.
+          You do not have permission to view User Profile master data.
         </div>
       }
     >
       <div className="space-y-6 pb-12">
-        <Breadcrumb items={[{ label: 'User Profile' }]} />
+        <Breadcrumb items={[{ label: 'User Profile master data' }]} />
 
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900">User Profile</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+              User Profile master data
+            </h1>
             <p className="mt-1 text-gray-500">
-              Master data for registered app users. Filter by location, plan, role, or documents.
+              Master data for registered app users. Filter by location, plan, role, KYC, or referral.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={triggerRefresh}
-              disabled={refreshBusy || isLoading}
-            >
-              <RefreshCw className={`mr-1.5 size-3.5 ${refreshBusy ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
+          <AdminListToolbar
+            onRefresh={triggerRefresh}
+            refreshBusy={refreshBusy || isLoading}
+            onReset={handleReset}
+          >
             {canUpdate ? (
               <Button type="button" variant="outline" size="sm" onClick={() => void openSettings()}>
                 Without referral user approval
               </Button>
             ) : null}
-          </div>
+          </AdminListToolbar>
         </div>
 
         <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
@@ -464,8 +513,8 @@ export function UserProfileMasterPanel() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <Input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
+                value={qDraft}
+                onChange={(e) => setQDraft(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') applySearch();
                 }}
@@ -480,8 +529,7 @@ export function UserProfileMasterPanel() {
             <Select
               value={stateId || null}
               onValueChange={(v) => {
-                setStateId(v ?? '');
-                setCityId('');
+                setFilters({ stateId: v ?? '', cityId: '' });
               }}
               disabled={locationsLoading}
             >
@@ -505,7 +553,7 @@ export function UserProfileMasterPanel() {
             <label className="mb-1 block text-xs font-medium text-gray-500">City</label>
             <Select
               value={cityId || null}
-              onValueChange={(v) => setCityId(v ?? '')}
+              onValueChange={(v) => setFilters({ cityId: v ?? '' })}
               disabled={!stateId || locationsLoading}
             >
               <SelectTrigger className="w-full bg-white">
@@ -529,7 +577,7 @@ export function UserProfileMasterPanel() {
             <Input
               type="date"
               value={createdFrom}
-              onChange={(e) => setCreatedFrom(e.target.value)}
+              onChange={(e) => setFilters({ createdFrom: e.target.value })}
               className="bg-white"
             />
           </div>
@@ -539,7 +587,7 @@ export function UserProfileMasterPanel() {
               type="date"
               value={createdTo}
               min={createdFrom || undefined}
-              onChange={(e) => setCreatedTo(e.target.value)}
+              onChange={(e) => setFilters({ createdTo: e.target.value })}
               className="bg-white"
             />
           </div>
@@ -552,16 +600,15 @@ export function UserProfileMasterPanel() {
             >
               <SelectTrigger className="w-full bg-white">
                 <span className={!filterType ? 'text-muted-foreground' : ''}>
-                  {filterType
-                    ? filterType.charAt(0).toUpperCase() + filterType.slice(1)
-                    : 'Any'}
+                  {categoryLabel(filterType)}
                 </span>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="">Any</SelectItem>
                 <SelectItem value="plan">Plan</SelectItem>
                 <SelectItem value="role">Role</SelectItem>
-                <SelectItem value="documents">Documents</SelectItem>
+                <SelectItem value="kyc_documents">KYC documents</SelectItem>
+                <SelectItem value="referral">Referral</SelectItem>
                 <SelectItem value="status">Status</SelectItem>
               </SelectContent>
             </Select>
@@ -571,7 +618,7 @@ export function UserProfileMasterPanel() {
             <label className="mb-1 block text-xs font-medium text-gray-500">Value</label>
             <Select
               value={filterValue || null}
-              onValueChange={(v) => setFilterValue(v ?? '')}
+              onValueChange={(v) => setFilters({ filterValue: v ?? '' })}
               disabled={!filterType}
             >
               <SelectTrigger className="w-full bg-white">
@@ -594,38 +641,35 @@ export function UserProfileMasterPanel() {
           </Button>
         </div>
 
-        <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-gray-200 bg-gray-50">
-                <tr>
-                  <th className="px-5 py-4 font-semibold text-gray-700">Name / Email / Contact</th>
-                  <th className="px-5 py-4 font-semibold text-gray-700">Role</th>
-                  <th className="px-5 py-4 font-semibold text-gray-700">Active</th>
-                  <th className="px-5 py-4 font-semibold text-gray-700">Subscription</th>
-                  <th className="px-5 py-4 font-semibold text-gray-700">Documents</th>
-                  <th className="px-5 py-4 font-semibold text-gray-700">Last Login</th>
-                  <th className="px-5 py-4 font-semibold text-gray-700">Created</th>
-                  <th className="w-[160px] px-3 py-4 text-right font-semibold text-gray-700">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={8} className="px-6 py-12 text-center">
-                      <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />
-                    </td>
-                  </tr>
-                ) : users.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
-                      No users found.
-                    </td>
-                  </tr>
-                ) : (
-                  users.map((user) => {
+        <AdminDataTable
+          page={page}
+          limit={limit}
+          total={total}
+          totalPages={totalPages}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
+          loading={isLoading}
+          isEmpty={!users.length}
+          emptyMessage="No users found."
+          syncKey={users.length}
+        >
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-gray-200 bg-gray-50">
+              <tr>
+                <th className="px-5 py-4 font-semibold text-gray-700">Name / Email / Contact</th>
+                <th className="px-5 py-4 font-semibold text-gray-700">Role</th>
+                <th className="px-5 py-4 font-semibold text-gray-700">Active</th>
+                <th className="px-5 py-4 font-semibold text-gray-700">Subscription</th>
+                <th className="px-5 py-4 font-semibold text-gray-700">Documents</th>
+                <th className="px-5 py-4 font-semibold text-gray-700">Last Login</th>
+                <th className="px-5 py-4 font-semibold text-gray-700">Created</th>
+                <th className="w-[160px] px-3 py-4 text-right font-semibold text-gray-700">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {pageRows.map((user) => {
                     const status = String(user.status || '').toLowerCase();
                     const withoutReferral = isWithoutReferralRow(user);
                     const canToggle =
@@ -719,7 +763,7 @@ export function UserProfileMasterPanel() {
                         <td className="whitespace-nowrap px-5 py-4 text-xs text-gray-600">
                           {formatDateTime(user.createdAt)}
                         </td>
-                        <td className="w-[160px] px-3 py-4 text-right">
+                        <td className="w-[140px] px-3 py-4 text-right">
                           <div className="inline-flex items-center justify-end gap-0.5">
                             <Button
                               type="button"
@@ -735,7 +779,7 @@ export function UserProfileMasterPanel() {
                               <Eye className="h-4 w-4" />
                             </Button>
                             {showApproveReject && canUpdate ? (
-                              <>
+                              <div className="flex flex-col items-stretch gap-0.5">
                                 <Button
                                   type="button"
                                   variant="ghost"
@@ -766,7 +810,7 @@ export function UserProfileMasterPanel() {
                                   <XCircle className="mr-1 h-4 w-4" />
                                   <span className="text-xs">Reject</span>
                                 </Button>
-                              </>
+                              </div>
                             ) : (
                               <>
                                 {canUpdate ? (
@@ -786,6 +830,8 @@ export function UserProfileMasterPanel() {
                                 ) : null}
                                 <Link
                                   href={`/user-analytics?userId=${encodeURIComponent(user.id)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
                                   className="inline-flex h-8 w-8 items-center justify-center rounded-md text-primary hover:bg-primary/10"
                                   title="View Full Profile"
                                 >
@@ -797,12 +843,10 @@ export function UserProfileMasterPanel() {
                         </td>
                       </tr>
                     );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                  })}
+            </tbody>
+          </table>
+        </AdminDataTable>
       </div>
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
@@ -858,7 +902,22 @@ export function UserProfileMasterPanel() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+      <Dialog
+        open={rejectOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            setRejectOpen(true);
+            return;
+          }
+          void requestRejectClose().then((ok) => {
+            if (ok) {
+              setRejectOpen(false);
+              setRejectTarget(null);
+              setRejectRemark('');
+            }
+          });
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Reject user</DialogTitle>
@@ -875,7 +934,19 @@ export function UserProfileMasterPanel() {
               className="min-h-[96px] w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setRejectOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  void requestRejectClose().then((ok) => {
+                    if (ok) {
+                      setRejectOpen(false);
+                      setRejectTarget(null);
+                      setRejectRemark('');
+                    }
+                  });
+                }}
+              >
                 Cancel
               </Button>
               <Button
@@ -891,6 +962,7 @@ export function UserProfileMasterPanel() {
           </div>
         </DialogContent>
       </Dialog>
+      {rejectUnsavedDialog}
 
       <RegisteredUserViewModal
         open={viewOpen}

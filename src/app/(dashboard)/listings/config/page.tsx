@@ -3,6 +3,7 @@
 import { HierarchySelector } from '@/modules/listings/hierarchy-selector';
 import { ConfigMatrix } from '@/modules/listings/config-matrix';
 import { useMatrixStore } from '@/store/use-matrix-store';
+import { useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 import { Button } from '@/components/ui/button';
 import { Save, X, Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -10,6 +11,10 @@ import { AnimatePresence, motion } from 'framer-motion';
 export default function ListingConfigPage() {
   const { unsavedChanges, saveConfigs, resetChanges, isSaving } = useMatrixStore();
   const hasUnsavedChanges = Object.keys(unsavedChanges).length > 0;
+  const { dialog } = useUnsavedChangesGuard({
+    dirty: hasUnsavedChanges,
+    onSave: () => saveConfigs(),
+  });
 
   return (
     <div className="space-y-6 pb-24 relative">
@@ -64,6 +69,7 @@ export default function ListingConfigPage() {
           </motion.div>
         )}
       </AnimatePresence>
+      {dialog}
     </div>
   );
 }

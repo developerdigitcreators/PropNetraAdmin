@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
+import { AdminDataTable } from '@/components/common/admin-data-table';
+import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
@@ -18,12 +20,9 @@ import {
   type NetraReel,
 } from '@/services/netra-reels.service';
 import {
-  Clapperboard,
   Edit2,
-  Loader2,
   Play,
   Plus,
-  RefreshCw,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -144,17 +143,10 @@ export default function NetraReelsPage() {
               Admin-only uploaded videos. Staff see this module only when NetraReels permission is granted.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void fetchReels()}
-              disabled={loading}
-            >
-              <RefreshCw className="mr-1.5 size-3.5" />
-              Refresh
-            </Button>
+          <AdminListToolbar
+            onRefresh={() => void fetchReels()}
+            refreshDisabled={loading}
+          >
             <Button
               variant="outline"
               onClick={() => openPlayer()}
@@ -163,143 +155,134 @@ export default function NetraReelsPage() {
               <Play className="w-4 h-4 mr-1.5" />
               Watch reels
             </Button>
-            {canCreate && (
+            {canCreate ? (
               <Button onClick={openCreate} className="bg-primary text-white hover:bg-primary/90">
                 <Plus className="w-4 h-4 mr-1.5" />
                 Add reel
               </Button>
-            )}
-          </div>
+            ) : null}
+          </AdminListToolbar>
         </div>
 
-        {error && (
+        {error ? (
           <div className="p-3 text-sm text-red-600 bg-red-50 rounded-lg">{error}</div>
-        )}
+        ) : null}
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-gray-50/80 border-b border-gray-100">
-                <tr>
-                  <th className="px-5 py-3 font-semibold text-gray-700">Preview</th>
-                  <th className="px-5 py-3 font-semibold text-gray-700">Title / caption</th>
-                  <th className="px-5 py-3 font-semibold text-gray-700">Source</th>
-                  <th className="px-5 py-3 font-semibold text-gray-700">Sort</th>
-                  <th className="px-5 py-3 font-semibold text-gray-700">Status</th>
-                  <th className="px-5 py-3 font-semibold text-gray-700 text-right">Actions</th>
-                </tr>
-              </thead>
-              {loading ? (
-                <tbody>
-                  <tr>
-                    <td colSpan={6} className="px-6 py-16 text-center">
-                      <Loader2 className="w-6 h-6 text-primary animate-spin mx-auto" />
-                    </td>
-                  </tr>
-                </tbody>
-              ) : reels.length === 0 ? (
-                <tbody>
-                  <tr>
-                    <td colSpan={6} className="px-6 py-16 text-center text-gray-500">
-                      <Clapperboard className="w-8 h-8 mx-auto mb-3 text-gray-300" />
-                      No reels yet. Upload a video to get started.
-                    </td>
-                  </tr>
-                </tbody>
-              ) : (
-                <SortableTableBody
-                  items={reels}
-                  disabled={!canUpdate}
-                  onReorder={handleReorder}
-                  renderRow={(reel, { dragHandle }) => (
-                    <>
-                      <td className="px-5 py-4 w-28">
-                        <button
-                          type="button"
-                          onClick={() => openPlayer(reel)}
-                          className="relative w-16 h-24 rounded-lg overflow-hidden bg-black border border-gray-200 group"
-                          title="Watch"
-                        >
-                          {reel.thumbnailUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={reel.thumbnailUrl} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-white/70">
-                              {reel.platform === 'instagram' ? (
-                                <InstagramIcon className="w-5 h-5" />
-                              ) : reel.platform === 'upload' ? (
-                                <Upload className="w-5 h-5" />
-                              ) : null}
-                            </div>
-                          )}
-                          <span className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Play className="w-5 h-5 text-white fill-white" />
-                          </span>
-                        </button>
-                      </td>
-                      <td className="px-5 py-4 max-w-[320px]">
-                        <p className="font-medium text-gray-900 truncate">{reel.title || 'Untitled reel'}</p>
-                        <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{reel.caption || reel.sourceUrl}</p>
-                      </td>
-                      <td className="px-5 py-4">
-                        <Badge variant="outline" className="bg-white text-gray-700 border-gray-200">
-                          <span className="inline-flex items-center gap-1">
-                            {reel.platform === 'instagram' ? (
-                              <InstagramIcon className="w-3 h-3" />
-                            ) : reel.platform === 'upload' ? (
-                              <Upload className="w-3 h-3" />
-                            ) : null}
-                            {platformLabel(reel.platform)}
-                          </span>
-                        </Badge>
-                      </td>
-                      <td className="px-5 py-4">{dragHandle}</td>
-                      <td className="px-5 py-4">
-                        {canUpdate ? (
-                          <div className="flex items-center gap-2">
-                            <Switch
-                              checked={reel.isActive}
-                              disabled={statusBusyId === reel.id}
-                              onCheckedChange={(checked) => handleToggleActive(reel, Boolean(checked))}
-                            />
-                            <span className="text-xs text-gray-500">{reel.isActive ? 'Active' : 'Hidden'}</span>
-                          </div>
-                        ) : reel.isActive ? (
-                          <Badge className="bg-green-100 text-green-700">Active</Badge>
-                        ) : (
-                          <Badge variant="secondary" className="bg-gray-100 text-gray-700">Hidden</Badge>
-                        )}
-                      </td>
-                      <td className="px-5 py-4 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => openPlayer(reel)} title="Watch">
-                            <Play className="w-4 h-4 text-gray-500" />
-                          </Button>
-                          {canUpdate && (
-                            <Button variant="ghost" size="sm" onClick={() => openEdit(reel)} title="Edit">
-                              <Edit2 className="w-4 h-4 text-gray-500" />
-                            </Button>
-                          )}
-                          {canDelete && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setToDelete(reel)}
-                              className="text-red-500 hover:text-red-600 hover:bg-red-50"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          )}
+        <AdminDataTable
+          page={1}
+          limit={Math.max(reels.length, 1)}
+          total={reels.length}
+          totalPages={1}
+          onPageChange={() => {}}
+          onPageSizeChange={() => {}}
+          loading={loading}
+          isEmpty={!reels.length}
+          emptyMessage="No reels yet. Upload a video to get started."
+          syncKey={reels.length}
+          hidePaginationWhenEmpty
+        >
+          <table className="w-full text-sm text-left">
+            <thead className="bg-gray-50/80 border-b border-gray-100">
+              <tr>
+                <th className="px-5 py-3 font-semibold text-gray-700">Preview</th>
+                <th className="px-5 py-3 font-semibold text-gray-700">Title / caption</th>
+                <th className="px-5 py-3 font-semibold text-gray-700">Source</th>
+                <th className="px-5 py-3 font-semibold text-gray-700">Sort</th>
+                <th className="px-5 py-3 font-semibold text-gray-700">Status</th>
+                <th className="px-5 py-3 font-semibold text-gray-700 text-right">Actions</th>
+              </tr>
+            </thead>
+            <SortableTableBody
+              items={reels}
+              disabled={!canUpdate}
+              onReorder={handleReorder}
+              renderRow={(reel, { dragHandle }) => (
+                <>
+                  <td className="px-5 py-4 w-28">
+                    <button
+                      type="button"
+                      onClick={() => openPlayer(reel)}
+                      className="relative w-16 h-24 rounded-lg overflow-hidden bg-black border border-gray-200 group"
+                      title="Watch"
+                    >
+                      {reel.thumbnailUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={reel.thumbnailUrl} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-white/70">
+                          {reel.platform === 'instagram' ? (
+                            <InstagramIcon className="w-5 h-5" />
+                          ) : reel.platform === 'upload' ? (
+                            <Upload className="w-5 h-5" />
+                          ) : null}
                         </div>
-                      </td>
-                    </>
-                  )}
-                />
+                      )}
+                      <span className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Play className="w-5 h-5 text-white fill-white" />
+                      </span>
+                    </button>
+                  </td>
+                  <td className="px-5 py-4 max-w-[320px]">
+                    <p className="font-medium text-gray-900 truncate">{reel.title || 'Untitled reel'}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{reel.caption || reel.sourceUrl}</p>
+                  </td>
+                  <td className="px-5 py-4">
+                    <Badge variant="outline" className="bg-white text-gray-700 border-gray-200">
+                      <span className="inline-flex items-center gap-1">
+                        {reel.platform === 'instagram' ? (
+                          <InstagramIcon className="w-3 h-3" />
+                        ) : reel.platform === 'upload' ? (
+                          <Upload className="w-3 h-3" />
+                        ) : null}
+                        {platformLabel(reel.platform)}
+                      </span>
+                    </Badge>
+                  </td>
+                  <td className="px-5 py-4">{dragHandle}</td>
+                  <td className="px-5 py-4">
+                    {canUpdate ? (
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={reel.isActive}
+                          disabled={statusBusyId === reel.id}
+                          onCheckedChange={(checked) => handleToggleActive(reel, Boolean(checked))}
+                        />
+                        <span className="text-xs text-gray-500">{reel.isActive ? 'Active' : 'Hidden'}</span>
+                      </div>
+                    ) : reel.isActive ? (
+                      <Badge className="bg-green-100 text-green-700">Active</Badge>
+                    ) : (
+                      <Badge variant="secondary" className="bg-gray-100 text-gray-700">Hidden</Badge>
+                    )}
+                  </td>
+                  <td className="px-5 py-4 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => openPlayer(reel)} title="Watch">
+                        <Play className="w-4 h-4 text-gray-500" />
+                      </Button>
+                      {canUpdate && (
+                        <Button variant="ghost" size="sm" onClick={() => openEdit(reel)} title="Edit">
+                          <Edit2 className="w-4 h-4 text-gray-500" />
+                        </Button>
+                      )}
+                      {canDelete && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setToDelete(reel)}
+                          className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </td>
+                </>
               )}
-            </table>
-          </div>
-        </div>
+            />
+          </table>
+        </AdminDataTable>
       </div>
 
       <ReelFormDialog

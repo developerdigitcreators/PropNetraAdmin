@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Suspense, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { locationService, type LocationImportResult } from '@/services/location.service';
 import { Button } from '@/components/ui/button';
@@ -11,10 +11,28 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Plus, Edit2, Trash2, Search, MapPin, Upload, Download, FileSpreadsheet, X } from 'lucide-react';
 import { Breadcrumb } from '@/components/common/breadcrumb';
+import { AdminDataTable } from '@/components/common/admin-data-table';
+import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { withCount } from '@/lib/filter-label';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
+import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
+import { useClientPagedRows } from '@/hooks/use-client-paged-rows';
+import { useUrlFilters } from '@/hooks/use-url-filters';
 
 type Level = 'states' | 'cities' | 'micro_markets' | 'locations';
+
+function useLocationModalGuard(open: boolean, formSnapshot: string, baseline: string) {
+  const dirty = open && baseline !== '' && formSnapshot !== baseline;
+  const { requestClose, dialog } = useDialogUnsavedGuard(dirty);
+  const handleOpenChange = async (next: boolean) => {
+    if (!next) {
+      const ok = await requestClose();
+      return ok;
+    }
+    return true;
+  };
+  return { handleOpenChange, dialog };
+}
 
 type NavSelection = {
   stateId: string;
@@ -75,12 +93,14 @@ function StatesView({
   const { permissions } = useAuthStore();
   const [states, setStates] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const { filters, setFilters, resetFilters } = useUrlFilters({ q: '' });
+  const search = filters.q;
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState({ name: '', is_active: true });
+  const [formBaseline, setFormBaseline] = useState('');
 
   const fetch = useCallback(async () => {
     setIsLoading(true);
@@ -96,8 +116,22 @@ function StatesView({
 
   const open = (item: any = null) => {
     setEditing(item);
-    setForm(item ? { name: item.name, is_active: item.is_active ?? true } : { name: '', is_active: true });
+    const next = item ? { name: item.name, is_active: item.is_active ?? true } : { name: '', is_active: true };
+    setForm(next);
+    setFormBaseline(JSON.stringify(next));
     setIsModalOpen(true);
+  };
+
+  const formSnapshot = JSON.stringify(form);
+  const { handleOpenChange, dialog: unsavedDialog } = useLocationModalGuard(
+    isModalOpen,
+    formSnapshot,
+    formBaseline,
+  );
+
+  const closeModal = async () => {
+    const ok = await handleOpenChange(false);
+    if (ok) setIsModalOpen(false);
   };
 
   const save = async () => {
@@ -119,22 +153,56 @@ function StatesView({
 
   const canWrite = permissions.has('locations:create') || permissions.has('locations:update');
   const filtered = states.filter(s => s.name.toLowerCase().includes(search.toLowerCase()));
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+    resetPage,
+  } = useClientPagedRows(filtered);
+
+  useEffect(() => {
+    resetPage();
+  }, [search, resetPage]);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search states..." className="pl-9" />
+          <Input value={search} onChange={e => setFilters({ q: e.target.value })} placeholder="Search states..." className="pl-9" />
         </div>
-        {canWrite && (
-          <Button onClick={() => open()} className="bg-primary text-white hover:bg-primary/90">
-            <Plus className="w-4 h-4 mr-2" /> Add State
-          </Button>
-        )}
+        <AdminListToolbar
+          onRefresh={() => void fetch()}
+          refreshBusy={isLoading}
+          onReset={() => {
+            resetFilters();
+            resetPage();
+          }}
+        >
+          {canWrite ? (
+            <Button type="button" size="sm" onClick={() => open()} className="bg-primary text-white hover:bg-primary/90">
+              <Plus className="mr-1.5 size-3.5" /> Add State
+            </Button>
+          ) : null}
+        </AdminListToolbar>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <AdminDataTable
+        page={page}
+        limit={limit}
+        total={total}
+        totalPages={totalPages}
+        onPageChange={onPageChange}
+        onPageSizeChange={onPageSizeChange}
+        loading={isLoading}
+        isEmpty={!filtered.length}
+        emptyMessage="No states found."
+        syncKey={pageRows.length}
+      >
         <table className="w-full text-sm text-left">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
@@ -144,39 +212,39 @@ function StatesView({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {isLoading ? (
-              <tr><td colSpan={3} className="px-6 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></td></tr>
-            ) : filtered.length === 0 ? (
-              <tr><td colSpan={3} className="px-6 py-12 text-center text-gray-500">No states found.</td></tr>
-            ) : (
-              filtered.map(item => (
-                <tr key={item.id} className="hover:bg-gray-50/50">
-                  <td className="px-6 py-4 font-medium text-gray-900">
-                    <button
-                      type="button"
-                      onClick={() => onDrill({ id: item.id, name: item.name })}
-                      className="inline-flex items-center gap-2 hover:text-primary transition-colors text-left"
-                    >
-                      <MapPin className="w-4 h-4 text-primary/60" /> {item.name}
-                    </button>
-                  </td>
-                  <td className="px-6 py-4">
-                    {item.is_active ? <Badge className="bg-green-100 text-green-700">Active</Badge> : <Badge variant="outline" className="text-gray-500">Inactive</Badge>}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      {canWrite && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); open(item); }}><Edit2 className="w-4 h-4 text-gray-500" /></Button>}
-                      {permissions.has('locations:delete') && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setEditing(item); setIsDeleteOpen(true); }}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
+            {pageRows.map(item => (
+              <tr key={item.id} className="hover:bg-gray-50/50">
+                <td className="px-6 py-4 font-medium text-gray-900">
+                  <button
+                    type="button"
+                    onClick={() => onDrill({ id: item.id, name: item.name })}
+                    className="inline-flex items-center gap-2 hover:text-primary transition-colors text-left"
+                  >
+                    <MapPin className="w-4 h-4 text-primary/60" /> {item.name}
+                  </button>
+                </td>
+                <td className="px-6 py-4">
+                  {item.is_active ? <Badge className="bg-green-100 text-green-700">Active</Badge> : <Badge variant="outline" className="text-gray-500">Inactive</Badge>}
+                </td>
+                <td className="px-6 py-4 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    {canWrite && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); open(item); }}><Edit2 className="w-4 h-4 text-gray-500" /></Button>}
+                    {permissions.has('locations:delete') && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setEditing(item); setIsDeleteOpen(true); }}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
+                  </div>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
-      </div>
+      </AdminDataTable>
 
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+      <Dialog
+        open={isModalOpen}
+        onOpenChange={(next) => {
+          if (next) setIsModalOpen(true);
+          else void closeModal();
+        }}
+      >
         <DialogContent>
           <DialogHeader><DialogTitle>{editing ? 'Edit' : 'Add'} State</DialogTitle><DialogDescription>Configure state details.</DialogDescription></DialogHeader>
           <div className="space-y-4 py-4">
@@ -184,13 +252,14 @@ function StatesView({
             <div className="flex items-center justify-between pt-2"><label className="text-sm font-medium">Active</label><Switch checked={form.is_active} onCheckedChange={v => setForm({...form, is_active: v})} /></div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => void closeModal()}>Cancel</Button>
             <Button onClick={save} disabled={isSubmitting || !form.name}>{isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <DeleteModal isOpen={isDeleteOpen} onClose={() => setIsDeleteOpen(false)} onConfirm={del} name={editing?.name} isSubmitting={isSubmitting} />
+      {unsavedDialog}
     </div>
   );
 }
@@ -212,12 +281,14 @@ function CitiesView({
   const { permissions } = useAuthStore();
   const [cities, setCities] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const { filters, setFilters, resetFilters } = useUrlFilters({ q: '' });
+  const search = filters.q;
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState({ name: '', state_id: stateId, is_active: true });
+  const [formBaseline, setFormBaseline] = useState('');
 
   const fetch = useCallback(async () => {
     setIsLoading(true);
@@ -228,14 +299,31 @@ function CitiesView({
   }, []);
 
   useEffect(() => { fetch(); }, [fetch, refreshKey]);
-  useEffect(() => { setSearch(''); }, [stateId]);
+  useEffect(() => {
+    setFilters({ q: '' });
+    // Only clear when the selected state changes (not when setFilters identity changes).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateId]);
 
   const open = (item: any = null) => {
     setEditing(item);
-    setForm(item
+    const next = item
       ? { name: item.name, state_id: item.state_id || item.state?.id || stateId, is_active: item.is_active ?? true }
-      : { name: '', state_id: stateId, is_active: true });
+      : { name: '', state_id: stateId, is_active: true };
+    setForm(next);
+    setFormBaseline(JSON.stringify(next));
     setIsModalOpen(true);
+  };
+
+  const formSnapshot = JSON.stringify(form);
+  const { handleOpenChange, dialog: unsavedDialog } = useLocationModalGuard(
+    isModalOpen,
+    formSnapshot,
+    formBaseline,
+  );
+  const closeModal = async () => {
+    const ok = await handleOpenChange(false);
+    if (ok) setIsModalOpen(false);
   };
 
   const save = async () => {
@@ -261,22 +349,56 @@ function CitiesView({
     const matchSearch = c.name.toLowerCase().includes(search.toLowerCase());
     return matchState && matchSearch;
   });
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+    resetPage,
+  } = useClientPagedRows(filtered);
+
+  useEffect(() => {
+    resetPage();
+  }, [search, stateId, resetPage]);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search cities..." className="pl-9" />
+          <Input value={search} onChange={e => setFilters({ q: e.target.value })} placeholder="Search cities..." className="pl-9" />
         </div>
-        {canWrite && (
-          <Button onClick={() => open()} className="bg-primary text-white hover:bg-primary/90">
-            <Plus className="w-4 h-4 mr-2" /> Add City
-          </Button>
-        )}
+        <AdminListToolbar
+          onRefresh={() => void fetch()}
+          refreshBusy={isLoading}
+          onReset={() => {
+            resetFilters();
+            resetPage();
+          }}
+        >
+          {canWrite ? (
+            <Button type="button" size="sm" onClick={() => open()} className="bg-primary text-white hover:bg-primary/90">
+              <Plus className="mr-1.5 size-3.5" /> Add City
+            </Button>
+          ) : null}
+        </AdminListToolbar>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <AdminDataTable
+        page={page}
+        limit={limit}
+        total={total}
+        totalPages={totalPages}
+        onPageChange={onPageChange}
+        onPageSizeChange={onPageSizeChange}
+        loading={isLoading}
+        isEmpty={!filtered.length}
+        emptyMessage="No cities found."
+        syncKey={pageRows.length}
+      >
         <table className="w-full text-sm text-left">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
@@ -287,40 +409,40 @@ function CitiesView({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {isLoading ? (
-              <tr><td colSpan={4} className="px-6 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></td></tr>
-            ) : filtered.length === 0 ? (
-              <tr><td colSpan={4} className="px-6 py-12 text-center text-gray-500">No cities found.</td></tr>
-            ) : (
-              filtered.map(item => (
-                <tr key={item.id} className="hover:bg-gray-50/50">
-                  <td className="px-6 py-4 font-medium text-gray-900">
-                    <button
-                      type="button"
-                      onClick={() => onDrill({ id: item.id, name: item.name })}
-                      className="inline-flex items-center gap-2 hover:text-primary transition-colors text-left"
-                    >
-                      <MapPin className="w-4 h-4 text-primary/60" /> {item.name}
-                    </button>
-                  </td>
-                  <td className="px-6 py-4 text-gray-500">{item.state?.name || stateName || 'â€”'}</td>
-                  <td className="px-6 py-4">
-                    {item.is_active ? <Badge className="bg-green-100 text-green-700">Active</Badge> : <Badge variant="outline" className="text-gray-500">Inactive</Badge>}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      {canWrite && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); open(item); }}><Edit2 className="w-4 h-4 text-gray-500" /></Button>}
-                      {permissions.has('locations:delete') && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setEditing(item); setIsDeleteOpen(true); }}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
+            {pageRows.map(item => (
+              <tr key={item.id} className="hover:bg-gray-50/50">
+                <td className="px-6 py-4 font-medium text-gray-900">
+                  <button
+                    type="button"
+                    onClick={() => onDrill({ id: item.id, name: item.name })}
+                    className="inline-flex items-center gap-2 hover:text-primary transition-colors text-left"
+                  >
+                    <MapPin className="w-4 h-4 text-primary/60" /> {item.name}
+                  </button>
+                </td>
+                <td className="px-6 py-4 text-gray-500">{item.state?.name || stateName || '—'}</td>
+                <td className="px-6 py-4">
+                  {item.is_active ? <Badge className="bg-green-100 text-green-700">Active</Badge> : <Badge variant="outline" className="text-gray-500">Inactive</Badge>}
+                </td>
+                <td className="px-6 py-4 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    {canWrite && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); open(item); }}><Edit2 className="w-4 h-4 text-gray-500" /></Button>}
+                    {permissions.has('locations:delete') && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setEditing(item); setIsDeleteOpen(true); }}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
+                  </div>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
-      </div>
+      </AdminDataTable>
 
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+      <Dialog
+        open={isModalOpen}
+        onOpenChange={(next) => {
+          if (next) setIsModalOpen(true);
+          else void closeModal();
+        }}
+      >
         <DialogContent>
           <DialogHeader><DialogTitle>{editing ? 'Edit' : 'Add'} City</DialogTitle><DialogDescription>Configure city details.</DialogDescription></DialogHeader>
           <div className="space-y-4 py-4">
@@ -332,13 +454,14 @@ function CitiesView({
             <div className="flex items-center justify-between pt-2"><label className="text-sm font-medium">Active</label><Switch checked={form.is_active} onCheckedChange={v => setForm({...form, is_active: v})} /></div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => void closeModal()}>Cancel</Button>
             <Button onClick={save} disabled={isSubmitting || !form.name || !form.state_id}>{isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <DeleteModal isOpen={isDeleteOpen} onClose={() => setIsDeleteOpen(false)} onConfirm={del} name={editing?.name} isSubmitting={isSubmitting} />
+      {unsavedDialog}
     </div>
   );
 }
@@ -360,12 +483,14 @@ function MicroMarketsView({
   const { permissions } = useAuthStore();
   const [microMarkets, setMicroMarkets] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const { filters, setFilters, resetFilters } = useUrlFilters({ q: '' });
+  const search = filters.q;
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState({ name: '', city_id: cityId, is_active: true });
+  const [formBaseline, setFormBaseline] = useState('');
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
@@ -376,14 +501,30 @@ function MicroMarketsView({
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll, refreshKey]);
-  useEffect(() => { setSearch(''); }, [cityId]);
+  useEffect(() => {
+    setFilters({ q: '' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cityId]);
 
   const open = (item: any = null) => {
     setEditing(item);
-    setForm(item
+    const next = item
       ? { name: item.name, city_id: item.city_id || item.city?.id || cityId, is_active: item.is_active ?? true }
-      : { name: '', city_id: cityId, is_active: true });
+      : { name: '', city_id: cityId, is_active: true };
+    setForm(next);
+    setFormBaseline(JSON.stringify(next));
     setIsModalOpen(true);
+  };
+
+  const formSnapshot = JSON.stringify(form);
+  const { handleOpenChange, dialog: unsavedDialog } = useLocationModalGuard(
+    isModalOpen,
+    formSnapshot,
+    formBaseline,
+  );
+  const closeModal = async () => {
+    const ok = await handleOpenChange(false);
+    if (ok) setIsModalOpen(false);
   };
 
   const save = async () => {
@@ -409,22 +550,56 @@ function MicroMarketsView({
     const matchSearch = m.name.toLowerCase().includes(search.toLowerCase());
     return matchCity && matchSearch;
   });
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+    resetPage,
+  } = useClientPagedRows(filtered);
+
+  useEffect(() => {
+    resetPage();
+  }, [search, cityId, resetPage]);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search micro markets..." className="pl-9" />
+          <Input value={search} onChange={e => setFilters({ q: e.target.value })} placeholder="Search micro markets..." className="pl-9" />
         </div>
-        {canWrite && (
-          <Button onClick={() => open()} className="bg-primary text-white hover:bg-primary/90">
-            <Plus className="w-4 h-4 mr-2" /> Add Micro Market
-          </Button>
-        )}
+        <AdminListToolbar
+          onRefresh={() => void fetchAll()}
+          refreshBusy={isLoading}
+          onReset={() => {
+            resetFilters();
+            resetPage();
+          }}
+        >
+          {canWrite ? (
+            <Button type="button" size="sm" onClick={() => open()} className="bg-primary text-white hover:bg-primary/90">
+              <Plus className="mr-1.5 size-3.5" /> Add Micro Market
+            </Button>
+          ) : null}
+        </AdminListToolbar>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <AdminDataTable
+        page={page}
+        limit={limit}
+        total={total}
+        totalPages={totalPages}
+        onPageChange={onPageChange}
+        onPageSizeChange={onPageSizeChange}
+        loading={isLoading}
+        isEmpty={!filtered.length}
+        emptyMessage="No micro markets found."
+        syncKey={pageRows.length}
+      >
         <table className="w-full text-sm text-left">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
@@ -436,43 +611,43 @@ function MicroMarketsView({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {isLoading ? (
-              <tr><td colSpan={5} className="px-6 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></td></tr>
-            ) : filtered.length === 0 ? (
-              <tr><td colSpan={5} className="px-6 py-12 text-center text-gray-500">No micro markets found.</td></tr>
-            ) : (
-              filtered.map(item => (
-                <tr key={item.id} className="hover:bg-gray-50/50">
-                  <td className="px-6 py-4 font-medium text-gray-900">
-                    <button
-                      type="button"
-                      onClick={() => onDrill({ id: item.id, name: item.name })}
-                      className="hover:text-primary transition-colors text-left"
-                    >
-                      {item.name}
-                    </button>
-                  </td>
-                  <td className="px-6 py-4 text-gray-500">{item.city?.name || cityName || 'â€”'}</td>
-                  <td className="px-6 py-4">
-                    {item.created_by_admin ? <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50">Admin</Badge> : <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50">User</Badge>}
-                  </td>
-                  <td className="px-6 py-4">
-                    {isApproved(item.status) ? <Badge className="bg-green-100 text-green-700">Approved</Badge> : item.status === 'pending_review' ? <Badge className="bg-orange-100 text-orange-700">Pending</Badge> : <Badge variant="outline" className="text-red-500">Rejected</Badge>}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      {canWrite && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); open(item); }}><Edit2 className="w-4 h-4 text-gray-500" /></Button>}
-                      {permissions.has('locations:delete') && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setEditing(item); setIsDeleteOpen(true); }}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
+            {pageRows.map(item => (
+              <tr key={item.id} className="hover:bg-gray-50/50">
+                <td className="px-6 py-4 font-medium text-gray-900">
+                  <button
+                    type="button"
+                    onClick={() => onDrill({ id: item.id, name: item.name })}
+                    className="hover:text-primary transition-colors text-left"
+                  >
+                    {item.name}
+                  </button>
+                </td>
+                <td className="px-6 py-4 text-gray-500">{item.city?.name || cityName || '—'}</td>
+                <td className="px-6 py-4">
+                  {item.created_by_admin ? <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50">Admin</Badge> : <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50">User</Badge>}
+                </td>
+                <td className="px-6 py-4">
+                  {isApproved(item.status) ? <Badge className="bg-green-100 text-green-700">Approved</Badge> : item.status === 'pending_review' ? <Badge className="bg-orange-100 text-orange-700">Pending</Badge> : <Badge variant="outline" className="text-red-500">Rejected</Badge>}
+                </td>
+                <td className="px-6 py-4 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    {canWrite && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); open(item); }}><Edit2 className="w-4 h-4 text-gray-500" /></Button>}
+                    {permissions.has('locations:delete') && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setEditing(item); setIsDeleteOpen(true); }}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
+                  </div>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
-      </div>
+      </AdminDataTable>
 
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+      <Dialog
+        open={isModalOpen}
+        onOpenChange={(next) => {
+          if (next) setIsModalOpen(true);
+          else void closeModal();
+        }}
+      >
         <DialogContent>
           <DialogHeader><DialogTitle>{editing ? 'Edit' : 'Add'} Micro Market</DialogTitle><DialogDescription>Configure micro market details.</DialogDescription></DialogHeader>
           <div className="space-y-4 py-4">
@@ -484,13 +659,14 @@ function MicroMarketsView({
             <div className="flex items-center justify-between"><label className="text-sm font-medium">Active</label><Switch checked={form.is_active} onCheckedChange={v => setForm({...form, is_active: v})} /></div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => void closeModal()}>Cancel</Button>
             <Button onClick={save} disabled={isSubmitting || !form.name || !form.city_id}>{isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <DeleteModal isOpen={isDeleteOpen} onClose={() => setIsDeleteOpen(false)} onConfirm={del} name={editing?.name} isSubmitting={isSubmitting} />
+      {unsavedDialog}
     </div>
   );
 }
@@ -514,12 +690,14 @@ function LocationsView({
   const { permissions } = useAuthStore();
   const [locations, setLocations] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const { filters, setFilters, resetFilters } = useUrlFilters({ q: '' });
+  const search = filters.q;
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState({ name: '', city_id: cityId, micro_market_id: mmId, is_active: true });
+  const [formBaseline, setFormBaseline] = useState('');
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
@@ -530,19 +708,35 @@ function LocationsView({
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll, refreshKey]);
-  useEffect(() => { setSearch(''); }, [mmId]);
+  useEffect(() => {
+    setFilters({ q: '' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mmId]);
 
   const open = (item: any = null) => {
     setEditing(item);
-    setForm(item
+    const next = item
       ? {
           name: item.name,
           city_id: item.city_id || item.city?.id || cityId,
           micro_market_id: item.micro_market_id || item.micro_market?.id || mmId,
           is_active: item.is_active ?? true,
         }
-      : { name: '', city_id: cityId, micro_market_id: mmId, is_active: true });
+      : { name: '', city_id: cityId, micro_market_id: mmId, is_active: true };
+    setForm(next);
+    setFormBaseline(JSON.stringify(next));
     setIsModalOpen(true);
+  };
+
+  const formSnapshot = JSON.stringify(form);
+  const { handleOpenChange, dialog: unsavedDialog } = useLocationModalGuard(
+    isModalOpen,
+    formSnapshot,
+    formBaseline,
+  );
+  const closeModal = async () => {
+    const ok = await handleOpenChange(false);
+    if (ok) setIsModalOpen(false);
   };
 
   const save = async () => {
@@ -569,22 +763,56 @@ function LocationsView({
     const matchSearch = l.name.toLowerCase().includes(search.toLowerCase());
     return isApproved(l.status) && matchMM && matchSearch;
   });
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+    resetPage,
+  } = useClientPagedRows(filtered);
+
+  useEffect(() => {
+    resetPage();
+  }, [search, mmId, resetPage]);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search locations..." className="pl-9" />
+          <Input value={search} onChange={e => setFilters({ q: e.target.value })} placeholder="Search locations..." className="pl-9" />
         </div>
-        {canWrite && (
-          <Button onClick={() => open()} className="bg-primary text-white hover:bg-primary/90">
-            <Plus className="w-4 h-4 mr-2" /> Add Location
-          </Button>
-        )}
+        <AdminListToolbar
+          onRefresh={() => void fetchAll()}
+          refreshBusy={isLoading}
+          onReset={() => {
+            resetFilters();
+            resetPage();
+          }}
+        >
+          {canWrite ? (
+            <Button type="button" size="sm" onClick={() => open()} className="bg-primary text-white hover:bg-primary/90">
+              <Plus className="mr-1.5 size-3.5" /> Add Location
+            </Button>
+          ) : null}
+        </AdminListToolbar>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <AdminDataTable
+        page={page}
+        limit={limit}
+        total={total}
+        totalPages={totalPages}
+        onPageChange={onPageChange}
+        onPageSizeChange={onPageSizeChange}
+        loading={isLoading}
+        isEmpty={!filtered.length}
+        emptyMessage="No locations found."
+        syncKey={pageRows.length}
+      >
         <table className="w-full text-sm text-left">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
@@ -596,33 +824,33 @@ function LocationsView({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {isLoading ? (
-              <tr><td colSpan={5} className="px-6 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></td></tr>
-            ) : filtered.length === 0 ? (
-              <tr><td colSpan={5} className="px-6 py-12 text-center text-gray-500">No locations found.</td></tr>
-            ) : (
-              filtered.map(item => (
-                <tr key={item.id} className="hover:bg-gray-50/50">
-                  <td className="px-6 py-4 font-medium text-gray-900">{item.name}</td>
-                  <td className="px-6 py-4 text-gray-500">{item.micro_market?.name || mmName || 'â€”'}</td>
-                  <td className="px-6 py-4 text-gray-500">{item.city?.name || cityName || 'â€”'}</td>
-                  <td className="px-6 py-4">
-                    {isApproved(item.status) ? <Badge className="bg-green-100 text-green-700">Approved</Badge> : item.status === 'pending_review' ? <Badge className="bg-orange-100 text-orange-700">Pending</Badge> : <Badge variant="outline" className="text-red-500">Rejected</Badge>}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      {canWrite && <Button variant="ghost" size="sm" onClick={() => open(item)}><Edit2 className="w-4 h-4 text-gray-500" /></Button>}
-                      {permissions.has('locations:delete') && <Button variant="ghost" size="sm" onClick={() => { setEditing(item); setIsDeleteOpen(true); }}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
+            {pageRows.map(item => (
+              <tr key={item.id} className="hover:bg-gray-50/50">
+                <td className="px-6 py-4 font-medium text-gray-900">{item.name}</td>
+                <td className="px-6 py-4 text-gray-500">{item.micro_market?.name || mmName || '—'}</td>
+                <td className="px-6 py-4 text-gray-500">{item.city?.name || cityName || '—'}</td>
+                <td className="px-6 py-4">
+                  {isApproved(item.status) ? <Badge className="bg-green-100 text-green-700">Approved</Badge> : item.status === 'pending_review' ? <Badge className="bg-orange-100 text-orange-700">Pending</Badge> : <Badge variant="outline" className="text-red-500">Rejected</Badge>}
+                </td>
+                <td className="px-6 py-4 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    {canWrite && <Button variant="ghost" size="sm" onClick={() => open(item)}><Edit2 className="w-4 h-4 text-gray-500" /></Button>}
+                    {permissions.has('locations:delete') && <Button variant="ghost" size="sm" onClick={() => { setEditing(item); setIsDeleteOpen(true); }}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
+                  </div>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
-      </div>
+      </AdminDataTable>
 
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+      <Dialog
+        open={isModalOpen}
+        onOpenChange={(next) => {
+          if (next) setIsModalOpen(true);
+          else void closeModal();
+        }}
+      >
         <DialogContent>
           <DialogHeader><DialogTitle>{editing ? 'Edit' : 'Add'} Location</DialogTitle><DialogDescription>Locations are specific areas within a micro market.</DialogDescription></DialogHeader>
           <div className="space-y-4 py-4">
@@ -639,13 +867,14 @@ function LocationsView({
             <div className="flex items-center justify-between"><label className="text-sm font-medium">Active</label><Switch checked={form.is_active} onCheckedChange={v => setForm({...form, is_active: v})} /></div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => void closeModal()}>Cancel</Button>
             <Button onClick={save} disabled={isSubmitting || !form.name || !form.city_id || !form.micro_market_id}>{isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <DeleteModal isOpen={isDeleteOpen} onClose={() => setIsDeleteOpen(false)} onConfirm={del} name={editing?.name} isSubmitting={isSubmitting} />
+      {unsavedDialog}
     </div>
   );
 }
@@ -852,6 +1081,20 @@ function ImportExcelModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; onC
 // MAIN PAGE
 // -------------------------------------------------------
 export default function LocationManagementPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <LocationManagementPageInner />
+    </Suspense>
+  );
+}
+
+function LocationManagementPageInner() {
   const { permissions } = useAuthStore();
   const [importOpen, setImportOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);

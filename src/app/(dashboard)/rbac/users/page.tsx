@@ -4,11 +4,14 @@ import { useState, useEffect } from 'react';
 import { AssignRoleModal } from '@/modules/rbac/assign-role-modal';
 import { UserFormModal } from '@/modules/rbac/user-form-modal';
 import { DeleteUserAlert } from '@/modules/rbac/delete-user-alert';
+import { AdminDataTable } from '@/components/common/admin-data-table';
+import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { rbacService } from '@/services/rbac.service';
 import { adminUsersService } from '@/services/admin-users.service';
-import { Loader2, Plus, Edit2, Trash2 } from 'lucide-react';
+import { Plus, Edit2, Trash2 } from 'lucide-react';
+import { useClientPagedRows } from '@/hooks/use-client-paged-rows';
 
 import { PermissionGuard } from '@/components/common/permission-guard';
 
@@ -27,6 +30,16 @@ export default function UsersPage() {
 
   const [deleteUser, setDeleteUser] = useState<any>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+  } = useClientPagedRows(users);
 
   const fetchUsers = async () => {
     setIsLoading(true);
@@ -74,70 +87,70 @@ export default function UsersPage() {
           <h1 className="text-2xl font-bold tracking-tight text-gray-900">Staff Users</h1>
           <p className="text-gray-500 mt-1">Manage staff users and their assigned roles.</p>
         </div>
-        <Button onClick={handleCreateNew} className="bg-primary text-white hover:bg-primary/90">
-          <Plus className="w-4 h-4 mr-2" /> Add User
-        </Button>
+        <AdminListToolbar
+          onRefresh={() => void fetchUsers()}
+          refreshDisabled={isLoading}
+        >
+          <Button onClick={handleCreateNew} className="bg-primary text-white hover:bg-primary/90">
+            <Plus className="w-4 h-4 mr-2" /> Add User
+          </Button>
+        </AdminListToolbar>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-6 py-4 font-semibold text-gray-700">User Details</th>
-                <th className="px-6 py-4 font-semibold text-gray-700">Active Role</th>
-                <th className="px-6 py-4 font-semibold text-gray-700 text-right">Actions</th>
+      <AdminDataTable
+        page={page}
+        limit={limit}
+        total={total}
+        totalPages={totalPages}
+        onPageChange={onPageChange}
+        onPageSizeChange={onPageSizeChange}
+        loading={isLoading}
+        isEmpty={!pageRows.length}
+        emptyMessage="No users found."
+        syncKey={pageRows.length}
+      >
+        <table className="w-full text-sm text-left">
+          <thead className="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th className="px-6 py-4 font-semibold text-gray-700">User Details</th>
+              <th className="px-6 py-4 font-semibold text-gray-700">Active Role</th>
+              <th className="px-6 py-4 font-semibold text-gray-700 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {pageRows.map((user) => (
+              <tr key={user.id} className="hover:bg-gray-50/50 transition-colors">
+                <td className="px-6 py-4">
+                  <p className="font-medium text-gray-900">{user.name}</p>
+                  <p className="text-xs text-gray-500">{user.email} • {user.contact}</p>
+                </td>
+                <td className="px-6 py-4">
+                  {user.userRoles && user.userRoles.length > 0 && user.userRoles[0]?.role?.name ? (
+                    <Badge variant="secondary" className="bg-primary-light text-primary hover:bg-primary/20 capitalize">
+                      {user.userRoles[0].role.name.replace('_', ' ')}
+                    </Badge>
+                  ) : (
+                    <span className="text-gray-400 italic text-xs">No role assigned</span>
+                  )}
+                </td>
+                <td className="px-6 py-4 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    <Button variant="ghost" size="sm" onClick={() => handleAssignClick(user)} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Assign Role">
+                      <ShieldIcon className="w-4 h-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleEditClick(user)} className="text-gray-500 hover:text-gray-700" title="Edit">
+                      <Edit2 className="w-4 h-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleDeleteClick(user)} className="text-red-500 hover:text-red-600 hover:bg-red-50" title="Delete">
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={3} className="px-6 py-12 text-center">
-                    <Loader2 className="w-6 h-6 text-primary animate-spin mx-auto" />
-                  </td>
-                </tr>
-              ) : users.length === 0 ? (
-                <tr>
-                  <td colSpan={3} className="px-6 py-12 text-center text-gray-500">
-                    No users found.
-                  </td>
-                </tr>
-              ) : (
-                users.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-6 py-4">
-                      <p className="font-medium text-gray-900">{user.name}</p>
-                      <p className="text-xs text-gray-500">{user.email} • {user.contact}</p>
-                    </td>
-                    <td className="px-6 py-4">
-                      {user.userRoles && user.userRoles.length > 0 && user.userRoles[0]?.role?.name ? (
-                        <Badge variant="secondary" className="bg-primary-light text-primary hover:bg-primary/20 capitalize">
-                          {user.userRoles[0].role.name.replace('_', ' ')}
-                        </Badge>
-                      ) : (
-                        <span className="text-gray-400 italic text-xs">No role assigned</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => handleAssignClick(user)} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Assign Role">
-                          <ShieldIcon className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleEditClick(user)} className="text-gray-500 hover:text-gray-700" title="Edit">
-                          <Edit2 className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDeleteClick(user)} className="text-red-500 hover:text-red-600 hover:bg-red-50" title="Delete">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            ))}
+          </tbody>
+        </table>
+      </AdminDataTable>
 
       <UserFormModal
         open={formOpen}

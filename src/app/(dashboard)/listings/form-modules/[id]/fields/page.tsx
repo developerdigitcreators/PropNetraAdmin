@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { listingConfigService } from '@/services/listing-config.service';
@@ -15,6 +15,7 @@ import { useParams } from 'next/navigation';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { SortableGrid } from '@/components/common/sortable-list';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
+import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
 import React from 'react';
 
 const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canManageOptions: boolean }) => {
@@ -25,6 +26,19 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
   const [formData, setFormData] = useState({ label: '', value: '', sort_order: 1 });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [optionToDelete, setOptionToDelete] = useState<any>(null);
+  const baselineRef = useRef('');
+  const formSnapshot = useMemo(() => JSON.stringify(formData), [formData]);
+  const dirty =
+    isFormOpen &&
+    baselineRef.current !== '' &&
+    formSnapshot !== baselineRef.current;
+  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(dirty);
+
+  const closeOptionForm = async () => {
+    if (isSubmitting) return;
+    const ok = await requestClose();
+    if (ok) setIsFormOpen(false);
+  };
 
   const loadOptions = async () => {
     setIsLoading(true);
@@ -67,11 +81,22 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
 
   const handleOpenForm = (opt: any = null) => {
     setEditingOption(opt);
-    if (opt) {
-      setFormData({ label: opt.option_label || opt.label, value: opt.option_value || opt.value, sort_order: opt.sort_order || 1 });
-    } else {
-      setFormData({ label: '', value: '', sort_order: (options.length > 0 ? Math.max(...options.map(o => o.sort_order || 0)) + 1 : 1) });
-    }
+    const next = opt
+      ? {
+          label: opt.option_label || opt.label,
+          value: opt.option_value || opt.value,
+          sort_order: opt.sort_order || 1,
+        }
+      : {
+          label: '',
+          value: '',
+          sort_order:
+            options.length > 0
+              ? Math.max(...options.map((o) => o.sort_order || 0)) + 1
+              : 1,
+        };
+    setFormData(next);
+    baselineRef.current = JSON.stringify(next);
     setIsFormOpen(true);
   };
 
@@ -192,7 +217,7 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
             </div>
           </div>
           <div className="flex justify-end gap-2 mt-4">
-            <Button variant="outline" size="sm" onClick={() => setIsFormOpen(false)} className="h-8">Cancel</Button>
+            <Button variant="outline" size="sm" onClick={() => void closeOptionForm()} className="h-8">Cancel</Button>
             <Button size="sm" onClick={handleSave} disabled={isSubmitting || !formData.label} className="h-8">
               {isSubmitting && <Loader2 className="w-3 h-3 mr-2 animate-spin" />} Save Option
             </Button>
@@ -206,6 +231,7 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
         itemName={optionToDelete?.option_label || optionToDelete?.label}
         onConfirm={handleDelete}
       />
+      {unsavedDialog}
     </div>
   );
 };
@@ -236,6 +262,23 @@ export default function FormFieldsPage() {
 
   // Form State
   const [formData, setFormData] = useState<any>({ key: '', label: '', field_type: 'select' });
+  const baselineRef = useRef('');
+  const formSnapshot = useMemo(() => JSON.stringify(formData), [formData]);
+  const dirty =
+    isModalOpen &&
+    baselineRef.current !== '' &&
+    formSnapshot !== baselineRef.current;
+  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(dirty);
+
+  const handleModalOpenChange = async (next: boolean) => {
+    if (isSubmitting) return;
+    if (!next) {
+      const ok = await requestClose();
+      if (ok) setIsModalOpen(false);
+      return;
+    }
+    setIsModalOpen(true);
+  };
 
   const [moduleLabel, setModuleLabel] = useState('Fields Management');
 
@@ -261,15 +304,11 @@ export default function FormFieldsPage() {
 
   const handleOpenModal = (item: any = null) => {
     setEditingItem(item);
-    if (item) {
-      setFormData({ 
-        key: item.key, 
-        label: item.label, 
-        field_type: item.field_type
-      });
-    } else {
-      setFormData({ key: '', label: '', field_type: 'select' });
-    }
+    const next = item
+      ? { key: item.key, label: item.label, field_type: item.field_type }
+      : { key: '', label: '', field_type: 'select' };
+    setFormData(next);
+    baselineRef.current = JSON.stringify(next);
     setIsModalOpen(true);
   };
 
@@ -380,7 +419,7 @@ export default function FormFieldsPage() {
         </div>
 
         {/* Create/Edit Field Modal */}
-        <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <Dialog open={isModalOpen} onOpenChange={(next) => void handleModalOpenChange(next)}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{editingItem ? 'Edit' : 'Add'} Field</DialogTitle>
@@ -408,13 +447,14 @@ export default function FormFieldsPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => void handleModalOpenChange(false)}>Cancel</Button>
               <Button onClick={handleSave} disabled={isSubmitting || !formData.label}>
                 {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        {unsavedDialog}
 
         <DeleteRemarkDialog
           open={isDeleteModalOpen}

@@ -1082,14 +1082,11 @@ export function normalizeInAppPopup(raw: unknown): InAppPopup {
       ? 'markdown'
       : 'plain') as BroadcastBodyFormat,
     imageUrl: str(n.imageUrl || n.image_url) || null,
-    backgroundColor: str(n.backgroundColor || n.background_color) || '#0F172A',
-    textColor: str(n.textColor || n.text_color) || '#FFFFFF',
+    backgroundColor: str(n.backgroundColor || n.background_color) || '#FFFFFF',
+    textColor: str(n.textColor || n.text_color) || '#0F172A',
     ctaColor: str(n.ctaColor || n.cta_color) || '#E11D48',
     displayDurationSec: Number(n.displayDurationSec ?? n.display_duration_sec ?? 8) || 8,
-    timerDisplay: normalizePopupTimerDisplay(
-      n.timerDisplay ?? n.timer_display,
-      n.showProgressBar ?? n.show_progress_bar,
-    ),
+    timerDisplay: 'none',
     ctaLabel: str(n.ctaLabel || n.cta_label) || 'View',
     ctas: asCtas(n.ctas),
     stateIds,

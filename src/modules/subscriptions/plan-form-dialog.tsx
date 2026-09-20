@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -19,6 +19,7 @@ import {
   type SubscriptionPlanItem,
   type UpdatePlanPayload,
 } from '@/services/subscriptions.service';
+import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
 import { Loader2 } from 'lucide-react';
 
 type PlanFormDialogProps = {
@@ -42,6 +43,9 @@ function emptyLimits(): PlanLimits {
     listingViewsMonthly: null,
     monthlyCoinGrant: 0,
     listingBoostHours: 24,
+    addonListingContactsDaily: 0,
+    addonBuyReqContactsDaily: 0,
+    addonBuilderContactsDaily: 0,
   };
 }
 
@@ -88,10 +92,47 @@ export function PlanFormDialog({
   const [unlimitedViews, setUnlimitedViews] = useState(false);
   const [limits, setLimits] = useState<PlanLimits>(emptyLimits());
   const [localError, setLocalError] = useState('');
+  const baselineRef = useRef('');
 
   const showPricing = plan ? isPaidSubscriptionPlan(plan.code) : false;
   const isLifetimeFree = plan?.code === 'FREE_LIFETIME';
   const showVisibilityToggles = !isLifetimeFree;
+
+  const snapshot = useMemo(
+    () =>
+      JSON.stringify({
+        displayName,
+        sortOrder,
+        isActive,
+        showOnApp,
+        trialDays,
+        priceRupees,
+        promoPriceRupees,
+        promoWindowDays,
+        addonsEnabled,
+        listingBoostEnabled,
+        listingPriorityEnabled,
+        builderContactsEnabled,
+        unlimitedViews,
+        limits,
+      }),
+    [
+      displayName,
+      sortOrder,
+      isActive,
+      showOnApp,
+      trialDays,
+      priceRupees,
+      promoPriceRupees,
+      promoWindowDays,
+      addonsEnabled,
+      listingBoostEnabled,
+      listingPriorityEnabled,
+      builderContactsEnabled,
+      unlimitedViews,
+      limits,
+    ],
+  );
 
   useEffect(() => {
     if (!open || !plan) return;
@@ -110,12 +151,45 @@ export function PlanFormDialog({
     setListingBoostEnabled(plan.flags.listingBoostEnabled);
     setListingPriorityEnabled(plan.flags.listingPriorityEnabled);
     setBuilderContactsEnabled(plan.flags.builderContactsEnabled);
-    const next = plan.limits || emptyLimits();
-    setLimits({ ...next });
-    setUnlimitedViews(
-      next.listingViewsDaily == null && next.listingViewsMonthly == null,
-    );
+    const next = { ...emptyLimits(), ...(plan.limits || {}) };
+    if (next.listingBoostHours == null || Number.isNaN(Number(next.listingBoostHours))) {
+      next.listingBoostHours = 24;
+    }
+    setLimits(next);
+    const unlimited =
+      next.listingViewsDaily == null && next.listingViewsMonthly == null;
+    setUnlimitedViews(unlimited);
+    baselineRef.current = JSON.stringify({
+      displayName: plan.displayName,
+      sortOrder: plan.sortOrder,
+      isActive: plan.isActive,
+      showOnApp: plan.showOnApp,
+      trialDays: plan.trialDays != null ? String(plan.trialDays) : '',
+      priceRupees: paiseToRupeesInput(plan.pricePaise),
+      promoPriceRupees: paiseToRupeesInput(plan.promoPricePaise),
+      promoWindowDays:
+        plan.promoWindowDays != null ? String(plan.promoWindowDays) : '',
+      addonsEnabled: plan.flags.addonsEnabled,
+      listingBoostEnabled: plan.flags.listingBoostEnabled,
+      listingPriorityEnabled: plan.flags.listingPriorityEnabled,
+      builderContactsEnabled: plan.flags.builderContactsEnabled,
+      unlimitedViews: unlimited,
+      limits: { ...next },
+    });
   }, [open, plan]);
+
+  const dirty = open && baselineRef.current !== '' && snapshot !== baselineRef.current;
+  const { requestClose, dialog } = useDialogUnsavedGuard(dirty);
+
+  const handleOpenChange = async (next: boolean) => {
+    if (submitting) return;
+    if (!next) {
+      const ok = await requestClose();
+      if (ok) onOpenChange(false);
+      return;
+    }
+    onOpenChange(true);
+  };
 
   const setLimitField = (key: keyof PlanLimits, value: string) => {
     const n = value === '' ? 0 : Number(value);
@@ -152,7 +226,8 @@ export function PlanFormDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open} onOpenChange={(next) => void handleOpenChange(next)}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit — {plan?.displayName}</DialogTitle>
@@ -275,12 +350,28 @@ export function PlanFormDialog({
                 checked={addonsEnabled}
                 onChange={setAddonsEnabled}
               />
-              <FlagRow
-                label="Listing boost"
-                hint="Paid boost to top of search"
-                checked={listingBoostEnabled}
-                onChange={setListingBoostEnabled}
-              />
+              {!isLifetimeFree ? (
+                <>
+                  <FlagRow
+                    label="Listing boost"
+                    hint="Paid boost to top of search"
+                    checked={listingBoostEnabled}
+                    onChange={setListingBoostEnabled}
+                  />
+                  {listingBoostEnabled ? (
+                    <div className="sm:col-span-2">
+                      <NumField
+                        label="Listing boost duration (hours)"
+                        value={String(limits.listingBoostHours ?? 24)}
+                        onChange={(v) => setLimitField('listingBoostHours', v)}
+                      />
+                      <p className="mt-1 text-xs text-gray-500">
+                        How long a boost lasts when this plan buys/uses listing boost.
+                      </p>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
               <FlagRow
                 label="Listing priority"
                 hint="Priority placement in results"
@@ -348,6 +439,34 @@ export function PlanFormDialog({
             </div>
           </Section>
 
+          {addonsEnabled ? (
+            <Section
+              title="Addon credit daily limits"
+              description="Separate from plan reveals above. Each pack credit type has its own daily spend cap."
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                <NumField
+                  label="Listing contact credits / day"
+                  value={String(limits.addonListingContactsDaily ?? 0)}
+                  onChange={(v) => setLimitField('addonListingContactsDaily', v)}
+                />
+                <NumField
+                  label="Buy-req contact credits / day"
+                  value={String(limits.addonBuyReqContactsDaily ?? 0)}
+                  onChange={(v) => setLimitField('addonBuyReqContactsDaily', v)}
+                />
+                <NumField
+                  label="Builder contact credits / day"
+                  value={String(limits.addonBuilderContactsDaily ?? 0)}
+                  onChange={(v) => setLimitField('addonBuilderContactsDaily', v)}
+                />
+              </div>
+              <p className="text-xs text-gray-500">
+                0 = addon credits for that type cannot be used that day (plan quota still applies).
+              </p>
+            </Section>
+          ) : null}
+
           <Section title="Views, coins & boost">
             <div className="grid gap-3 sm:grid-cols-2">
               {!unlimitedViews ? (
@@ -369,11 +488,6 @@ export function PlanFormDialog({
                 value={String(limits.monthlyCoinGrant)}
                 onChange={(v) => setLimitField('monthlyCoinGrant', v)}
               />
-              <NumField
-                label="Listing boost duration (hours)"
-                value={String(limits.listingBoostHours)}
-                onChange={(v) => setLimitField('listingBoostHours', v)}
-              />
             </div>
           </Section>
 
@@ -382,7 +496,11 @@ export function PlanFormDialog({
           )}
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+            <Button
+              variant="outline"
+              onClick={() => void handleOpenChange(false)}
+              disabled={submitting}
+            >
               Cancel
             </Button>
             <Button onClick={handleSubmit} disabled={submitting}>
@@ -393,6 +511,8 @@ export function PlanFormDialog({
         </div>
       </DialogContent>
     </Dialog>
+    {dialog}
+    </>
   );
 }
 

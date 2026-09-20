@@ -1,9 +1,10 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatDisplayDateTime } from "@/lib/format-date";
 import { locationService } from "@/services/location.service";
 import { listingConfigService } from "@/services/listing-config.service";
+import { useDialogUnsavedGuard } from "@/hooks/use-unsaved-changes-guard";
 import {
   canToggleForSaleTitle,
   getCatalogSavedId,
@@ -777,6 +778,27 @@ export function ListingReviewTable({
   const [rejectCatalogDraft, setRejectCatalogDraft] = useState<SaveDraft | null>(
     null,
   );
+  const rejectDirty = useMemo(() => {
+    if (confirm?.action !== "reject") return false;
+    return Boolean(
+      rejectRemarksDraft.rejectPropertyName ||
+        rejectRemarksDraft.rejectLocation ||
+        rejectRemarksDraft.rejectMicroMarket ||
+        rejectRemarksDraft.propertyNameRemark?.trim() ||
+        rejectRemarksDraft.locationRemark?.trim() ||
+        rejectRemarksDraft.microMarketRemark?.trim() ||
+        rejectCatalogDraft?.propertyName.id ||
+        rejectCatalogDraft?.propertyName.name.trim() ||
+        rejectCatalogDraft?.location.id ||
+        rejectCatalogDraft?.location.name.trim() ||
+        rejectCatalogDraft?.microMarket.id ||
+        rejectCatalogDraft?.microMarket.name.trim(),
+    );
+  }, [confirm?.action, rejectCatalogDraft, rejectRemarksDraft]);
+  const {
+    requestClose: requestRejectClose,
+    dialog: rejectUnsavedDialog,
+  } = useDialogUnsavedGuard(rejectDirty);
   const [saveOpen, setSaveOpen] = useState<{ id: string } | null>(null);
   const [saveDraft, setSaveDraft] = useState<SaveDraft | null>(null);
   const [fieldEdit, setFieldEdit] = useState<{
@@ -2232,10 +2254,19 @@ export function ListingReviewTable({
       <Dialog
         open={!!confirm}
         onOpenChange={(open) => {
-          if (!open && !busyId) {
-            setConfirm(null);
-            setRejectCatalogDraft(null);
+          if (open) return;
+          if (busyId) return;
+          if (confirm?.action === "reject") {
+            void requestRejectClose().then((ok) => {
+              if (!ok) return;
+              setConfirm(null);
+              setRejectCatalogDraft(null);
+              setRejectRemarksDraft({});
+            });
+            return;
           }
+          setConfirm(null);
+          setRejectCatalogDraft(null);
         }}
       >
         <DialogContent className="max-w-xl sm:max-w-xl overflow-visible">
@@ -2527,6 +2558,15 @@ export function ListingReviewTable({
               className="flex-1"
               disabled={!!busyId}
               onClick={() => {
+                if (confirm?.action === "reject") {
+                  void requestRejectClose().then((ok) => {
+                    if (!ok) return;
+                    setConfirm(null);
+                    setRejectCatalogDraft(null);
+                    setRejectRemarksDraft({});
+                  });
+                  return;
+                }
                 setConfirm(null);
                 setRejectCatalogDraft(null);
               }}
@@ -2568,6 +2608,7 @@ export function ListingReviewTable({
           </div>
         </DialogContent>
       </Dialog>
+      {rejectUnsavedDialog}
     </>
   );
 }

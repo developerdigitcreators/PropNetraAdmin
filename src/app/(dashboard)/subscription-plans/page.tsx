@@ -7,6 +7,7 @@ import { Breadcrumb } from '@/components/common/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { PlanFormDialog } from '@/modules/subscriptions/plan-form-dialog';
+import { PlanPopupBannerDialog } from '@/modules/subscriptions/plan-popup-banner-dialog';
 import {
   formatInrFromPaise,
   subscriptionApiError,
@@ -14,7 +15,7 @@ import {
   type SubscriptionPlanItem,
   type UpdatePlanPayload,
 } from '@/services/subscriptions.service';
-import { Check, CreditCard, Edit2, Loader2, RefreshCw, X } from 'lucide-react';
+import { Check, CreditCard, Edit2, Image as ImageIcon, Loader2, RefreshCw, X } from 'lucide-react';
 
 function LimitRow({
   label,
@@ -187,12 +188,14 @@ function PlanCard({
 export default function SubscriptionPlansPage() {
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const canUpdate = hasPermission('subscriptions', 'update');
+  const canReadPlans = hasPermission('subscriptions', 'read') || canUpdate;
 
   const [plans, setPlans] = useState<SubscriptionPlanItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<SubscriptionPlanItem | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [bannerOpen, setBannerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [resyncing, setResyncing] = useState(false);
@@ -277,6 +280,17 @@ export default function SubscriptionPlansPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {canReadPlans ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setBannerOpen(true)}
+              >
+                <ImageIcon className="mr-1.5 size-3.5" />
+                Set upgrade / unlock banner
+              </Button>
+            ) : null}
             {canUpdate ? (
               <Button
                 type="button"
@@ -341,6 +355,11 @@ export default function SubscriptionPlansPage() {
           error={formError}
           onOpenChange={setFormOpen}
           onSubmit={handleSave}
+        />
+        <PlanPopupBannerDialog
+          open={bannerOpen}
+          onOpenChange={setBannerOpen}
+          canUpdate={canUpdate}
         />
       </div>
     </PermissionGuard>

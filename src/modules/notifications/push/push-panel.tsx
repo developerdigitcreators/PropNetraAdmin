@@ -54,6 +54,8 @@ function parseNamedPlaces(data: unknown): NamedPlace[] {
     .filter(Boolean) as NamedPlace[];
 }
 
+type PushStyle = "default" | "lead_interest";
+
 type PushDraft = {
   title: string;
   body: string;
@@ -63,6 +65,7 @@ type PushDraft = {
   stateId: string;
   cityId: string;
   audience: PopupAudience;
+  style: PushStyle;
 };
 
 const emptyDraft = (): PushDraft => ({
@@ -74,6 +77,7 @@ const emptyDraft = (): PushDraft => ({
   stateId: "",
   cityId: "",
   audience: "all",
+  style: "default",
 });
 
 type PushPanelProps = {
@@ -200,10 +204,12 @@ export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
     try {
       const primary = primaryFromLinks(draft.links);
       const ctas = linksToBroadcastCtas(draft.links);
+      const isLead = draft.style === "lead_interest";
       const result = await notificationsService.sendPushOnly({
         title: draft.title.trim(),
         ...(draft.body.trim() ? { body: draft.body.trim() } : {}),
         ...(draft.imageUrl.trim() ? { imageUrl: draft.imageUrl.trim() } : {}),
+        ...(isLead ? { layoutType: "LEAD_INTEREST" } : {}),
         linkType: primary.linkType,
         ...(primary.linkType === "post" && primary.listingId
           ? { listingId: primary.listingId }
@@ -255,30 +261,76 @@ export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
       </div>
 
       <div className="space-y-4">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-gray-700">Style</label>
+          <Select
+            value={draft.style}
+            onValueChange={(v) =>
+              patch({ style: v === "lead_interest" ? "lead_interest" : "default" })
+            }
+          >
+            <SelectTrigger className="w-full">
+              {draft.style === "lead_interest"
+                ? "Lead interest (inquiry)"
+                : "Default"}
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="default">Default</SelectItem>
+              <SelectItem value="lead_interest">
+                Lead interest (inquiry)
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          {draft.style === "lead_interest" ? (
+            <p className="text-[11px] text-gray-500">
+              Tray shows circular profile photo + app badge. Title = name,
+              message = listing line, image = photo.
+            </p>
+          ) : null}
+        </div>
+
         <FormattedTextField
-          label="Title"
+          label={draft.style === "lead_interest" ? "Name" : "Title"}
           value={draft.title}
           onChange={(v) => patch({ title: v })}
-          placeholder="Notification title"
+          placeholder={
+            draft.style === "lead_interest" ? "Amit Verma" : "Notification title"
+          }
           ariaLabel="Push title"
           editorClassName="font-medium"
         />
         <FormattedTextField
-          label="Message (optional)"
+          label={
+            draft.style === "lead_interest"
+              ? "Listing line"
+              : "Message (optional)"
+          }
           value={draft.body}
           onChange={(v) => patch({ body: v })}
-          placeholder="Optional message"
+          placeholder={
+            draft.style === "lead_interest"
+              ? "3 BHK • Sector 150, Noida"
+              : "Optional message"
+          }
           ariaLabel="Push message"
         />
 
         <div className="space-y-1.5">
           <ImageUrlOrUpload
-            label="Image (optional)"
+            label={
+              draft.style === "lead_interest"
+                ? "Profile photo"
+                : "Image (optional)"
+            }
             value={draft.imageUrl}
             onChange={(url) => patch({ imageUrl: url })}
             kind="popup"
             placeholder="https://cdn.example.com/banner.jpg"
-            hint="Paste HTTPS URL or upload."
+            hint={
+              draft.style === "lead_interest"
+                ? "HTTPS profile photo URL (shown as circle + app badge)."
+                : "Paste HTTPS URL or upload."
+            }
             previewClassName="mt-2 max-h-32 rounded-2xl object-cover"
           />
         </div>

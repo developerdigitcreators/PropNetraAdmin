@@ -3,7 +3,11 @@
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { locationService } from '@/services/location.service';
-import { bannerAdsService, DEFAULT_SECTIONS } from '@/services/banner-ads.service';
+import {
+  bannerAdsService,
+  sectionsForPlacement,
+  bannerAdsListHref,
+} from '@/services/banner-ads.service';
 import { BannerForm } from '@/modules/banner-ads/banner-form';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
@@ -28,10 +32,19 @@ function NewBannerContent() {
       router.replace('/banner-ads');
       return;
     }
-    // Home page popup has no Top Banner
+    // Home page popup has no Top Banner; chat notification uses Stories instead.
     if (placement === 'popup' && section === 'top') {
       router.replace(
         `/banner-ads/new?stateId=${encodeURIComponent(stateId)}&cityId=${encodeURIComponent(cityId)}&placement=popup&section=general`,
+      );
+      return;
+    }
+    if (
+      placement === 'chat_notification' &&
+      (section === 'top' || section === 'stories')
+    ) {
+      router.replace(
+        `/banner-ads/new?stateId=${encodeURIComponent(stateId)}&cityId=${encodeURIComponent(cityId)}&placement=chat_notification&section=story`,
       );
       return;
     }
@@ -53,8 +66,9 @@ function NewBannerContent() {
         setStateName(state.name);
         setCityName(city.name);
         setPageLabel(placements.find((p) => p.key === placement)?.label || placement);
+        const sectionOpts = sectionsForPlacement(placement, sections);
         setSectionLabel(
-          (sections.length ? sections : DEFAULT_SECTIONS).find((s) => s.key === section)?.label || section
+          sectionOpts.find((s) => s.key === section)?.label || section
         );
       })
       .catch(() => router.replace('/banner-ads'))
@@ -79,7 +93,10 @@ function NewBannerContent() {
       <div className="space-y-6 pb-16">
         <Breadcrumb
           items={[
-            { label: 'Banner Ads', href: '/banner-ads' },
+            {
+              label: 'Banner Ads',
+              href: bannerAdsListHref({ stateId, cityId, placement }),
+            },
             { label: 'Add New Banner' },
           ]}
         />

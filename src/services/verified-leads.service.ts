@@ -16,6 +16,9 @@ export type VerifiedLeadRow = {
   bhk?: string | null;
   city?: string | null;
   location?: string | null;
+  leadContactName?: string | null;
+  leadContactPhone?: string | null;
+  leadUnitNo?: string | null;
   interestedAt: string;
   status: VerifiedLeadStatus;
   statusLabel: string;
@@ -27,6 +30,7 @@ export type VerifiedLeadRow = {
   email?: string | null;
   interestedUserId: string;
   planCode?: string | null;
+  isNew?: boolean;
 };
 
 export type VerifiedLeadRemark = {

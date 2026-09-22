@@ -117,6 +117,7 @@ export function CreateVerifiedListingPanel() {
   const [propertySearch, setPropertySearch] = useState("");
   const [leadContactName, setLeadContactName] = useState("");
   const [leadContactPhone, setLeadContactPhone] = useState("");
+  const [leadUnitNo, setLeadUnitNo] = useState("");
   const connectedStaffUserId = authUser?.id?.trim() || "";
 
   const [loadingCategories, setLoadingCategories] = useState(true);
@@ -148,6 +149,7 @@ export function CreateVerifiedListingPanel() {
         propertySearch,
         leadContactName,
         leadContactPhone,
+        leadUnitNo,
       }),
     [
       categoryId,
@@ -165,6 +167,7 @@ export function CreateVerifiedListingPanel() {
       propertySearch,
       leadContactName,
       leadContactPhone,
+      leadUnitNo,
     ],
   );
 
@@ -560,6 +563,7 @@ export function CreateVerifiedListingPanel() {
         price: priceOnRequest ? null : Number(price),
         lead_contact_name: leadContactName.trim(),
         lead_contact_phone: leadContactPhone.trim(),
+        lead_unit_no: leadUnitNo.trim() || undefined,
         connected_staff_user_id: connectedStaffUserId,
         details: detailsPayload,
         floor_pricing: isDirectBuilderFloor
@@ -865,7 +869,15 @@ export function CreateVerifiedListingPanel() {
                 contact on reveal.
               </p>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Unit No</label>
+                <Input
+                  value={leadUnitNo}
+                  onChange={(e) => setLeadUnitNo(e.target.value)}
+                  placeholder="e.g. A-1204"
+                />
+              </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">
                   Seller name <span className="text-red-500">*</span>

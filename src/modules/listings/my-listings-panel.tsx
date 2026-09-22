@@ -840,6 +840,14 @@ export function MyListingsPanel() {
                                   <span className="text-xs">
                                     {item.leadContactPhone || ""}
                                   </span>
+                                  {item.leadUnitNo ? (
+                                    <>
+                                      <br />
+                                      <span className="text-xs text-gray-500">
+                                        Unit {item.leadUnitNo}
+                                      </span>
+                                    </>
+                                  ) : null}
                                 </>
                               ) : (
                                 <>
@@ -1063,6 +1071,9 @@ export function MyListingsPanel() {
                           label="Owner detail"
                           value={
                             [
+                              listingDetail.leadUnitNo
+                                ? `Unit ${listingDetail.leadUnitNo}`
+                                : null,
                               listingDetail.leadContactName,
                               listingDetail.leadContactPhone,
                             ]

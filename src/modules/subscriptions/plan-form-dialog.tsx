@@ -46,6 +46,9 @@ function emptyLimits(): PlanLimits {
     addonListingContactsDaily: 0,
     addonBuyReqContactsDaily: 0,
     addonBuilderContactsDaily: 0,
+    addonResaleBundlesMonthly: 0,
+    addonBuyReqBundlesMonthly: 0,
+    addonBuilderBundlesMonthly: 0,
   };
 }
 
@@ -463,6 +466,40 @@ export function PlanFormDialog({
               </div>
               <p className="text-xs text-gray-500">
                 0 = addon credits for that type cannot be used that day (plan quota still applies).
+              </p>
+            </Section>
+          ) : null}
+
+          {addonsEnabled ? (
+            <Section
+              title="Monthly add-on pack purchase caps"
+              description="1 purchase of a pack = 1 bundle. Caps reset each calendar month."
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                <NumField
+                  label="Resale / listing packs / month"
+                  value={String(limits.addonResaleBundlesMonthly ?? 0)}
+                  onChange={(v) =>
+                    setLimitField('addonResaleBundlesMonthly', v)
+                  }
+                />
+                <NumField
+                  label="Buy-req packs / month"
+                  value={String(limits.addonBuyReqBundlesMonthly ?? 0)}
+                  onChange={(v) =>
+                    setLimitField('addonBuyReqBundlesMonthly', v)
+                  }
+                />
+                <NumField
+                  label="Builder packs / month"
+                  value={String(limits.addonBuilderBundlesMonthly ?? 0)}
+                  onChange={(v) =>
+                    setLimitField('addonBuilderBundlesMonthly', v)
+                  }
+                />
+              </div>
+              <p className="text-xs text-gray-500">
+                0 = unlimited pack purchases this month.
               </p>
             </Section>
           ) : null}

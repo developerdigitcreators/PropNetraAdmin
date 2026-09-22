@@ -15,6 +15,10 @@ export type PlanLimits = {
   addonListingContactsDaily: number;
   addonBuyReqContactsDaily: number;
   addonBuilderContactsDaily: number;
+  /** Max pack purchases per calendar month; 0 = unlimited */
+  addonResaleBundlesMonthly: number;
+  addonBuyReqBundlesMonthly: number;
+  addonBuilderBundlesMonthly: number;
 };
 
 export type PlanFlags = {
@@ -227,6 +231,9 @@ function normalizeLimits(raw: unknown): PlanLimits | null {
     addonListingContactsDaily: asNum(row.addonListingContactsDaily, 0),
     addonBuyReqContactsDaily: asNum(row.addonBuyReqContactsDaily, 0),
     addonBuilderContactsDaily: asNum(row.addonBuilderContactsDaily, 0),
+    addonResaleBundlesMonthly: asNum(row.addonResaleBundlesMonthly, 0),
+    addonBuyReqBundlesMonthly: asNum(row.addonBuyReqBundlesMonthly, 0),
+    addonBuilderBundlesMonthly: asNum(row.addonBuilderBundlesMonthly, 0),
   };
 }
 
@@ -388,6 +395,30 @@ export const subscriptionsService = {
       .map((row) => normalizePlan(row))
       .filter((row): row is SubscriptionPlanItem => !!row)
       .sort((a, b) => a.sortOrder - b.sortOrder);
+  },
+
+  getPlanPopupBanner: async (): Promise<{ imageUrl: string | null }> => {
+    const response = await axiosClient.get('/admin/settings/plan-popup-banner');
+    const data = response.data?.data ?? response.data ?? {};
+    const imageUrl =
+      typeof data.imageUrl === 'string' && data.imageUrl.trim()
+        ? data.imageUrl.trim()
+        : null;
+    return { imageUrl };
+  },
+
+  setPlanPopupBanner: async (
+    imageUrl: string | null,
+  ): Promise<{ imageUrl: string | null }> => {
+    const response = await axiosClient.put('/admin/settings/plan-popup-banner', {
+      imageUrl,
+    });
+    const data = response.data?.data ?? response.data ?? {};
+    const next =
+      typeof data.imageUrl === 'string' && data.imageUrl.trim()
+        ? data.imageUrl.trim()
+        : null;
+    return { imageUrl: next };
   },
 
   listAddons: async (): Promise<AddonCatalogItem[]> => {

@@ -392,6 +392,7 @@ export type CreateVerifiedListingPayload = {
   details?: Record<string, unknown>;
   lead_contact_name: string;
   lead_contact_phone: string;
+  lead_unit_no?: string;
   connected_staff_user_id: string;
   floor_pricing?: Array<{
     floor_number: number;
@@ -426,6 +427,7 @@ export type MyListingItem = {
   interestCount: number;
   leadContactName: string | null;
   leadContactPhone: string | null;
+  leadUnitNo?: string | null;
   connectedStaff: { id: string; name: string; contact: string } | null;
   remarksAddedBy?: string | null;
   ownerUser: {

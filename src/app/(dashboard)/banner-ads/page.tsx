@@ -9,6 +9,12 @@ import {
   isBannerActive,
   DEFAULT_SECTIONS,
   DEFAULT_AUTOSLIDE,
+  placementsForBannerAdsDropdown,
+  sectionsForPlacement,
+  sectionLabelForKey,
+  normalizeSectionKey,
+  CHAT_STORY_SECTION_KEY,
+  SUBSCRIPTION_PLAN_BANNER_PLACEMENT,
   type AdBanner,
   type AdPlacementOption,
   type AdSectionOption,
@@ -290,32 +296,29 @@ function BannerAdsPageInner() {
   const stateName = states.find((s) => s.id === stateId)?.name || '';
   const cityName = cities.find((c) => c.id === cityId)?.name || '';
   const pageLabel = placements.find((p) => p.key === placement)?.label || placement;
+  const dropdownPlacements = useMemo(
+    () => placementsForBannerAdsDropdown(placements),
+    [placements],
+  );
+  const isPlanBannerPlacement = placement === SUBSCRIPTION_PLAN_BANNER_PLACEMENT;
 
   const displaySections = useMemo(() => {
-    const keys = new Set([
-      ...sectionsMeta.map((s) => s.key),
-      ...Object.keys(sectionMap),
-    ]);
-    // Prefer meta order; append unknown keys from response
-    const ordered: AdSectionOption[] = [];
-    for (const meta of sectionsMeta) {
-      if (keys.has(meta.key)) {
-        ordered.push(meta);
-        keys.delete(meta.key);
-      }
+    const allowed = sectionsForPlacement(placement, sectionsMeta);
+    const allowedKeys = new Set(allowed.map((s) => s.key));
+    // Keep banners that live in a non-meta section (e.g. legacy data),
+    // but never reintroduce Top Banner on chat notification / popup.
+    // Merge API aliases (stories → story) so we never show both.
+    const ordered: AdSectionOption[] = [...allowed];
+    for (const rawKey of Object.keys(sectionMap)) {
+      const key = normalizeSectionKey(rawKey, placement);
+      if (allowedKeys.has(key)) continue;
+      if (!(sectionMap[rawKey]?.length > 0) && !(sectionMap[key]?.length > 0)) continue;
+      if (placement === 'chat_notification' && key === 'top') continue;
+      if (placement === 'popup' && key !== 'general') continue;
+      if (ordered.some((s) => s.key === key)) continue;
+      ordered.push({ key, label: sectionLabelForKey(key) });
     }
-    for (const key of keys) {
-      ordered.push({
-        key,
-        label: DEFAULT_SECTIONS.find((s) => s.key === key)?.label || key,
-      });
-    }
-    // Home page popup: no Top Banner section
-    const base = ordered.length ? ordered : DEFAULT_SECTIONS;
-    if (placement === 'popup') {
-      return base.filter((s) => s.key === 'general');
-    }
-    return base;
+    return ordered.length ? ordered : allowed;
   }, [sectionsMeta, sectionMap, placement]);
 
   useEffect(() => {
@@ -382,31 +385,60 @@ function BannerAdsPageInner() {
   const fetchBanners = useCallback(async () => {
     if (!stateId || !cityId || !placement) {
       setSectionMap({});
-      setAutoslideBySection({ top: DEFAULT_AUTOSLIDE, general: DEFAULT_AUTOSLIDE });
+      setAutoslideBySection({
+        top: DEFAULT_AUTOSLIDE,
+        general: DEFAULT_AUTOSLIDE,
+        [CHAT_STORY_SECTION_KEY]: DEFAULT_AUTOSLIDE,
+      });
       return;
     }
     setIsLoading(true);
     try {
       const data = await bannerAdsService.getBanners({ stateId, cityId, placement });
       const next: Record<string, AdBanner[]> = {};
-      for (const [key, rows] of Object.entries(data.sections || {})) {
-        next[key] = sortBanners(rows);
+      for (const [rawKey, rows] of Object.entries(data.sections || {})) {
+        const key = normalizeSectionKey(rawKey, placement);
+        const sorted = sortBanners(rows);
+        next[key] = next[key]?.length ? sortBanners([...next[key], ...sorted]) : sorted;
       }
-      for (const sec of sectionsMeta) {
+      for (const sec of sectionsForPlacement(placement, sectionsMeta)) {
         if (!next[sec.key]) next[sec.key] = [];
       }
       setSectionMap(next);
-      setAutoslideBySection({
-        top: normalizeAutoslideValue(data.autoslideBySection?.top?.autoslide, DEFAULT_AUTOSLIDE),
-        general: normalizeAutoslideValue(
-          data.autoslideBySection?.general?.autoslide ?? data.autoslide,
+      const bySec = data.autoslideBySection || {};
+      const nextAutoslide: Record<string, string> = {};
+      for (const sec of sectionsForPlacement(placement, sectionsMeta)) {
+        const raw =
+          bySec[sec.key]?.autoslide ??
+          bySec[sec.key === CHAT_STORY_SECTION_KEY ? 'stories' : sec.key]?.autoslide ??
+          (sec.key === 'general' ? data.autoslide : undefined);
+        nextAutoslide[sec.key] = normalizeAutoslideValue(raw, DEFAULT_AUTOSLIDE);
+      }
+      // Preserve any section keys present in the response (normalized)
+      for (const [rawKey, value] of Object.entries(bySec)) {
+        const key = normalizeSectionKey(rawKey, placement);
+        if (nextAutoslide[key] == null) {
+          nextAutoslide[key] = normalizeAutoslideValue(
+            value?.autoslide,
+            DEFAULT_AUTOSLIDE,
+          );
+        }
+      }
+      if (!Object.keys(nextAutoslide).length) {
+        nextAutoslide.general = normalizeAutoslideValue(
+          data.autoslide,
           DEFAULT_AUTOSLIDE,
-        ),
-      });
+        );
+      }
+      setAutoslideBySection(nextAutoslide);
     } catch (err) {
       console.error(err);
       setSectionMap({});
-      setAutoslideBySection({ top: DEFAULT_AUTOSLIDE, general: DEFAULT_AUTOSLIDE });
+      setAutoslideBySection({
+        top: DEFAULT_AUTOSLIDE,
+        general: DEFAULT_AUTOSLIDE,
+        [CHAT_STORY_SECTION_KEY]: DEFAULT_AUTOSLIDE,
+      });
     } finally {
       setIsLoading(false);
     }
@@ -508,19 +540,44 @@ function BannerAdsPageInner() {
   return (
     <PermissionGuard permission="ads:read" fallback={<div className="p-12 text-center text-gray-500">You do not have permission to view Banner Ads.</div>}>
       <div className="space-y-6 max-w-7xl pb-16">
-        <Breadcrumb items={[{ label: 'Banner Ads' }]} />
+        <Breadcrumb
+          items={
+            isPlanBannerPlacement
+              ? [
+                  { label: 'Subscription Plans', href: '/subscription-plans' },
+                  { label: 'Upgrade / Unlock banners' },
+                ]
+              : [{ label: 'Banner Ads' }]
+          }
+        />
 
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900">Banner Ads</h1>
-            <p className="text-gray-500 mt-1">Manage banners by city, page, and section.</p>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+              {isPlanBannerPlacement
+                ? 'Upgrade / Unlock Plan banners'
+                : 'Banner Ads'}
+            </h1>
+            <p className="text-gray-500 mt-1">
+              {isPlanBannerPlacement
+                ? 'Banners shown on the app unlock and upgrade plan screens. Pick state and city, then add top/general banners.'
+                : 'Manage banners by city, page, and section.'}
+            </p>
           </div>
           <AdminListToolbar
             onRefresh={() => void fetchBanners()}
             refreshBusy={isLoading}
             refreshDisabled={!ready}
             onReset={() => {
-              resetFilters();
+              if (isPlanBannerPlacement) {
+                setFilters({
+                  stateId: '',
+                  cityId: '',
+                  placement: SUBSCRIPTION_PLAN_BANNER_PLACEMENT,
+                });
+              } else {
+                resetFilters();
+              }
               setSectionMap({});
             }}
           />
@@ -561,6 +618,15 @@ function BannerAdsPageInner() {
             </SelectContent>
           </Select>
 
+          {isPlanBannerPlacement ? (
+            <div className="flex h-9 w-56 items-center rounded-md border border-input bg-gray-50 px-3 text-sm text-gray-700">
+              {pageLabel
+                ? ready
+                  ? withCount(pageLabel, bannerTotal)
+                  : pageLabel
+                : 'Upgrade / Unlock Plan'}
+            </div>
+          ) : (
           <Select
             value={placement}
             onValueChange={(v) => setFilters({ placement: v ?? '' })}
@@ -578,13 +644,14 @@ function BannerAdsPageInner() {
               </span>
             </SelectTrigger>
             <SelectContent>
-              {placements.map((p) => (
+              {dropdownPlacements.map((p) => (
                 <SelectItem key={p.key} value={p.key}>
                   {p.key === placement && ready ? withCount(p.label, bannerTotal) : p.label}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          )}
         </div>
 
         {!ready ? (
@@ -600,7 +667,11 @@ function BannerAdsPageInner() {
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 flex flex-wrap items-center gap-4 justify-between">
                     <div>
                       <p className="text-sm font-medium text-gray-900">
-                        {section.key === 'top' ? 'Top Auto-Slide' : 'General Banner Auto-Slide'}
+                        {section.key === 'top'
+                          ? 'Top Auto-Slide'
+                          : section.key === CHAT_STORY_SECTION_KEY
+                            ? 'Stories Auto-Slide'
+                            : 'General Banner Auto-Slide'}
                       </p>
                       <p className="text-xs text-gray-500">
                         How long each {section.label.toLowerCase()} stays on {pageLabel || 'this page'}.

@@ -6,6 +6,7 @@ import { locationService } from '@/services/location.service';
 import {
   bannerAdsService,
   flattenBannerList,
+  bannerAdsListHref,
   type AdBanner,
 } from '@/services/banner-ads.service';
 import { BannerForm } from '@/modules/banner-ads/banner-form';
@@ -82,7 +83,12 @@ function EditBannerContent() {
     return (
       <div className="space-y-4 py-12 text-center">
         <p className="text-gray-600">{error || 'Banner not found.'}</p>
-        <button className="text-primary text-sm underline" onClick={() => router.push('/banner-ads')}>
+        <button
+          className="text-primary text-sm underline"
+          onClick={() =>
+            router.push(bannerAdsListHref({ stateId, cityId, placement }))
+          }
+        >
           Back to Banner Ads
         </button>
       </div>
@@ -94,7 +100,10 @@ function EditBannerContent() {
       <div className="space-y-6 pb-16">
         <Breadcrumb
           items={[
-            { label: 'Banner Ads', href: '/banner-ads' },
+            {
+              label: 'Banner Ads',
+              href: bannerAdsListHref({ stateId, cityId, placement }),
+            },
             { label: 'Edit Banner' },
           ]}
         />

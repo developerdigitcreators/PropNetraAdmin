@@ -8,6 +8,9 @@ import {
   detectMediaType,
   postDisplayTitle,
   DEFAULT_SECTIONS,
+  placementsForBannerAdsDropdown,
+  bannerAdsListHref,
+  sectionsForPlacement,
   type AdBanner,
   type AdPageOption,
   type AdPlacementOption,
@@ -120,12 +123,22 @@ export function BannerForm({
         if (cancelled) return;
         setPages(pageOpts);
         setPlacements(placementOpts);
-        setSections(sectionOpts.length ? sectionOpts : DEFAULT_SECTIONS);
+        setSections(
+          sectionOpts.length
+            ? sectionOpts
+            : sectionsForPlacement(lockedPlacement),
+        );
         if (!banner?.pageKey && pageOpts[0]) setPageKey(pageOpts[0].key);
         if (lockedPlacement) setPlacement(lockedPlacement);
         else if (!banner?.placement && placementOpts[0]) setPlacement(placementOpts[0].key);
         else if (!banner?.placement && !placementOpts.length) setPlacement('home');
         if (lockedPlacement === 'popup') setSection('general');
+        else if (
+          lockedPlacement === 'chat_notification' &&
+          (lockedSection === 'top' || lockedSection === 'stories')
+        ) {
+          setSection('story');
+        }
         else if (lockedSection) setSection(lockedSection);
         else if (!banner?.section && sectionOpts[0]) setSection(sectionOpts[0].key);
       })
@@ -134,11 +147,17 @@ export function BannerForm({
         if (!cancelled) {
           setPages([{ key: 'refer_and_earn', label: 'Refer & Earn' }]);
           setPlacements([{ key: 'home', label: 'Home' }]);
-          setSections(DEFAULT_SECTIONS);
+          setSections(sectionsForPlacement(lockedPlacement));
           if (!pageKey) setPageKey('refer_and_earn');
           if (lockedPlacement) setPlacement(lockedPlacement);
           else if (!placement) setPlacement('home');
           if (lockedPlacement === 'popup') setSection('general');
+          else if (
+            lockedPlacement === 'chat_notification' &&
+            (lockedSection === 'top' || lockedSection === 'stories')
+          ) {
+            setSection('story');
+          }
           else if (lockedSection) setSection(lockedSection);
           else if (!section) setSection('general');
         }
@@ -190,6 +209,12 @@ export function BannerForm({
   const placementLabel = placements.find((p) => p.key === placement)?.label || placement;
   const sectionLabel = sections.find((s) => s.key === section)?.label || section;
   const linkPageLabel = pages.find((p) => p.key === pageKey)?.label || pageKey;
+  const formPlacementOptions = useMemo(() => {
+    const list = lockedPlacement
+      ? placements
+      : placementsForBannerAdsDropdown(placements);
+    return list.length ? list : [{ key: 'home', label: 'Home' }];
+  }, [lockedPlacement, placements]);
 
   const validate = (): { mediaUrl?: string; link?: string } | null => {
     const next: { mediaUrl?: string; link?: string } = {};
@@ -259,7 +284,9 @@ export function BannerForm({
         await bannerAdsService.createBanner(payload);
       }
       setBaseline(formSnapshot);
-      router.push('/banner-ads');
+      router.push(
+        bannerAdsListHref({ stateId, cityId, placement }),
+      );
     } catch (err: any) {
       console.error(err);
       const msg = err?.response?.data?.message;
@@ -301,7 +328,7 @@ export function BannerForm({
                 <span>{placementLabel || 'Select page'}</span>
               </SelectTrigger>
               <SelectContent>
-                {(placements.length ? placements : [{ key: 'home', label: 'Home' }]).map((p) => (
+                {formPlacementOptions.map((p) => (
                   <SelectItem key={p.key} value={p.key}>{p.label}</SelectItem>
                 ))}
               </SelectContent>
@@ -471,7 +498,7 @@ export function BannerForm({
 
       <div className="flex justify-end gap-3 pt-2">
         <Link
-          href="/banner-ads"
+          href={bannerAdsListHref({ stateId, cityId, placement })}
           className="inline-flex h-8 items-center justify-center rounded-lg border border-border bg-background px-2.5 text-sm font-medium hover:bg-muted"
         >
           Cancel

@@ -1647,6 +1647,7 @@ export const notificationsService = {
     title: string;
     body?: string;
     imageUrl?: string;
+    layoutType?: string;
     linkType?: BroadcastLinkType;
     listingId?: string;
     pageKey?: string;

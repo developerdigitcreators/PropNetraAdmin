@@ -31,6 +31,20 @@ export type BannerListParams = {
   placement: string;
 };
 
+/** List page URL with current location/placement filters preserved. */
+export function bannerAdsListHref(params: {
+  stateId?: string | null;
+  cityId?: string | null;
+  placement?: string | null;
+}) {
+  const q = new URLSearchParams();
+  if (params.stateId) q.set('stateId', params.stateId);
+  if (params.cityId) q.set('cityId', params.cityId);
+  if (params.placement) q.set('placement', params.placement);
+  const qs = q.toString();
+  return qs ? `/banner-ads?${qs}` : '/banner-ads';
+}
+
 export type BannerAutoslideBySection = {
   autoslide?: string | null;
   autoslideMs?: number | null;
@@ -115,12 +129,117 @@ export const DEFAULT_PLACEMENTS: AdPlacementOption[] = [
   { key: 'resale_listing', label: 'Resale listing page' },
   { key: 'developer_home', label: 'Developer Home page' },
   { key: 'direct_builder_floor', label: 'Direct Builder floor' },
+  { key: 'upgrade', label: 'Upgrade / Unlock Plan' },
 ];
+
+/** Managed from Subscription Plans — hide from Banner Ads page dropdown. */
+export const SUBSCRIPTION_PLAN_BANNER_PLACEMENT = 'upgrade';
+
+export const placementsForBannerAdsDropdown = (
+  placements: AdPlacementOption[],
+): AdPlacementOption[] =>
+  placements.filter((p) => p.key !== SUBSCRIPTION_PLAN_BANNER_PLACEMENT);
 
 export const DEFAULT_SECTIONS: AdSectionOption[] = [
   { key: 'top', label: 'Top Banner' },
   { key: 'general', label: 'General Banner' },
 ];
+
+/** Chat notification uses Stories (`story`) instead of Top Banner. */
+export const CHAT_STORY_SECTION_KEY = 'story';
+
+export const CHAT_NOTIFICATION_SECTIONS: AdSectionOption[] = [
+  { key: CHAT_STORY_SECTION_KEY, label: 'Stories' },
+  { key: 'general', label: 'General Banner' },
+];
+
+const SECTION_LABELS: Record<string, string> = {
+  top: 'Top Banner',
+  general: 'General Banner',
+  story: 'Stories',
+  stories: 'Stories',
+};
+
+/** Normalize API aliases (stories ↔ story) to the canonical chat section key. */
+export function normalizeSectionKey(key: string, placement?: string) {
+  const k = (key || '').trim();
+  if (!k) return 'general';
+  if (
+    placement === 'chat_notification' &&
+    (k === 'stories' || k === 'story' || k === 'top')
+  ) {
+    // top was replaced by Stories on chat notification
+    if (k === 'top') return CHAT_STORY_SECTION_KEY;
+    return CHAT_STORY_SECTION_KEY;
+  }
+  if (k === 'stories') return CHAT_STORY_SECTION_KEY;
+  return k;
+}
+
+export function sectionLabelForKey(key: string) {
+  const normalized = key === 'stories' ? CHAT_STORY_SECTION_KEY : key;
+  return (
+    SECTION_LABELS[normalized] ||
+    SECTION_LABELS[key] ||
+    DEFAULT_SECTIONS.find((s) => s.key === key)?.label ||
+    key
+  );
+}
+
+/**
+ * Sections allowed for a placement. Chat notification: Stories (+ General),
+ * no Top Banner. Popup: General only.
+ */
+export function sectionsForPlacement(
+  placement: string | undefined,
+  fromApi?: AdSectionOption[],
+): AdSectionOption[] {
+  const mapIncoming = (list: AdSectionOption[]) => {
+    const byKey = new Map<string, AdSectionOption>();
+    for (const s of list) {
+      const key = normalizeSectionKey(s.key, placement);
+      if (placement === 'chat_notification' && key === 'top') continue;
+      if (!byKey.has(key)) {
+        byKey.set(key, {
+          key,
+          label: sectionLabelForKey(key) || s.label || key,
+        });
+      }
+    }
+    return Array.from(byKey.values());
+  };
+
+  const base =
+    fromApi && fromApi.length
+      ? mapIncoming(fromApi)
+      : placement === 'chat_notification'
+        ? CHAT_NOTIFICATION_SECTIONS
+        : placement === 'popup'
+          ? DEFAULT_SECTIONS.filter((s) => s.key === 'general')
+          : DEFAULT_SECTIONS;
+
+  if (placement === 'popup') {
+    return base.filter((s) => s.key === 'general');
+  }
+
+  if (placement === 'chat_notification') {
+    const withoutTop = base.filter((s) => s.key !== 'top');
+    const hasStory = withoutTop.some((s) => s.key === CHAT_STORY_SECTION_KEY);
+    const next = hasStory
+      ? withoutTop
+      : [
+          { key: CHAT_STORY_SECTION_KEY, label: 'Stories' },
+          ...withoutTop.filter((s) => s.key !== CHAT_STORY_SECTION_KEY),
+        ];
+    return [...next].sort((a, b) => {
+      const rank = (k: string) =>
+        k === CHAT_STORY_SECTION_KEY ? 0 : k === 'general' ? 1 : 2;
+      return rank(a.key) - rank(b.key);
+    });
+  }
+
+  return base;
+}
 
 export const DEFAULT_AUTOSLIDE = '00:00:05';
 
@@ -293,7 +412,7 @@ function normalizeListResponse(data: unknown): BannerListResponse {
   }
 
   const rows = asArray<AdBanner>(data);
-  const sections: Record<string, AdBanner[]> = { top: [], general: [] };
+  const sections: Record<string, AdBanner[]> = {};
   for (const row of rows) {
     const key = row.section || 'general';
     if (!sections[key]) sections[key] = [];
@@ -359,25 +478,17 @@ export const bannerAdsService = {
     }
   },
 
-  /** Sections within a page (Top Banner, General Banner). Popup has General only. */
+  /** Sections within a page. Popup = General only; chat notification = Stories (+ General). */
   getSections: async (placement?: string): Promise<AdSectionOption[]> => {
     try {
       const response = await axiosClient.get('/admin/ads/sections', {
         params: placement ? { placement } : undefined,
       });
       const raw = asArray<AdSectionOption | string>(response.data);
-      const mapped = mapKeyLabelOptions(raw, (key) =>
-        DEFAULT_SECTIONS.find((s) => s.key === key)?.label || key
-      );
-      const list = mapped.length ? mapped : DEFAULT_SECTIONS;
-      if (placement === 'popup') {
-        return list.filter((s) => s.key === 'general');
-      }
-      return list;
+      const mapped = mapKeyLabelOptions(raw, (key) => sectionLabelForKey(key));
+      return sectionsForPlacement(placement, mapped);
     } catch {
-      return placement === 'popup'
-        ? DEFAULT_SECTIONS.filter((s) => s.key === 'general')
-        : DEFAULT_SECTIONS;
+      return sectionsForPlacement(placement);
     }
   },
 

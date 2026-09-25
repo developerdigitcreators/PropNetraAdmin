@@ -8,6 +8,21 @@ export const rbacService = {
     return response.data;
   },
 
+  /** OTP Verified Add User — Agent, Direct builder floor, Developer */
+  getOtpVerifiedRoleOptions: async () => {
+    try {
+      const response = await axiosClient.get(
+        "/admin/users/otp-verified/role-options",
+      );
+      return response.data;
+    } catch {
+      const response = await axiosClient.get(
+        "/admin/rbac/otp-verified-role-options",
+      );
+      return response.data;
+    }
+  },
+
   getPermissionScopes: async () => {
     const response = await axiosClient.get("/admin/rbac/permissions/scopes");
     const raw = response.data;

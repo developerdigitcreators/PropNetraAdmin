@@ -76,7 +76,7 @@ import {
 
 type ListingReviewTableProps = {
   items: ListingReviewItem[];
-  mode: "unverified" | "verified" | "rejected";
+  mode: "unverified" | "verified" | "rejected" | "dbf_catalog";
   onApprove: (
     id: string,
     payload: ApproveListingReviewPayload,
@@ -148,30 +148,54 @@ function typeNameKey(name?: string | null) {
     .replace(/\s+/g, " ");
 }
 
-/** One Apartment / SCO / Plot, regardless of Residential / Commercial / Pre-Leased rows. */
+/** One Apartment / SCO / Plot, regardless of Residential / Commercial / Pre-Leased rows.
+ * Direct builder floor stays its own option (never merged with Resale Builder Floor). */
 function uniquePropertyTypes(rows: any[]) {
-  const byName = new Map<string, any>();
+  const byKey = new Map<string, any>();
   const sorted = [...rows].sort((a, b) => {
+    const aDbf = Boolean(a?.isDirectBuilderFloor);
+    const bDbf = Boolean(b?.isDirectBuilderFloor);
+    if (aDbf !== bDbf) return aDbf ? 1 : -1;
     const aOrder = Number(a?.sort_order ?? a?.sortOrder ?? 9999);
     const bOrder = Number(b?.sort_order ?? b?.sortOrder ?? 9999);
     if (aOrder !== bOrder) return aOrder - bOrder;
-    return String(a?.name || "").localeCompare(String(b?.name || ""));
+    return String(a?.label || a?.displayName || a?.name || "").localeCompare(
+      String(b?.label || b?.displayName || b?.name || ""),
+    );
   });
   for (const row of sorted) {
-    const key = typeNameKey(row?.name);
+    const isDbf = Boolean(row?.isDirectBuilderFloor);
+    const key = isDbf
+      ? "direct-builder-floor"
+      : typeNameKey(row?.label || row?.displayName || row?.name);
     if (!key) continue;
-    const existing = byName.get(key);
+    const existing = byKey.get(key);
     if (!existing) {
-      byName.set(key, row);
+      byKey.set(key, row);
+      continue;
+    }
+    if (isDbf) {
+      byKey.set(key, row);
       continue;
     }
     const existingHasImage = Boolean(
       pickStr(existing.share_image_url, existing.shareImageUrl),
     );
     const rowHasImage = Boolean(pickStr(row.share_image_url, row.shareImageUrl));
-    if (!existingHasImage && rowHasImage) byName.set(key, row);
+    if (!existingHasImage && rowHasImage) byKey.set(key, row);
   }
-  return [...byName.values()];
+  return [...byKey.values()];
+}
+
+function propertyTypeLabel(row: any) {
+  return String(row?.label || row?.displayName || row?.name || "—");
+}
+
+function dbfPropertyTypeId(propertyTypes: any[]) {
+  const dbf = uniquePropertyTypes(propertyTypes).find(
+    (t) => t?.isDirectBuilderFloor,
+  );
+  return dbf?.id ? String(dbf.id) : "";
 }
 
 function canonicalPropertyTypeId(
@@ -182,17 +206,32 @@ function canonicalPropertyTypeId(
   const unique = uniquePropertyTypes(propertyTypes);
   if (rawId) {
     const match = propertyTypes.find((t) => t.id === rawId);
+    if (match?.isDirectBuilderFloor) {
+      const dbf = unique.find((t) => t.isDirectBuilderFloor);
+      if (dbf) return dbf.id as string;
+    }
     if (match) {
       const canon = unique.find(
-        (t) => typeNameKey(t.name) === typeNameKey(match.name),
+        (t) =>
+          !t.isDirectBuilderFloor &&
+          typeNameKey(t.label || t.displayName || t.name) ===
+            typeNameKey(match.label || match.displayName || match.name),
       );
       if (canon) return canon.id as string;
     }
     if (unique.some((t) => t.id === rawId)) return rawId;
   }
   if (rawName) {
+    const key = typeNameKey(rawName);
+    if (key === "direct builder floor" || key === "builder floor") {
+      const dbf = unique.find((t) => t.isDirectBuilderFloor);
+      // Prefer DBF label match; only fall back to plain Builder Floor when no DBF row.
+      if (key === "direct builder floor" && dbf) return dbf.id as string;
+    }
     const canon = unique.find(
-      (t) => typeNameKey(t.name) === typeNameKey(rawName),
+      (t) =>
+        typeNameKey(t.label || t.displayName || t.name) === key ||
+        typeNameKey(t.name) === key,
     );
     if (canon) return canon.id as string;
   }
@@ -461,6 +500,8 @@ function CompareField({
 type FieldOverride = {
   name: string;
   earlier: string;
+  /** Catalog id when admin picked from dropdown; empty when typed. */
+  id?: string;
 };
 
 function isAppliedFromCatalog(
@@ -804,6 +845,7 @@ export function ListingReviewTable({
   const [fieldEdit, setFieldEdit] = useState<{
     id: string;
     field: CatalogField;
+    earlier?: string;
   } | null>(null);
   const [fieldEditPick, setFieldEditPick] = useState<CatalogPick | null>(null);
   const [fieldOverrides, setFieldOverrides] = useState<
@@ -824,7 +866,14 @@ export function ListingReviewTable({
   });
   const isGrabbingRef = useRef(false);
 
-  const colCount = mode === "unverified" ? 9 : mode === "verified" ? 8 : 7;
+  const colCount =
+    mode === "unverified"
+      ? 9
+      : mode === "dbf_catalog"
+        ? 7
+        : mode === "verified"
+          ? 8
+          : 7;
 
   const toggleExpanded = (id: string) => {
     setExpandedIds((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -846,14 +895,67 @@ export function ListingReviewTable({
 
   const openSaveDialog = (item: ListingReviewItem) => {
     const current = getDraft(item);
-    setSaveDraft(buildSaveDraft(item, current.forSale));
+    const draft = buildSaveDraft(item, current.forSale);
+    const ov = fieldOverrides[item.id];
+    // Prefer pencil draft (review_pick / local override) over seed.
+    const pickPnName = getReviewPickName(item, "propertyName");
+    const pickPnId = getReviewPickId(item, "propertyName");
+    const pickLocName = getReviewPickName(item, "location");
+    const pickLocId = getReviewPickId(item, "location");
+    const pickMmName = getReviewPickName(item, "microMarket");
+    const pickMmId = getReviewPickId(item, "microMarket");
+    if (ov?.propertyName?.name?.trim() || pickPnName) {
+      draft.propertyName = {
+        id: ov?.propertyName?.id || pickPnId || "",
+        name: (ov?.propertyName?.name || pickPnName).trim(),
+      };
+    }
+    if (ov?.location?.name?.trim() || pickLocName) {
+      const locPick = {
+        id: ov?.location?.id || pickLocId || "",
+        name: (ov?.location?.name || pickLocName).trim(),
+      };
+      draft.location = locPick;
+      draft.locations = [{ ...locPick, locked: false }];
+    }
+    if (ov?.microMarket?.name?.trim() || pickMmName) {
+      draft.microMarket = {
+        id: ov?.microMarket?.id || pickMmId || "",
+        name: (ov?.microMarket?.name || pickMmName).trim(),
+      };
+    }
+    if (mode === "dbf_catalog") {
+      const dbfId = dbfPropertyTypeId(propertyTypes);
+      if (dbfId) draft.propertyTypeIds = [dbfId];
+    }
+    setSaveDraft(draft);
     setSaveOpen({ id: item.id });
   };
 
   const openFieldEdit = (item: ListingReviewItem, field: CatalogField) => {
     const original = getFieldOriginal(item, field);
-    setFieldEditPick(pickReviewFromCatalog(item, field, original.name, original.id));
-    setFieldEdit({ id: item.id, field });
+    const cell = resolveCatalogCell(
+      item,
+      field,
+      fieldOverrides[item.id]?.[field],
+    );
+    const earlierName =
+      getReviewPickOriginalName(item, field) ||
+      fieldOverrides[item.id]?.[field]?.earlier ||
+      original.name ||
+      (cell.value && cell.value !== "—" ? cell.value : "");
+    const override = fieldOverrides[item.id]?.[field];
+    if (override?.name?.trim()) {
+      setFieldEditPick({
+        id: override.id || "",
+        name: override.name.trim(),
+      });
+    } else {
+      setFieldEditPick(
+        pickReviewFromCatalog(item, field, original.name, original.id),
+      );
+    }
+    setFieldEdit({ id: item.id, field, earlier: earlierName });
   };
 
   const closeFieldEdit = () => {
@@ -866,6 +968,7 @@ export function ListingReviewTable({
     field: CatalogField,
     name: string,
     earlier: string,
+    catalogId?: string,
   ) => {
     setFieldOverrides((prev) => ({
       ...prev,
@@ -874,6 +977,7 @@ export function ListingReviewTable({
         [field]: {
           name,
           earlier: prev[id]?.[field]?.earlier || earlier,
+          id: catalogId || "",
         },
       },
     }));
@@ -885,16 +989,23 @@ export function ListingReviewTable({
   const reloadCatalog = useCallback(async () => {
     setCatalogLoading(true);
     try {
-      const [mm, locs, pns, pts] = await Promise.all([
+      const [mm, locs, pts] = await Promise.all([
         locationService.getMicroMarkets(),
         locationService.getLocations(),
-        locationService.getPropertyNames(),
-        listingConfigService.getPropertyTypes().catch(() => []),
+        listingConfigService
+          .getPropertyTypeOptionsForProjectNames()
+          .catch(() => listingConfigService.getPropertyTypes().catch(() => [])),
       ]);
+      const typeList = asList(pts);
       setMicroMarkets(asCatalogOptions(mm));
       setLocations(asCatalogOptions(locs));
+      setPropertyTypes(typeList);
+      // DBF edit dropdown: only names linked to Direct builder floor (not Resale).
+      const pns =
+        mode === "dbf_catalog"
+          ? await locationService.getPropertyNames({ directBuilderFloor: true })
+          : await locationService.getPropertyNames();
       setPropertyNames(asCatalogOptions(pns));
-      setPropertyTypes(asList(pts));
     } catch (err) {
       console.error(err);
       setMicroMarkets([]);
@@ -904,7 +1015,7 @@ export function ListingReviewTable({
     } finally {
       setCatalogLoading(false);
     }
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
     if (!catalogDialogOpen) return;
@@ -1068,6 +1179,7 @@ export function ListingReviewTable({
         };
 
         if (
+          mode !== "dbf_catalog" &&
           !payload.rejectPropertyName &&
           !payload.rejectLocation &&
           !payload.rejectMicroMarket
@@ -1079,6 +1191,12 @@ export function ListingReviewTable({
 
         await onReject(id, payload);
         setRejectCatalogDraft(null);
+        setFieldOverrides((prev) => {
+          if (!prev[id]) return prev;
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
       } else {
         await onApprove(id, { showForSaleInLocation: draft.forSale });
       }
@@ -1090,6 +1208,156 @@ export function ListingReviewTable({
           ? "Failed to reject listing."
           : "Failed to approve listing.",
       );
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const apiErrorMessage = (err: unknown, fallback: string) => {
+    const data = (err as { response?: { data?: Record<string, unknown> } })
+      ?.response?.data;
+    const nested =
+      data && typeof data.error === "object" && data.error
+        ? (data.error as { message?: unknown }).message
+        : undefined;
+    const msg = nested ?? data?.message ?? (err as Error)?.message;
+    if (Array.isArray(msg)) return msg.filter(Boolean).join(", ") || fallback;
+    if (typeof msg === "string" && msg.trim()) return msg;
+    return fallback;
+  };
+
+  const handleDbfDirectSave = async (item: ListingReviewItem) => {
+    // Ensure Direct builder floor type options are loaded (dialog may never have opened).
+    let types = propertyTypes;
+    if (!types.length) {
+      try {
+        const pts = await listingConfigService
+          .getPropertyTypeOptionsForProjectNames()
+          .catch(() => listingConfigService.getPropertyTypes().catch(() => []));
+        types = asList(pts);
+        setPropertyTypes(types);
+      } catch {
+        /* ignore — listing.property_type still used as fallback */
+      }
+    }
+
+    const ov = fieldOverrides[item.id];
+    const linkedPnId =
+      typeof item.property_name?.id === "string" ? item.property_name.id : "";
+    const linkedLocId =
+      typeof item.location?.id === "string" ? item.location.id : "";
+    const linkedMmId = getHighlightedMicroMarketId(item);
+
+    const pnName = (
+      ov?.propertyName?.name ||
+      getReviewPickName(item, "propertyName") ||
+      getHighlightedPropertyName(item)
+    ).trim();
+    // Catalog clone only — never send the listing's linked pending id (that would
+    // risk in-place rename). Approved catalog picks from the pencil may be sent.
+    const pickPnId =
+      ov?.propertyName?.id || getReviewPickId(item, "propertyName") || "";
+    const pnId =
+      pickPnId && pickPnId !== linkedPnId ? pickPnId : undefined;
+
+    const locName = (
+      ov?.location?.name ||
+      getReviewPickName(item, "location") ||
+      getHighlightedLocationName(item)
+    ).trim();
+    const pickLocId =
+      ov?.location?.id || getReviewPickId(item, "location") || "";
+    const locId =
+      pickLocId && pickLocId !== linkedLocId ? pickLocId : undefined;
+
+    const mmName = (
+      ov?.microMarket?.name ||
+      getReviewPickName(item, "microMarket") ||
+      getHighlightedMicroMarketName(item)
+    ).trim();
+    const pickMmId =
+      ov?.microMarket?.id || getReviewPickId(item, "microMarket") || "";
+    const mmId =
+      pickMmId && pickMmId !== linkedMmId ? pickMmId : undefined;
+
+    const savePn =
+      isPropertyNamePending(item) ||
+      !!ov?.propertyName?.name ||
+      !!getReviewPickName(item, "propertyName");
+    const saveLoc =
+      isLocationPending(item) ||
+      !!ov?.location?.name ||
+      !!getReviewPickName(item, "location");
+    const saveMm =
+      isMicroMarketPending(item) ||
+      !!ov?.microMarket?.name ||
+      !!getReviewPickName(item, "microMarket");
+
+    if (!savePn && !saveLoc && !saveMm) {
+      alert("Nothing pending to save.");
+      return;
+    }
+    if (savePn && !pnName) {
+      alert("Property name is required. Edit it on the row first.");
+      return;
+    }
+    if (saveLoc && !locName) {
+      alert("Location is required. Edit it on the row first.");
+      return;
+    }
+    if (saveMm && !mmName && !mmId) {
+      alert("Micro market is required. Edit it on the row first.");
+      return;
+    }
+
+    const dbfTypeId = dbfPropertyTypeId(types);
+    const imageUrl = pickStr(
+      item.property_name?.image_url,
+      (item as { primaryImageUrl?: string }).primaryImageUrl,
+      Array.isArray((item as { images?: unknown }).images)
+        ? String((item as { images: unknown[] }).images[0] || "")
+        : "",
+    );
+
+    const payload: SaveListingCatalogPayload = {
+      savePropertyName: savePn,
+      saveLocation: saveLoc,
+      // Only save MM when we actually have a name or a different catalog pick.
+      saveMicroMarket: saveMm,
+      applyToListing: false,
+      propertyNameId: pnId,
+      propertyName: pnName || undefined,
+      propertyTypeId: dbfTypeId || item.property_type?.id || undefined,
+      propertyTypeIds: dbfTypeId
+        ? [dbfTypeId]
+        : item.property_type?.id
+          ? [item.property_type.id]
+          : undefined,
+      propertyNameImageUrl: imageUrl || undefined,
+      locationId: locId,
+      locationName: locName || undefined,
+      // Only send a different approved pick id; typed names clone by name.
+      microMarketId: mmId,
+      microMarketName: mmName || undefined,
+    };
+
+    setBusyId(item.id);
+    try {
+      await onSaveToDb(item.id, payload);
+      setFieldOverrides((prev) => {
+        if (!prev[item.id]) return prev;
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+      try {
+        await reloadCatalog();
+      } catch (err) {
+        console.error(err);
+      }
+    } catch (err) {
+      console.error(err);
+      alert(apiErrorMessage(err, "Failed to save to DB."));
     } finally {
       setBusyId(null);
     }
@@ -1144,6 +1412,12 @@ export function ListingReviewTable({
         .filter((chip) => !chip.id && chip.name.trim())
         .map((chip) => chip.name.trim());
       const primary = merged.locations[0];
+      const dbfTypeId =
+        mode === "dbf_catalog" ? dbfPropertyTypeId(propertyTypes) : "";
+      const typeIds =
+        mode === "dbf_catalog" && dbfTypeId
+          ? [dbfTypeId]
+          : saveDraft.propertyTypeIds;
       const payload: SaveListingCatalogPayload = saveDraft.forSale
         ? {
             savePropertyName: false,
@@ -1155,6 +1429,8 @@ export function ListingReviewTable({
             locationNames,
             microMarketId: merged.microMarket.id || undefined,
             microMarketName: merged.microMarket.name.trim() || undefined,
+            // Save to DB = catalog only. Pencil edit uses applyToListing separately.
+            applyToListing: false,
           }
         : {
             savePropertyName: true,
@@ -1162,8 +1438,8 @@ export function ListingReviewTable({
             saveMicroMarket: true,
             propertyNameId: saveDraft.propertyName.id || undefined,
             propertyName: saveDraft.propertyName.name.trim() || undefined,
-            propertyTypeId: saveDraft.propertyTypeIds[0] || undefined,
-            propertyTypeIds: saveDraft.propertyTypeIds,
+            propertyTypeId: typeIds[0] || undefined,
+            propertyTypeIds: typeIds,
             propertyNameImageUrl: saveDraft.imageUrl.trim() || undefined,
             locationId: primary?.id || undefined,
             locationName: primary?.name.trim() || undefined,
@@ -1171,14 +1447,21 @@ export function ListingReviewTable({
             locationNames,
             microMarketId: merged.microMarket.id || undefined,
             microMarketName: merged.microMarket.name.trim() || undefined,
+            applyToListing: false,
           };
       await onSaveToDb(saveOpen.id, payload);
+      setFieldOverrides((prev) => {
+        if (!prev[saveOpen.id]) return prev;
+        const next = { ...prev };
+        delete next[saveOpen.id];
+        return next;
+      });
       await reloadCatalog();
       setSaveOpen(null);
       setSaveDraft(null);
     } catch (err) {
       console.error(err);
-      alert("Failed to save to DB.");
+      alert(apiErrorMessage(err, "Failed to save to DB."));
     } finally {
       setBusyId(null);
     }
@@ -1187,6 +1470,11 @@ export function ListingReviewTable({
   const handleFieldEditSave = async () => {
     if (!fieldEdit || !fieldEditPick) return;
     const editItem = items.find((row) => row.id === fieldEdit.id);
+    const typedName = fieldEditPick.name.trim();
+    if (!typedName) {
+      alert(`Enter a ${FIELD_LABEL[fieldEdit.field].toLowerCase()}.`);
+      return;
+    }
     const editMmId = (() => {
       if (!editItem || fieldEdit.field !== "location") return "";
       const fromPick = getReviewPickId(editItem, "microMarket");
@@ -1211,12 +1499,87 @@ export function ListingReviewTable({
             ? locations.filter((row) => row.microMarketId === editMmId)
             : []
           : microMarkets;
-    if (!fieldEditPick.id || !editOptions.some((o) => o.id === fieldEditPick.id)) {
+    const pickedFromCatalog =
+      !!fieldEditPick.id &&
+      editOptions.some((o) => o.id === fieldEditPick.id);
+    if (mode !== "dbf_catalog" && !pickedFromCatalog) {
       alert(
         fieldEdit.field === "location" && !editMmId
           ? "Set a micro market first, then pick a location in that market."
           : `Select a ${FIELD_LABEL[fieldEdit.field].toLowerCase()} from the dropdown.`,
       );
+      return;
+    }
+
+    const earlierFor = (field: CatalogField) =>
+      editItem ? getFieldOriginal(editItem, field).name : "";
+
+    // DBF pencil: persist draft to DB (reload-safe). Outer Save / Reject leaves the queue.
+    if (mode === "dbf_catalog") {
+      const linkedPnId =
+        typeof editItem?.property_name?.id === "string"
+          ? editItem.property_name.id
+          : "";
+      const linkedLocId =
+        typeof editItem?.location?.id === "string" ? editItem.location.id : "";
+      const linkedMmId = editItem
+        ? getHighlightedMicroMarketId(editItem)
+        : "";
+      const draftPayload: SaveListingCatalogPayload =
+        fieldEdit.field === "propertyName"
+          ? {
+              savePropertyName: true,
+              saveLocation: false,
+              saveMicroMarket: false,
+              draftOnly: true,
+              propertyNameId: pickedFromCatalog
+                ? fieldEditPick.id
+                : linkedPnId || undefined,
+              propertyName: typedName,
+              applyToListing: false,
+            }
+          : fieldEdit.field === "location"
+            ? {
+                savePropertyName: false,
+                saveLocation: true,
+                saveMicroMarket: false,
+                draftOnly: true,
+                locationId: pickedFromCatalog
+                  ? fieldEditPick.id
+                  : linkedLocId || undefined,
+                locationName: typedName,
+                applyToListing: false,
+              }
+            : {
+                savePropertyName: false,
+                saveLocation: false,
+                saveMicroMarket: true,
+                draftOnly: true,
+                microMarketId: pickedFromCatalog
+                  ? fieldEditPick.id
+                  : undefined,
+                microMarketName: typedName,
+                applyToListing: false,
+              };
+      setBusyId(fieldEdit.id);
+      try {
+        await onSaveToDb(fieldEdit.id, draftPayload);
+        rememberFieldOverride(
+          fieldEdit.id,
+          fieldEdit.field,
+          typedName,
+          fieldEdit.earlier || earlierFor(fieldEdit.field),
+          pickedFromCatalog
+            ? fieldEditPick.id
+            : linkedPnId || linkedLocId || linkedMmId || "",
+        );
+        closeFieldEdit();
+      } catch (err) {
+        console.error(err);
+        alert(apiErrorMessage(err, "Failed to save draft."));
+      } finally {
+        setBusyId(null);
+      }
       return;
     }
 
@@ -1239,7 +1602,7 @@ export function ListingReviewTable({
               saveLocation: !!loc?.id,
               saveMicroMarket: !!mmId,
               propertyNameId: fieldEditPick.id,
-              propertyName: fieldEditPick.name.trim() || undefined,
+              propertyName: typedName || undefined,
               locationId: loc?.id || undefined,
               locationName: loc?.name || undefined,
               microMarketId: mmId || undefined,
@@ -1253,7 +1616,7 @@ export function ListingReviewTable({
               saveLocation: true,
               saveMicroMarket: false,
               locationId: fieldEditPick.id,
-              locationName: fieldEditPick.name.trim() || undefined,
+              locationName: typedName,
               applyToListing: true,
             }
           : {
@@ -1261,23 +1624,20 @@ export function ListingReviewTable({
               saveLocation: false,
               saveMicroMarket: true,
               microMarketId: fieldEditPick.id,
-              microMarketName: fieldEditPick.name.trim() || undefined,
+              microMarketName: typedName,
               applyToListing: true,
             };
 
     setBusyId(fieldEdit.id);
     try {
       await onSaveToDb(fieldEdit.id, payload);
-      const item = items.find((i) => i.id === fieldEdit.id);
-      const earlierFor = (field: CatalogField) =>
-        item ? getFieldOriginal(item, field).name : "";
       rememberFieldOverride(
         fieldEdit.id,
         fieldEdit.field,
-        fieldEditPick.name.trim(),
+        typedName,
         earlierFor(fieldEdit.field),
+        pickedFromCatalog ? fieldEditPick.id : "",
       );
-      // PN pencil pick locks linked location + micro market onto the post.
       if (fieldEdit.field === "propertyName") {
         const opt = propertyNames.find((row) => row.id === fieldEditPick.id);
         const primaryLocId = opt?.locationIds?.[0] || "";
@@ -1296,6 +1656,7 @@ export function ListingReviewTable({
             "location",
             loc.name,
             earlierFor("location"),
+            loc.id,
           );
         }
         if (mmId && mmName) {
@@ -1304,13 +1665,15 @@ export function ListingReviewTable({
             "microMarket",
             mmName,
             earlierFor("microMarket"),
+            mmId,
           );
         }
       }
       closeFieldEdit();
+      await reloadCatalog();
     } catch (err) {
       console.error(err);
-      alert("Failed to save.");
+      alert("Failed to save field.");
     } finally {
       setBusyId(null);
     }
@@ -1331,7 +1694,9 @@ export function ListingReviewTable({
       <div className="bg-gray-50/50 border border-dashed border-gray-200 rounded-2xl p-16 text-center text-sm text-gray-500">
         {mode === "unverified"
           ? "No unverified listings pending review."
-          : "No verified (published) listings yet."}
+          : mode === "dbf_catalog"
+            ? "No Direct builder floor listings waiting for Save to DB."
+            : "No verified (published) listings yet."}
       </div>
     );
   }
@@ -1340,7 +1705,10 @@ export function ListingReviewTable({
   const originalPn = saveItem ? getHighlightedPropertyName(saveItem) : "";
   const originalLoc = saveItem ? getHighlightedLocationName(saveItem) : "";
   const originalMm = saveItem ? getHighlightedMicroMarketName(saveItem) : "";
-  const saveTypeOptions = uniquePropertyTypes(propertyTypes);
+  const saveTypeOptions =
+    mode === "dbf_catalog"
+      ? uniquePropertyTypes(propertyTypes).filter((t) => t.isDirectBuilderFloor)
+      : uniquePropertyTypes(propertyTypes);
   const saveTypeIds = saveDraft
     ? [...new Set(
         saveDraft.propertyTypeIds
@@ -1379,7 +1747,10 @@ export function ListingReviewTable({
       : "No options found.";
   const fieldEditOriginal =
     fieldEditItem && fieldEdit
-      ? getFieldOriginal(fieldEditItem, fieldEdit.field).name
+      ? fieldEdit.earlier ||
+        getReviewPickOriginalName(fieldEditItem, fieldEdit.field) ||
+        fieldOverrides[fieldEditItem.id]?.[fieldEdit.field]?.earlier ||
+        getFieldOriginal(fieldEditItem, fieldEdit.field).name
       : "";
   const fieldEditMmId = (() => {
     if (!fieldEditItem) return "";
@@ -1416,13 +1787,16 @@ export function ListingReviewTable({
         : microMarkets
     : [];
   const fieldEditReady =
-    !!fieldEditPick?.id &&
-    fieldEditOptions.some((o) => o.id === fieldEditPick.id);
+    mode === "dbf_catalog"
+      ? !!fieldEditPick?.name?.trim()
+      : !!fieldEditPick?.id &&
+        fieldEditOptions.some((o) => o.id === fieldEditPick.id);
   const rejectDialogItem =
     confirm?.action === "reject"
       ? items.find((row) => row.id === confirm.id) || null
       : null;
   const rejectNothingPending =
+    mode !== "dbf_catalog" &&
     !!rejectDialogItem &&
     !hasPendingRejectTargets(
       rejectDialogItem,
@@ -1483,13 +1857,15 @@ export function ListingReviewTable({
                 <TableHead className="min-w-40">Property name</TableHead>
                 <TableHead className="min-w-40">Location</TableHead>
                 <TableHead className="min-w-40">Micro market</TableHead>
-                <TableHead className="min-w-50">Title display</TableHead>
+                {mode !== "dbf_catalog" ? (
+                  <TableHead className="min-w-50">Title display</TableHead>
+                ) : null}
                 {mode === "unverified" ? (
                   <TableHead className="min-w-35">Save to DB</TableHead>
                 ) : null}
-                {mode === "unverified" ? (
+                {mode === "unverified" || mode === "dbf_catalog" ? (
                   <TableHead className="text-right min-w-45">
-                    Approve / Reject
+                    {mode === "dbf_catalog" ? "Save / Reject" : "Approve / Reject"}
                   </TableHead>
                 ) : mode === "verified" ? (
                   <TableHead className="text-right min-w-45">
@@ -1551,8 +1927,13 @@ export function ListingReviewTable({
                   mode === "rejected" && mmStatus === "rejected";
                 const catalogSaved = hasCatalogSave(item);
                 const canSave =
-                  pnCell.pending || locCell.pending || mmCell.pending;
-                const canEditField = mode === "unverified";
+                  mode === "dbf_catalog"
+                    ? isPropertyNamePending(item) ||
+                      isLocationPending(item) ||
+                      isMicroMarketPending(item)
+                    : pnCell.pending || locCell.pending || mmCell.pending;
+                const canEditField =
+                  mode === "unverified" || mode === "dbf_catalog";
                 const rowBusy = busyId === item.id;
                 const expanded = !!expandedIds[item.id];
                 const detailRows = expanded ? getListingDetailRows(item) : [];
@@ -1679,29 +2060,31 @@ export function ListingReviewTable({
                         />
                       </TableCell>
 
-                      <TableCell className="align-top">
-                        <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 px-3 py-2">
-                          <div>
-                            <p className="text-xs font-medium text-gray-900">
-                              {draft.forSale
-                                ? "For Sale in Location"
-                                : "Property name"}
-                            </p>
-                            <p className="text-[10px] text-gray-500">
-                              {draft.forSale
-                                ? "App title uses location"
-                                : "App title uses Property Name"}
-                            </p>
+                      {mode !== "dbf_catalog" ? (
+                        <TableCell className="align-top">
+                          <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 px-3 py-2">
+                            <div>
+                              <p className="text-xs font-medium text-gray-900">
+                                {draft.forSale
+                                  ? "For Sale in Location"
+                                  : "Property name"}
+                              </p>
+                              <p className="text-[10px] text-gray-500">
+                                {draft.forSale
+                                  ? "App title uses location"
+                                  : "App title uses Property Name"}
+                              </p>
+                            </div>
+                            <Switch
+                              checked={draft.forSale}
+                              disabled={!canToggle || rowBusy}
+                              onCheckedChange={(v) =>
+                                handleToggleForSale(item, !!v)
+                              }
+                            />
                           </div>
-                          <Switch
-                            checked={draft.forSale}
-                            disabled={!canToggle || rowBusy}
-                            onCheckedChange={(v) =>
-                              handleToggleForSale(item, !!v)
-                            }
-                          />
-                        </div>
-                      </TableCell>
+                        </TableCell>
+                      ) : null}
 
                       {mode === "unverified" ? (
                         <TableCell className="align-top">
@@ -1733,10 +2116,26 @@ export function ListingReviewTable({
                         </TableCell>
                       ) : null}
 
-                      {mode === "unverified" ? (
+                      {mode === "unverified" || mode === "dbf_catalog" ? (
                         <TableCell className="align-top text-right">
                           <div className="inline-flex gap-2">
-                            {hasPendingRejectTargets(
+                            {mode === "dbf_catalog" ? (
+                              <Button
+                                size="sm"
+                                className="bg-primary text-white hover:bg-primary/90"
+                                disabled={rowBusy || !canSave}
+                                onClick={() => void handleDbfDirectSave(item)}
+                              >
+                                {rowBusy ? (
+                                  <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                                ) : (
+                                  <Database className="w-3.5 h-3.5 mr-1" />
+                                )}
+                                Save
+                              </Button>
+                            ) : null}
+                            {mode === "dbf_catalog" ||
+                            hasPendingRejectTargets(
                               item,
                               getDraft(item).forSale,
                               fieldOverrides,
@@ -1767,23 +2166,25 @@ export function ListingReviewTable({
                                 Reject
                               </Button>
                             ) : null}
-                            <Button
-                              size="sm"
-                              className="bg-primary text-white hover:bg-primary/90"
-                              disabled={
-                                rowBusy || item.actions?.canApprove === false
-                              }
-                              onClick={() =>
-                                setConfirm({ id: item.id, action: "approve" })
-                              }
-                            >
-                              {rowBusy ? (
-                                <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
-                              ) : (
-                                <Check className="w-3.5 h-3.5 mr-1" />
-                              )}
-                              Approve
-                            </Button>
+                            {mode === "unverified" ? (
+                              <Button
+                                size="sm"
+                                className="bg-primary text-white hover:bg-primary/90"
+                                disabled={
+                                  rowBusy || item.actions?.canApprove === false
+                                }
+                                onClick={() =>
+                                  setConfirm({ id: item.id, action: "approve" })
+                                }
+                              >
+                                {rowBusy ? (
+                                  <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                                ) : (
+                                  <Check className="w-3.5 h-3.5 mr-1" />
+                                )}
+                                Approve
+                              </Button>
+                            ) : null}
                           </div>
                         </TableCell>
                       ) : mode === "verified" ? (
@@ -1977,7 +2378,10 @@ export function ListingReviewTable({
                     Property types <span className="text-red-500">*</span>
                   </label>
                   <MultiSelect
-                    options={saveTypeOptions.map((t) => ({ value: t.id, label: t.name }))}
+                    options={saveTypeOptions.map((t) => ({
+                      value: t.id,
+                      label: propertyTypeLabel(t),
+                    }))}
                     values={saveTypeIds}
                     onChange={(ids) =>
                       setSaveDraft((prev) =>
@@ -2175,10 +2579,14 @@ export function ListingReviewTable({
               Edit {fieldEdit ? FIELD_LABEL[fieldEdit.field] : ""}
             </DialogTitle>
             <DialogDescription>
-              Left is the current value. Right: pick an approved catalog name.
-              {fieldEdit?.field === "propertyName"
+              {mode === "dbf_catalog"
+                ? "Pick an approved name or type a new value. Save stores a draft (keeps after reload). Use Save / Reject on the row to finish and remove it from this queue."
+                : "Left is the current value. Right: pick an approved catalog name."}
+              {mode !== "dbf_catalog" && fieldEdit?.field === "propertyName"
                 ? " Choosing a property name also overrides Location and Micro market from that name’s catalog links."
-                : " Custom names that are not in the list stay on the left until you choose one from DB or reject the listing."}
+                : mode !== "dbf_catalog"
+                  ? " Custom names that are not in the list stay on the left until you choose one from DB or reject the listing."
+                  : ""}
             </DialogDescription>
           </DialogHeader>
 
@@ -2187,14 +2595,18 @@ export function ListingReviewTable({
               <CompareField
                 label={FIELD_LABEL[fieldEdit.field]}
                 original={fieldEditOriginal}
-                leftLabel="Current"
-                rightLabel="Select from DB"
+                leftLabel={mode === "dbf_catalog" ? "Earlier" : "Current"}
+                rightLabel={
+                  mode === "dbf_catalog"
+                    ? "Select or type"
+                    : "Select from DB"
+                }
                 right={
                   <CatalogPickSelect
                     options={fieldEditOptions}
                     value={fieldEditPick}
                     loading={catalogLoading}
-                    allowCreate={false}
+                    allowCreate={mode === "dbf_catalog"}
                     emptyText={
                       fieldEdit.field === "location"
                         ? fieldEditMmId
@@ -2202,7 +2614,11 @@ export function ListingReviewTable({
                           : "Set a micro market first."
                         : "No options found."
                     }
-                    placeholder={FIELD_PLACEHOLDER[fieldEdit.field]}
+                    placeholder={
+                      mode === "dbf_catalog"
+                        ? `Select or type ${FIELD_LABEL[fieldEdit.field].toLowerCase()}`
+                        : FIELD_PLACEHOLDER[fieldEdit.field]
+                    }
                     onChange={setFieldEditPick}
                   />
                 }
@@ -2218,7 +2634,8 @@ export function ListingReviewTable({
                   options are limited to that market.
                 </p>
               ) : null}
-              {fieldEditOriginal &&
+              {mode !== "dbf_catalog" &&
+              fieldEditOriginal &&
               !fieldEditOptions.some(
                 (o) => o.name.toLowerCase() === fieldEditOriginal.toLowerCase(),
               ) ? (
@@ -2274,7 +2691,9 @@ export function ListingReviewTable({
             <DialogTitle>Are you sure?</DialogTitle>
             <DialogDescription>
               {confirm?.action === "reject"
-                ? "Select what to reject and add a remark for each. Listing stays off search (draft). For location, pick micro market first, then search locations in that market."
+                ? mode === "dbf_catalog"
+                  ? "Reject removes this listing from the Direct builder floor Save-to-DB queue. Optionally mark which catalog fields to reject with a remark."
+                  : "Select what to reject and add a remark for each. Listing stays off search (draft). For location, pick micro market first, then search locations in that market."
                 : "Listing will go live (published). Save to DB is separate — this will not save Property Name/location to catalog."}
             </DialogDescription>
           </DialogHeader>
@@ -2583,6 +3002,7 @@ export function ListingReviewTable({
                 disabled={
                   !!busyId ||
                   (confirm?.action === "reject" &&
+                    mode !== "dbf_catalog" &&
                     (() => {
                       const anySelected =
                         !!rejectRemarksDraft.rejectPropertyName ||
@@ -2597,7 +3017,15 @@ export function ListingReviewTable({
                         (!!rejectRemarksDraft.rejectMicroMarket &&
                           !rejectRemarksDraft.microMarketRemark?.trim())
                       );
-                    })())
+                    })()) ||
+                  (confirm?.action === "reject" &&
+                    mode === "dbf_catalog" &&
+                    ((!!rejectRemarksDraft.rejectPropertyName &&
+                      !rejectRemarksDraft.propertyNameRemark?.trim()) ||
+                      (!!rejectRemarksDraft.rejectLocation &&
+                        !rejectRemarksDraft.locationRemark?.trim()) ||
+                      (!!rejectRemarksDraft.rejectMicroMarket &&
+                        !rejectRemarksDraft.microMarketRemark?.trim())))
                 }
                 onClick={handleConfirmAction}
               >

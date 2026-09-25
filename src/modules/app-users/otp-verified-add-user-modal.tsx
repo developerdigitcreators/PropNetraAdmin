@@ -50,11 +50,19 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-type AppRole = { id: string; name: string; audience?: string; label?: string };
+type AppRole = {
+  id: string;
+  name: string;
+  audience?: string;
+  label?: string;
+  appRole?: string;
+  roleLabel?: string;
+};
 
 const ADD_USER_ROLE_OPTIONS = [
   { key: 'agent', label: 'Agent' },
   { key: 'floor', label: 'Direct builder floor' },
+  { key: 'developer', label: 'Developer' },
 ] as const;
 
 function roleKey(name?: string) {
@@ -64,10 +72,22 @@ function roleKey(name?: string) {
     .trim();
 }
 
-function matchesAddUserRole(name: string | undefined, key: 'agent' | 'floor') {
-  const n = roleKey(name);
-  if (key === 'agent') return n === 'agent';
-  return n === 'floor' || n.includes('direct builder') || n === 'builder floor';
+function matchesAddUserRole(
+  role: { name?: string; appRole?: string; label?: string },
+  key: 'agent' | 'floor' | 'developer',
+) {
+  const appRole = String(role.appRole || '').toLowerCase();
+  if (appRole === key) return true;
+  const n = roleKey(role.name);
+  const label = roleKey(role.label);
+  if (key === 'agent') return n === 'agent' || label === 'agent';
+  if (key === 'developer') return n === 'developer' || label === 'developer';
+  return (
+    n === 'floor' ||
+    n.includes('direct builder') ||
+    label.includes('direct builder') ||
+    label === 'direct builder floor'
+  );
 }
 
 function normalizeRoles(data: unknown): AppRole[] {
@@ -76,7 +96,15 @@ function normalizeRoles(data: unknown): AppRole[] {
     : data && typeof data === 'object' && Array.isArray((data as { data?: unknown }).data)
       ? (data as { data: AppRole[] }).data
       : [];
-  return raw.filter((r) => r && r.id && r.name);
+  return raw
+    .filter((r) => r && r.id && (r.name || r.label))
+    .map((r) => ({
+      id: r.id,
+      name: r.name || r.appRole || '',
+      audience: r.audience,
+      label: r.label || r.roleLabel,
+      appRole: (r as AppRole).appRole,
+    }));
 }
 
 type ApiFieldIssue = { field: keyof FormData; message: string };
@@ -335,13 +363,13 @@ export function OtpVerifiedAddUserModal({
   const addRoles = useMemo(() => {
     const merged = [...normalizeRoles(roles), ...fetchedRoles];
     return ADD_USER_ROLE_OPTIONS.map((opt) => {
-      const match = merged.find((r) => matchesAddUserRole(r.name, opt.key));
+      const match = merged.find((r) => matchesAddUserRole(r, opt.key));
       return {
         id: match?.id || '',
         name: opt.key,
         label: opt.label,
       };
-    });
+    }).filter((r) => !!r.id);
   }, [roles, fetchedRoles]);
 
   const {
@@ -366,7 +394,6 @@ export function OtpVerifiedAddUserModal({
   });
 
   const selectedRoleId = watch('role_id');
-  const selectedRole = addRoles.find((r) => r.id === selectedRoleId);
   const contactReg = register('contact');
   const nameReg = register('name');
   const emailReg = register('email');
@@ -380,8 +407,10 @@ export function OtpVerifiedAddUserModal({
       contact: '',
       email: '',
     });
+    // Prefer dedicated OTP Verified options (agent / floor / developer)
     rbacService
-      .getRoles('app')
+      .getOtpVerifiedRoleOptions()
+      .catch(() => rbacService.getRoles('app'))
       .then((data) => setFetchedRoles(normalizeRoles(data)))
       .catch(() => setFetchedRoles([]));
   }, [open, reset]);
@@ -418,7 +447,7 @@ export function OtpVerifiedAddUserModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-visible">
         <DialogHeader>
           <DialogTitle>Add User</DialogTitle>
           <DialogDescription>
@@ -429,7 +458,7 @@ export function OtpVerifiedAddUserModal({
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-700">Role *</label>
             <Select
-              value={selectedRoleId || null}
+              value={selectedRoleId || undefined}
               onValueChange={(val) =>
                 setValue('role_id', val || '', { shouldValidate: true, shouldTouch: true })
               }
@@ -437,21 +466,24 @@ export function OtpVerifiedAddUserModal({
               <SelectTrigger
                 className={`w-full max-w-full ${errors.role_id ? 'border-red-500' : ''}`}
               >
-                <SelectValue placeholder="Choose a role...">
-                  {selectedRole?.label || null}
-                </SelectValue>
+                <SelectValue placeholder="Choose a role..." />
               </SelectTrigger>
-              <SelectContent>
-                {addRoles.map((role) => (
-                  <SelectItem
-                    key={role.label}
-                    value={role.id || `pending-${role.name}`}
-                    label={role.label}
-                    disabled={!role.id}
-                  >
-                    {role.label}
-                  </SelectItem>
-                ))}
+              <SelectContent
+                align="start"
+                side="bottom"
+                sideOffset={6}
+                alignItemWithTrigger={false}
+                className="z-[100]"
+              >
+                {addRoles.length === 0 ? (
+                  <div className="px-2 py-2 text-xs text-muted-foreground">Loading roles…</div>
+                ) : (
+                  addRoles.map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.label}
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
             {errors.role_id && (

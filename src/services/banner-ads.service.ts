@@ -130,6 +130,7 @@ export const DEFAULT_PLACEMENTS: AdPlacementOption[] = [
   { key: 'developer_home', label: 'Developer Home page' },
   { key: 'direct_builder_floor', label: 'Direct Builder floor' },
   { key: 'upgrade', label: 'Upgrade / Unlock Plan' },
+  { key: 'property_listing_form', label: 'Property Listing Form' },
 ];
 
 /** Managed from Subscription Plans — hide from Banner Ads page dropdown. */
@@ -220,6 +221,11 @@ export function sectionsForPlacement(
 
   if (placement === 'popup') {
     return base.filter((s) => s.key === 'general');
+  }
+
+  // Property Listing Form shows only the Top Banner (General hidden).
+  if (placement === 'property_listing_form') {
+    return base.filter((s) => s.key === 'top');
   }
 
   if (placement === 'chat_notification') {

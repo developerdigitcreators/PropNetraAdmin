@@ -1,6 +1,6 @@
 import { axiosClient } from "@/lib/axios-client";
 
-export type ReviewTab = "unverified" | "verified" | "rejected";
+export type ReviewTab = "unverified" | "verified" | "rejected" | "dbf_catalog";
 
 export type RejectListingReviewPayload = {
   rejectPropertyName?: boolean;
@@ -145,6 +145,8 @@ export type SaveListingCatalogPayload = {
   locationNames?: string[];
   saveMicroMarket?: boolean;
   applyToListing?: boolean;
+  /** DBF pencil: persist draft without approving catalog. */
+  draftOnly?: boolean;
   microMarketId?: string;
   microMarketName?: string;
 };

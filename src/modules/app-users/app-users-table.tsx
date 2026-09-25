@@ -376,6 +376,14 @@ function IdentityCell({
   nested?: boolean;
   isNew?: boolean;
 }) {
+  // Floor invite placeholder — never show as a real email
+  const displayEmail = (() => {
+    const value = String(email || "").trim();
+    if (!value || value === "—") return "";
+    if (value.toLowerCase().endsWith("@pending.propnetra.local")) return "";
+    return value;
+  })();
+
   return (
     <div className={`flex items-start gap-1 ${nested ? "pl-3" : ""}`}>
       {expandable ? (
@@ -416,7 +424,7 @@ function IdentityCell({
             "text-xs text-gray-500",
           )}
         >
-          {email || "—"}
+          {displayEmail || "—"}
         </p>
         <p
           className={identityFieldClass(
@@ -1508,7 +1516,10 @@ export function AppUsersTable({ tab }: Props) {
                       >
                         <IdentityCell
                           name={user.name}
-                          email={user.email || (tab === "otp_verified" ? "—" : user.email)}
+                          email={
+                            (user.email || "").trim() ||
+                            (tab === "otp_verified" ? "—" : "")
+                          }
                           contact={user.contact}
                           expandable={expandable}
                           expanded={expanded}

@@ -37,6 +37,14 @@ export const listingConfigService = {
     return response.data;
   },
 
+  /** Flat options for Add Project Name (includes labeled Direct builder floor). */
+  getPropertyTypeOptionsForProjectNames: async () => {
+    const response = await axiosClient.get(
+      '/admin/listings/create-form/property-type-options',
+    );
+    return response.data;
+  },
+
   getFormModules: async () => {
     const response = await axiosClient.get('/admin/listing-config/form-modules');
     return response.data;

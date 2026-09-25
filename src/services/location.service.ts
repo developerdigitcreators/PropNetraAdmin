@@ -157,6 +157,8 @@ export const locationService = {
     cityId?: string;
     microMarketId?: string;
     categoryId?: string;
+    propertyTypeId?: string;
+    directBuilderFloor?: boolean;
     q?: string;
     limit?: number;
     excludeId?: string;
@@ -166,6 +168,9 @@ export const locationService = {
     if (params?.cityId) qs.push(`cityId=${encodeURIComponent(params.cityId)}`);
     if (params?.microMarketId) qs.push(`microMarketId=${encodeURIComponent(params.microMarketId)}`);
     if (params?.categoryId) qs.push(`categoryId=${encodeURIComponent(params.categoryId)}`);
+    if (params?.propertyTypeId)
+      qs.push(`propertyTypeId=${encodeURIComponent(params.propertyTypeId)}`);
+    if (params?.directBuilderFloor) qs.push('directBuilderFloor=true');
     if (params?.q) qs.push(`q=${encodeURIComponent(params.q)}`);
     if (params?.limit) qs.push(`limit=${params.limit}`);
     if (params?.excludeId) qs.push(`excludeId=${encodeURIComponent(params.excludeId)}`);

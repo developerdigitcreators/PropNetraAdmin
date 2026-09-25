@@ -60,7 +60,7 @@ function ReviewListingPageInner() {
   });
 
   const tab = (
-    ["unverified", "verified", "rejected"].includes(urlFilters.tab)
+    ["unverified", "verified", "rejected", "dbf_catalog"].includes(urlFilters.tab)
       ? urlFilters.tab
       : "unverified"
   ) as ReviewTab;
@@ -69,20 +69,25 @@ function ReviewListingPageInner() {
   const [unverified, setUnverified] = useState<ListingReviewItem[]>([]);
   const [verified, setVerified] = useState<ListingReviewItem[]>([]);
   const [rejected, setRejected] = useState<ListingReviewItem[]>([]);
+  const [dbfCatalog, setDbfCatalog] = useState<ListingReviewItem[]>([]);
   const [pageSize, setPageSize] = useState<number>(10);
   const [unverifiedPage, setUnverifiedPage] = useState(1);
   const [verifiedPage, setVerifiedPage] = useState(1);
   const [rejectedPage, setRejectedPage] = useState(1);
+  const [dbfCatalogPage, setDbfCatalogPage] = useState(1);
   const [unverifiedTotal, setUnverifiedTotal] = useState(0);
   const [verifiedTotal, setVerifiedTotal] = useState(0);
   const [rejectedTotal, setRejectedTotal] = useState(0);
+  const [dbfCatalogTotal, setDbfCatalogTotal] = useState(0);
   const [unverifiedTotalPages, setUnverifiedTotalPages] = useState(1);
   const [verifiedTotalPages, setVerifiedTotalPages] = useState(1);
   const [rejectedTotalPages, setRejectedTotalPages] = useState(1);
+  const [dbfCatalogTotalPages, setDbfCatalogTotalPages] = useState(1);
   const [filtersByTab, setFiltersByTab] = useState<{
     unverified?: ReviewQueueFiltersResponse | null;
     verified?: ReviewQueueFiltersResponse | null;
     rejected?: ReviewQueueFiltersResponse | null;
+    dbf_catalog?: ReviewQueueFiltersResponse | null;
   }>({});
 
   // Defaults are applied by backend when these are undefined / omitted:
@@ -119,11 +124,13 @@ function ReviewListingPageInner() {
 
   const fetchTab = useCallback(
     async (target: ReviewTab, page: number) => {
+      // Save to DB (DBF): no category/building/property filters — show all rows.
+      const filters = target === "dbf_catalog" ? undefined : apiFilters;
       const result = await listingsService.getReviewQueue(
         target,
         page,
         pageSize,
-        apiFilters,
+        filters,
       );
 
       // Save items + pagination totals
@@ -136,6 +143,10 @@ function ReviewListingPageInner() {
         setRejected(result.items);
         setRejectedTotal(result.total);
         setRejectedTotalPages(result.totalPages ?? 1);
+      } else if (target === "dbf_catalog") {
+        setDbfCatalog(result.items);
+        setDbfCatalogTotal(result.total);
+        setDbfCatalogTotalPages(result.totalPages ?? 1);
       } else {
         setUnverified(result.items);
         setUnverifiedTotal(result.total);
@@ -183,19 +194,21 @@ function ReviewListingPageInner() {
         fetchTab("unverified", unverifiedPage),
         fetchTab("verified", verifiedPage),
         fetchTab("rejected", rejectedPage),
+        fetchTab("dbf_catalog", dbfCatalogPage),
       ]);
     } catch (err) {
       console.error(err);
     } finally {
       setIsLoading(false);
     }
-  }, [fetchTab, unverifiedPage, verifiedPage, rejectedPage]);
+  }, [fetchTab, unverifiedPage, verifiedPage, rejectedPage, dbfCatalogPage]);
 
   const handlePageChange = useCallback(
     (target: ReviewTab, nextPage: number) => {
       if (target === "unverified") setUnverifiedPage(nextPage);
       if (target === "verified") setVerifiedPage(nextPage);
       if (target === "rejected") setRejectedPage(nextPage);
+      if (target === "dbf_catalog") setDbfCatalogPage(nextPage);
     },
     [],
   );
@@ -206,6 +219,7 @@ function ReviewListingPageInner() {
     setUnverifiedPage(1);
     setVerifiedPage(1);
     setRejectedPage(1);
+    setDbfCatalogPage(1);
   }, []);
 
   useEffect(() => {
@@ -216,6 +230,7 @@ function ReviewListingPageInner() {
     setUnverifiedPage(1);
     setVerifiedPage(1);
     setRejectedPage(1);
+    setDbfCatalogPage(1);
   }, []);
 
   const handleResetFilters = useCallback(() => {
@@ -257,7 +272,11 @@ function ReviewListingPageInner() {
     payload: RejectListingReviewPayload,
   ) => {
     await listingsService.rejectReviewWithRemark(id, payload);
-    await refreshAll();
+    try {
+      await refreshAll();
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleSaveToDb = async (
@@ -265,7 +284,11 @@ function ReviewListingPageInner() {
     payload: SaveListingCatalogPayload,
   ) => {
     await listingsService.saveToDb(id, payload);
-    await refreshAll();
+    try {
+      await refreshAll();
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleToggleForSale = async (id: string, enabled: boolean) => {
@@ -351,6 +374,15 @@ function ReviewListingPageInner() {
               Rejected
               <span className="ml-2 bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">
                 {rejectedTotal}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="dbf_catalog"
+              className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-6 text-sm"
+            >
+              Save to DB (DBF)
+              <span className="ml-2 bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">
+                {dbfCatalogTotal}
               </span>
             </TabsTrigger>
           </TabsList>
@@ -464,6 +496,32 @@ function ReviewListingPageInner() {
                 <ListingReviewTable
                   items={rejected}
                   mode="rejected"
+                  onApprove={handleApprove}
+                  onReject={handleReject}
+                  onSaveToDb={handleSaveToDb}
+                  onToggleForSale={handleToggleForSale}
+                />
+              </AdminDataTable>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="dbf_catalog" className="focus-visible:outline-none">
+            <div className="space-y-4">
+              <AdminDataTable
+                page={dbfCatalogPage}
+                limit={pageSize}
+                total={dbfCatalogTotal}
+                totalPages={dbfCatalogTotalPages}
+                onPageChange={(p) => handlePageChange("dbf_catalog", p)}
+                onPageSizeChange={handlePageSizeChange}
+                loading={isLoading}
+                isEmpty={!dbfCatalog.length}
+                emptyMessage="No Direct builder floor listings waiting for Save to DB."
+                syncKey={dbfCatalog.length}
+              >
+                <ListingReviewTable
+                  items={dbfCatalog}
+                  mode="dbf_catalog"
                   onApprove={handleApprove}
                   onReject={handleReject}
                   onSaveToDb={handleSaveToDb}

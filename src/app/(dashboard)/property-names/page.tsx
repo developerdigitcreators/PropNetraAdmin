@@ -87,43 +87,46 @@ function typeNameKey(name?: string | null) {
     .replace(/\s+/g, ' ');
 }
 
-/** One Apartment / SCO / Plot, regardless of Residential / Commercial / Pre-Leased rows. */
-function uniquePropertyTypes(rows: any[]) {
-  const byName = new Map<string, any>();
+/** Prefer labeled options from property-type-options (keeps Direct builder floor separate). */
+function projectNamePropertyTypeOptions(rows: any[]) {
   const sorted = [...rows].sort((a, b) => {
-    const aOrder = Number(a?.sort_order ?? a?.sortOrder ?? 9999);
-    const bOrder = Number(b?.sort_order ?? b?.sortOrder ?? 9999);
-    if (aOrder !== bOrder) return aOrder - bOrder;
-    return String(a?.name || '').localeCompare(String(b?.name || ''));
+    const aDbf = Boolean(a?.isDirectBuilderFloor);
+    const bDbf = Boolean(b?.isDirectBuilderFloor);
+    if (aDbf !== bDbf) return aDbf ? 1 : -1;
+    const aLabel = String(a?.label || a?.displayName || a?.name || '');
+    const bLabel = String(b?.label || b?.displayName || b?.name || '');
+    return aLabel.localeCompare(bLabel);
   });
+  const seen = new Set<string>();
+  const out: any[] = [];
   for (const row of sorted) {
-    const key = typeNameKey(row?.name);
-    if (!key) continue;
-    const existing = byName.get(key);
-    if (!existing) {
-      byName.set(key, row);
-      continue;
-    }
-    const existingHasImage = Boolean(pickStr(existing.share_image_url, existing.shareImageUrl));
-    const rowHasImage = Boolean(pickStr(row.share_image_url, row.shareImageUrl));
-    if (!existingHasImage && rowHasImage) byName.set(key, row);
+    const id = String(row?.id || '');
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(row);
   }
-  return [...byName.values()];
+  return out;
+}
+
+function propertyTypeOptionLabel(row: any) {
+  return String(row?.label || row?.displayName || row?.name || '—');
 }
 
 function canonicalPropertyTypeId(propertyTypes: any[], rawId?: string | null, rawName?: string | null) {
-  const unique = uniquePropertyTypes(propertyTypes);
+  if (rawId && propertyTypes.some((t) => t.id === rawId)) return rawId;
   if (rawId) {
     const match = propertyTypes.find((t) => t.id === rawId);
-    if (match) {
-      const canon = unique.find((t) => typeNameKey(t.name) === typeNameKey(match.name));
-      if (canon) return canon.id as string;
-    }
-    if (unique.some((t) => t.id === rawId)) return rawId;
+    if (match) return match.id as string;
   }
   if (rawName) {
-    const canon = unique.find((t) => typeNameKey(t.name) === typeNameKey(rawName));
-    if (canon) return canon.id as string;
+    const key = typeNameKey(rawName);
+    const match = propertyTypes.find(
+      (t) =>
+        typeNameKey(t.label) === key ||
+        typeNameKey(t.displayName) === key ||
+        typeNameKey(t.name) === key,
+    );
+    if (match) return match.id as string;
   }
   return '';
 }
@@ -200,7 +203,7 @@ function PropertyNamesPageInner() {
   });
   const baselineRef = useRef('');
   const [propertyTypes, setPropertyTypes] = useState<any[]>([]);
-  const uniqueTypes = uniquePropertyTypes(propertyTypes);
+  const uniqueTypes = projectNamePropertyTypeOptions(propertyTypes);
 
   const formSnapshot = useMemo(() => JSON.stringify(form), [form]);
   const dirty =
@@ -277,7 +280,9 @@ function PropertyNamesPageInner() {
         locationService.getMicroMarkets(),
         locationService.getLocations(),
         locationService.getPropertyNames(),
-        listingConfigService.getPropertyTypes().catch(() => []),
+        listingConfigService
+          .getPropertyTypeOptionsForProjectNames()
+          .catch(() => listingConfigService.getPropertyTypes().catch(() => [])),
       ]);
       setStates(asList(s));
       setCities(asList(c));
@@ -573,14 +578,33 @@ function PropertyNamesPageInner() {
                   <td className="px-6 py-4 text-gray-500">
                     {(item.property_types || []).length ? (
                       <div className="flex flex-wrap gap-1">
-                        {(item.property_types as any[]).map((t) => (
-                          <Badge key={t.id || t.name} variant="outline" className="text-xs">
-                            {t.name}
-                          </Badge>
-                        ))}
+                        {(item.property_types as any[]).map((t) => {
+                          const match =
+                            uniqueTypes.find((opt) => opt.id === t.id) ||
+                            uniqueTypes.find(
+                              (opt) =>
+                                opt.isDirectBuilderFloor &&
+                                typeNameKey(t.name) === 'builder floor',
+                            );
+                          return (
+                            <Badge key={t.id || t.name} variant="outline" className="text-xs">
+                              {propertyTypeOptionLabel(match || t)}
+                            </Badge>
+                          );
+                        })}
                       </div>
                     ) : (
-                      item.property_type?.name || '—'
+                      (() => {
+                        const raw = item.property_type;
+                        const match =
+                          uniqueTypes.find((opt) => opt.id === raw?.id) ||
+                          uniqueTypes.find(
+                            (opt) =>
+                              opt.isDirectBuilderFloor &&
+                              typeNameKey(raw?.name) === 'builder floor',
+                          );
+                        return propertyTypeOptionLabel(match || raw) || '—';
+                      })()
                     )}
                   </td>
                   <td className="px-6 py-4">
@@ -724,10 +748,13 @@ function PropertyNamesPageInner() {
                   Property types <span className="text-red-500">*</span>
                 </label>
                 <MultiSelect
-                  options={uniqueTypes.map((t) => ({ value: t.id, label: t.name }))}
+                  options={uniqueTypes.map((t) => ({
+                    value: t.id,
+                    label: propertyTypeOptionLabel(t),
+                  }))}
                   values={form.property_type_ids}
                   onChange={(ids) => setForm((f) => ({ ...f, property_type_ids: ids }))}
-                  placeholder="Select Apartment, SCO, Plot…"
+                  placeholder="Select Apartment, Direct builder floor…"
                   emptyText="Add property types under Agent Listing Attributes first."
                 />
               </div>

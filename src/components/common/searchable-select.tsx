@@ -49,6 +49,9 @@ export function SearchableSelect({
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  /** Local draft so typing never gets overwritten by selected option label. */
+  const [draft, setDraft] = useState('');
+  const focusedRef = useRef(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const onSearchRef = useRef(onSearch);
   onSearchRef.current = onSearch;
@@ -57,13 +60,20 @@ export function SearchableSelect({
     () => options.find((o) => o.value === value),
     [options, value]
   );
-  const displayLabel = selected?.label || selectedLabel || '';
-  const filterText = editable ? displayLabel : query;
+  const committedLabel = selected?.label || selectedLabel || '';
+  const displayLabel = editable ? draft : committedLabel;
+  const filterText = editable ? draft : query;
   const createQuery = filterText.trim();
   const canCreate =
     allowCreate &&
     !!createQuery &&
     !options.some((o) => o.label.toLowerCase() === createQuery.toLowerCase());
+
+  // Sync draft from props when not actively typing (open dialog / pick option).
+  useEffect(() => {
+    if (!editable || focusedRef.current) return;
+    setDraft(committedLabel);
+  }, [editable, value, committedLabel]);
 
   const filtered = useMemo(() => {
     if (onSearch) return options;
@@ -99,11 +109,14 @@ export function SearchableSelect({
 
   const pick = (next: string) => {
     onValueChange(next);
+    const label = options.find((o) => o.value === next)?.label || '';
+    if (editable) setDraft(label);
     setOpen(false);
     setQuery('');
   };
 
   const handleEditableChange = (text: string) => {
+    setDraft(text);
     setQuery(text);
     setOpen(true);
     if (!text.trim()) {
@@ -136,7 +149,13 @@ export function SearchableSelect({
             value={displayLabel}
             placeholder={placeholder}
             onChange={(e) => handleEditableChange(e.target.value)}
-            onFocus={() => setOpen(true)}
+            onFocus={() => {
+              focusedRef.current = true;
+              setOpen(true);
+            }}
+            onBlur={() => {
+              focusedRef.current = false;
+            }}
             className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
           <span className="flex items-center gap-1 shrink-0">
@@ -248,6 +267,7 @@ export function SearchableSelect({
                     type="button"
                     onClick={() => {
                       onCreate(createQuery);
+                      setDraft(createQuery);
                       setOpen(false);
                       setQuery('');
                     }}

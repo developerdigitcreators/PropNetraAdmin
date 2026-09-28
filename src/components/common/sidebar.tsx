@@ -144,6 +144,12 @@ const MENU_ITEMS: MenuItem[] = [
     permission: "search_suggestions:read",
   },
   {
+    name: "Direct Builder Floor Featured",
+    path: "/dbf-featured",
+    icon: Building2,
+    permission: "dbf_featured:read",
+  },
+  {
     name: "Notifications",
     path: "/notifications",
     icon: Bell,

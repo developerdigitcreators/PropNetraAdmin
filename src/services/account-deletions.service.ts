@@ -18,6 +18,7 @@ export type AccountDeletionRequest = {
   reason: string;
   channel: AccountDeletionChannel;
   createdAt: string | null;
+  requestedAt: string | null;
   completedAt: string | null;
   otpExpiresAt: string | null;
   isNew?: boolean;
@@ -103,9 +104,10 @@ export function normalizeAccountDeletion(raw: unknown): AccountDeletionRequest |
     normalizeUser(row.account) ||
     normalizeUser({
       id: row.userId ?? row.user_id,
-      name: row.userName ?? row.user_name,
-      email: row.userEmail ?? row.user_email,
-      contact: row.userContact ?? row.user_contact ?? row.phone ?? row.mobile,
+      name: row.name ?? row.userName ?? row.user_name,
+      email: row.email ?? row.userEmail ?? row.user_email,
+      contact:
+        row.contact ?? row.userContact ?? row.user_contact ?? row.phone ?? row.mobile,
       status: row.userStatus ?? row.user_status,
       deletedAt: row.userDeletedAt ?? row.user_deleted_at,
     });
@@ -119,6 +121,8 @@ export function normalizeAccountDeletion(raw: unknown): AccountDeletionRequest |
     ),
     createdAt:
       pickString(row.createdAt, row.created_at, row.requestedAt, row.requested_at) || null,
+    requestedAt:
+      pickString(row.requestedAt, row.requested_at, row.createdAt, row.created_at) || null,
     completedAt:
       pickString(
         row.completedAt,
@@ -141,12 +145,25 @@ function normalizeList(data: unknown, page: number, limit: number): AccountDelet
     .map(normalizeAccountDeletion)
     .filter((row): row is AccountDeletionRequest => !!row);
 
+  const meta = asRecord(root?.meta) ?? asRecord(root?.pagination);
+
   const total =
-    pickNumber(root?.total, root?.totalCount, root?.total_count, root?.count) ?? items.length;
-  const resolvedPage = pickNumber(root?.page, root?.currentPage, root?.current_page) ?? page;
-  const resolvedLimit = pickNumber(root?.limit, root?.pageSize, root?.page_size) ?? limit;
+    pickNumber(
+      root?.total,
+      root?.totalCount,
+      root?.total_count,
+      root?.count,
+      meta?.total,
+      meta?.totalCount,
+      meta?.total_count,
+    ) ?? items.length;
+  const resolvedPage =
+    pickNumber(root?.page, root?.currentPage, root?.current_page, meta?.page, meta?.currentPage) ??
+    page;
+  const resolvedLimit =
+    pickNumber(root?.limit, root?.pageSize, root?.page_size, meta?.limit, meta?.pageSize) ?? limit;
   const totalPages =
-    pickNumber(root?.totalPages, root?.total_pages) ??
+    pickNumber(root?.totalPages, root?.total_pages, meta?.totalPages, meta?.total_pages) ??
     Math.max(1, Math.ceil(total / Math.max(1, resolvedLimit)));
 
   return {

@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  isDbfPlanCode,
   isPaidSubscriptionPlan,
   paiseToRupeesInput,
   rupeesInputToPaise,
@@ -49,6 +50,9 @@ function emptyLimits(): PlanLimits {
     addonResaleBundlesMonthly: 0,
     addonBuyReqBundlesMonthly: 0,
     addonBuilderBundlesMonthly: 0,
+    dbfPostsDaily: 0,
+    dbfPostsMonthly: 0,
+    activeDbfPosts: null,
   };
 }
 
@@ -97,9 +101,11 @@ export function PlanFormDialog({
   const [localError, setLocalError] = useState('');
   const baselineRef = useRef('');
 
-  const showPricing = plan ? isPaidSubscriptionPlan(plan.code) : false;
+  const isDbf = plan ? isDbfPlanCode(plan.code) || plan.audience === 'dbf' : false;
+  const isDbfFree = plan?.code === 'DBF_FREE';
+  const showPricing = plan ? isPaidSubscriptionPlan(plan.code) && !isDbfFree : false;
   const isLifetimeFree = plan?.code === 'FREE_LIFETIME';
-  const showVisibilityToggles = !isLifetimeFree;
+  const showVisibilityToggles = !isLifetimeFree && !isDbfFree;
 
   const snapshot = useMemo(
     () =>
@@ -199,17 +205,50 @@ export function PlanFormDialog({
     setLimits((prev) => ({ ...prev, [key]: Number.isFinite(n) ? n : 0 }));
   };
 
+  const setActiveDbfPosts = (value: string) => {
+    const n = value.trim() === '' ? null : Number(value);
+    setLimits((prev) => ({
+      ...prev,
+      activeDbfPosts: n == null || !Number.isFinite(n) ? null : n,
+    }));
+  };
+
   const handleSubmit = () => {
     if (!displayName.trim()) {
       setLocalError('Display name is required.');
       return;
     }
+    if (isDbf && limits.dbfPostsMonthly < limits.dbfPostsDaily) {
+      setLocalError('Monthly post limit cannot be lower than the daily limit.');
+      return;
+    }
     setLocalError('');
-    const entitlements: Partial<PlanLimits> = {
-      ...limits,
-      listingViewsDaily: unlimitedViews ? null : limits.listingViewsDaily ?? 0,
-      listingViewsMonthly: unlimitedViews ? null : limits.listingViewsMonthly ?? 0,
-    };
+    const entitlements: Partial<PlanLimits> = isDbf
+      ? {
+          dbfPostsDaily: limits.dbfPostsDaily,
+          dbfPostsMonthly: limits.dbfPostsMonthly,
+          activeDbfPosts: limits.activeDbfPosts,
+          listingViewsDaily: unlimitedViews ? null : limits.listingViewsDaily ?? 0,
+          listingViewsMonthly: unlimitedViews ? null : limits.listingViewsMonthly ?? 0,
+        }
+      : {
+          ...limits,
+          listingViewsDaily: unlimitedViews ? null : limits.listingViewsDaily ?? 0,
+          listingViewsMonthly: unlimitedViews ? null : limits.listingViewsMonthly ?? 0,
+        };
+    if (isDbf) {
+      onSubmit({
+        displayName: displayName.trim(),
+        sortOrder,
+        isActive: isDbfFree ? Boolean(plan?.isActive) : isActive,
+        showOnApp: isDbfFree ? Boolean(plan?.showOnApp) : showOnApp,
+        pricePaise: showPricing ? rupeesInputToPaise(priceRupees) : null,
+        promoPricePaise: showPricing ? rupeesInputToPaise(promoPriceRupees) : null,
+        promoWindowDays: showPricing && promoWindowDays !== '' ? Number(promoWindowDays) : null,
+        entitlements,
+      });
+      return;
+    }
     onSubmit({
       displayName: displayName.trim(),
       sortOrder,
@@ -342,6 +381,67 @@ export function PlanFormDialog({
             </Section>
           ) : null}
 
+          {isDbf ? (
+            <>
+              <Section
+                title={
+                  isDbfFree
+                    ? 'Post Free Limit (applies before Paid mode)'
+                    : 'Post Plan Limit (applies in Paid mode)'
+                }
+                description={
+                  isDbfFree
+                    ? 'Used while Direct Builder Floor Paid mode has never been turned on, and for existing users during the free period.'
+                    : 'Used for Direct Builder Floor users who bought the plan after Paid mode is on.'
+                }
+              >
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <NumField
+                    label="Posts per day"
+                    value={String(limits.dbfPostsDaily)}
+                    onChange={(v) => setLimitField('dbfPostsDaily', v)}
+                  />
+                  <NumField
+                    label="Posts per month"
+                    value={String(limits.dbfPostsMonthly)}
+                    onChange={(v) => setLimitField('dbfPostsMonthly', v)}
+                  />
+                  <NumField
+                    label="Max active posts"
+                    value={limits.activeDbfPosts == null ? '' : String(limits.activeDbfPosts)}
+                    onChange={setActiveDbfPosts}
+                    placeholder="No cap"
+                  />
+                </div>
+                <p className="text-xs text-gray-500">
+                  Leave “Max active posts” empty for no cap.
+                </p>
+              </Section>
+              <Section title="Listing views">
+                <FlagRow
+                  label="Unlimited listing views"
+                  hint="When off, set daily/monthly view caps"
+                  checked={unlimitedViews}
+                  onChange={setUnlimitedViews}
+                />
+                {!unlimitedViews ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <NumField
+                      label="Listing views per day"
+                      value={String(limits.listingViewsDaily ?? 0)}
+                      onChange={(v) => setLimitField('listingViewsDaily', v)}
+                    />
+                    <NumField
+                      label="Listing views per month"
+                      value={String(limits.listingViewsMonthly ?? 0)}
+                      onChange={(v) => setLimitField('listingViewsMonthly', v)}
+                    />
+                  </div>
+                ) : null}
+              </Section>
+            </>
+          ) : (
+          <>
           <Section
             title="Optional features"
             description="Turn on add-on purchases, boosts, priority placement, or builder contact packs."
@@ -527,6 +627,8 @@ export function PlanFormDialog({
               />
             </div>
           </Section>
+          </>
+          )}
 
           {(localError || error) && (
             <p className="text-sm text-red-600">{localError || error}</p>

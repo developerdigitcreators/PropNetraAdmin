@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PermissionGuard } from "@/components/common/permission-guard";
 import { Breadcrumb } from "@/components/common/breadcrumb";
 import { AdminDataTable } from "@/components/common/admin-data-table";
@@ -33,6 +33,22 @@ function formatDateTime(value?: string | null) {
   return formatDisplayDateTime(value);
 }
 
+const RESTORE_CONFLICT_MESSAGE =
+  "Email now belongs to another active account. Cannot restore this user.";
+
+type Toast = { message: string; tone: "error" | "success" };
+
+function restoreErrorMessage(err: unknown): string {
+  const status = (err as { response?: { status?: number } })?.response?.status;
+  if (status === 400) {
+    const message = recycleBinApiError(err, "");
+    return message && !message.startsWith("Request failed with status")
+      ? message
+      : RESTORE_CONFLICT_MESSAGE;
+  }
+  return recycleBinApiError(err, "Failed to restore this item.");
+}
+
 async function fetchDeletedItems(): Promise<{
   items: RecycleBinItem[];
   error: string;
@@ -54,7 +70,21 @@ export function RecycleBinPanel() {
   const [toRestore, setToRestore] = useState<RecycleBinItem | null>(null);
   const [toPurge, setToPurge] = useState<RecycleBinItem | null>(null);
   const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState("");
+  const [toast, setToast] = useState<Toast | null>(null);
+  const toastTimer = useRef<number | null>(null);
+
+  const showToast = (message: string, tone: Toast["tone"]) => {
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    setToast({ message, tone });
+    toastTimer.current = window.setTimeout(() => setToast(null), 5000);
+  };
+
+  useEffect(
+    () => () => {
+      if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    },
+    [],
+  );
 
   const {
     page,
@@ -92,13 +122,14 @@ export function RecycleBinPanel() {
   const handleRestore = async () => {
     if (!toRestore) return;
     setBusy(true);
-    setActionError("");
     try {
       await recycleBinService.restore(toRestore.id);
       setToRestore(null);
+      showToast("Item restored.", "success");
       await refreshList();
     } catch (err) {
-      setActionError(recycleBinApiError(err, "Failed to restore this item."));
+      setToRestore(null);
+      showToast(restoreErrorMessage(err), "error");
     } finally {
       setBusy(false);
     }
@@ -107,14 +138,15 @@ export function RecycleBinPanel() {
   const handlePurge = async () => {
     if (!toPurge) return;
     setBusy(true);
-    setActionError("");
     try {
       await recycleBinService.removePermanently(toPurge.id);
       setToPurge(null);
       await refreshList();
     } catch (err) {
-      setActionError(
+      setToPurge(null);
+      showToast(
         recycleBinApiError(err, "Failed to permanently delete this item."),
+        "error",
       );
     } finally {
       setBusy(false);
@@ -147,12 +179,6 @@ export function RecycleBinPanel() {
             refreshDisabled={loading}
           />
         </div>
-
-        {actionError ? (
-          <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
-            {actionError}
-          </div>
-        ) : null}
 
         <AdminDataTable
           page={page}
@@ -340,6 +366,19 @@ export function RecycleBinPanel() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {toast ? (
+        <div
+          role={toast.tone === "error" ? "alert" : "status"}
+          className={`fixed bottom-6 right-6 z-100 max-w-sm rounded-xl border px-4 py-3 text-sm shadow-lg ${
+            toast.tone === "error"
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-green-200 bg-green-50 text-green-800"
+          }`}
+        >
+          {toast.message}
+        </div>
+      ) : null}
     </PermissionGuard>
   );
 }

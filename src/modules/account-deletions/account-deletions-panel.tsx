@@ -42,7 +42,11 @@ function statusLabel(status: AccountDeletionStatus) {
 function statusClass(status: AccountDeletionStatus) {
   return status === 'completed'
     ? 'bg-green-100 text-green-700'
-    : 'bg-amber-100 text-amber-800';
+    : 'bg-orange-100 text-orange-700';
+}
+
+function completedAtLabel(row: AccountDeletionRequest) {
+  return row.status === 'completed' ? formatDateTime(row.completedAt) : '—';
 }
 
 function channelLabel(channel: AccountDeletionRequest['channel']) {
@@ -295,10 +299,10 @@ export function AccountDeletionsPanel() {
                         <Badge className={statusClass(row.status)}>{statusLabel(row.status)}</Badge>
                       </td>
                       <td className="whitespace-nowrap px-5 py-4 text-xs text-gray-500">
-                        {formatDateTime(row.createdAt)}
+                        {formatDateTime(row.requestedAt)}
                       </td>
                       <td className="whitespace-nowrap px-5 py-4 text-xs text-gray-500">
-                        {formatDateTime(row.completedAt)}
+                        {completedAtLabel(row)}
                       </td>
                       <td className="px-5 py-4 text-right">
                         <Button
@@ -372,13 +376,13 @@ export function AccountDeletionsPanel() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Requested
                   </p>
-                  <p className="mt-1 text-gray-700">{formatDateTime(detail.createdAt)}</p>
+                  <p className="mt-1 text-gray-700">{formatDateTime(detail.requestedAt)}</p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Completed
                   </p>
-                  <p className="mt-1 text-gray-700">{formatDateTime(detail.completedAt)}</p>
+                  <p className="mt-1 text-gray-700">{completedAtLabel(detail)}</p>
                 </div>
               </div>
 

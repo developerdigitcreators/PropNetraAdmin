@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { PlanFormDialog } from '@/modules/subscriptions/plan-form-dialog';
 import { PlanPopupBannerDialog } from '@/modules/subscriptions/plan-popup-banner-dialog';
+import { DbfModeCard } from '@/modules/subscriptions/dbf-mode-card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   formatInrFromPaise,
   subscriptionApiError,
@@ -185,6 +187,117 @@ function PlanCard({
   );
 }
 
+function DbfPlanCard({
+  plan,
+  canUpdate,
+  onEdit,
+}: {
+  plan: SubscriptionPlanItem;
+  canUpdate: boolean;
+  onEdit: () => void;
+}) {
+  const limits = plan.limits;
+  const isFree = plan.code === 'DBF_FREE';
+  const viewsUnlimited =
+    limits?.listingViewsDaily == null && limits?.listingViewsMonthly == null;
+
+  return (
+    <div className="flex h-full flex-col rounded-xl border bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">
+            {isFree ? 'Post Free Limit' : 'Post Plan Limit'}
+          </h2>
+          <p className="mt-0.5 text-sm text-gray-500">
+            {isFree ? 'Applies before Paid mode (and during the free period)' : 'Applies in Paid mode'}
+          </p>
+          <p className="mt-0.5 font-mono text-xs text-gray-400">
+            {plan.displayName} · {plan.code}
+          </p>
+        </div>
+        {!isFree ? (
+          <div className="flex flex-col items-end gap-1">
+            <Badge variant={plan.isActive ? 'default' : 'outline'}>
+              {plan.isActive ? 'Active' : 'Inactive'}
+            </Badge>
+            <Badge variant={plan.showOnApp ? 'secondary' : 'outline'}>
+              {plan.showOnApp ? 'Show on app' : 'Hidden on app'}
+            </Badge>
+          </div>
+        ) : null}
+      </div>
+
+      {!isFree ? (
+        <div className="mt-4 rounded-lg bg-gray-50 px-4 py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+            Yearly subscription (exclusive of GST) · autopay
+          </p>
+          <p className="mt-1 text-2xl font-bold text-gray-900">
+            {formatInrFromPaise(plan.pricePaise)}
+          </p>
+          {plan.pricePaise != null && plan.pricePaise > 0 ? (
+            <p className="mt-1 text-sm text-gray-600">
+              Total with GST 18%:{' '}
+              {formatInrFromPaise(plan.pricePaise + Math.round((plan.pricePaise * 18) / 100))}
+            </p>
+          ) : null}
+          {plan.promoPricePaise != null ? (
+            <p className="mt-1 text-sm text-emerald-700">
+              Intro offer: {formatInrFromPaise(plan.promoPricePaise)}
+              {plan.promoWindowDays != null ? ` for first ${plan.promoWindowDays} days` : ''}
+              {' · '}with GST{' '}
+              {formatInrFromPaise(
+                plan.promoPricePaise + Math.round((plan.promoPricePaise * 18) / 100),
+              )}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="mt-4 flex-1">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+          Post limits
+        </p>
+        {limits ? (
+          <div>
+            <LimitRow
+              label="Direct Builder Floor posts"
+              hint="New posts a user can publish"
+              value={`${limits.dbfPostsDaily} per day · ${limits.dbfPostsMonthly} per month`}
+            />
+            <LimitRow
+              label="Active posts"
+              hint="Max live listings at once"
+              value={limits.activeDbfPosts == null ? 'No cap' : String(limits.activeDbfPosts)}
+            />
+            <LimitRow
+              label="Listing views"
+              value={
+                viewsUnlimited
+                  ? 'Unlimited'
+                  : `${limits.listingViewsDaily ?? 0} per day · ${limits.listingViewsMonthly ?? 0} per month`
+              }
+            />
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">No limits configured.</p>
+        )}
+      </div>
+
+      <div className="mt-5 border-t pt-4">
+        {canUpdate ? (
+          <Button variant="outline" className="w-full gap-2" onClick={onEdit}>
+            <Edit2 className="h-4 w-4" />
+            Edit limits
+          </Button>
+        ) : (
+          <p className="text-center text-xs text-gray-400">No edit access</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function SubscriptionPlansPage() {
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const canUpdate = hasPermission('subscriptions', 'update');
@@ -199,6 +312,9 @@ export default function SubscriptionPlansPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [resyncing, setResyncing] = useState(false);
+  const [tab, setTab] = useState<'agent' | 'dbf'>('agent');
+  const agentPlans = plans.filter((p) => p.audience !== 'dbf');
+  const dbfPlans = plans.filter((p) => p.audience === 'dbf');
 
   const fetchPlans = useCallback(async () => {
     setLoading(true);
@@ -326,27 +442,62 @@ export default function SubscriptionPlansPage() {
           </div>
         ) : null}
 
-        {loading ? (
-          <div className="flex justify-center py-20">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
-        ) : (
-          <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
-            {plans.map((plan) => (
-              <PlanCard
-                key={plan.id}
-                plan={plan}
-                canUpdate={canUpdate}
-                onEdit={() => openEdit(plan)}
-              />
-            ))}
-            {!plans.length ? (
-              <div className="col-span-full rounded-xl border bg-white px-4 py-10 text-center text-gray-500">
-                No plans found. Start the backend so seeds can create default plans.
+        <Tabs value={tab} onValueChange={(v) => setTab(v === 'dbf' ? 'dbf' : 'agent')}>
+          <TabsList>
+            <TabsTrigger value="agent">Agent subscription</TabsTrigger>
+            <TabsTrigger value="dbf">Direct Builder Floor</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="agent" className="pt-4">
+            {loading ? (
+              <div className="flex justify-center py-20">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
-            ) : null}
-          </div>
-        )}
+            ) : (
+              <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
+                {agentPlans.map((plan) => (
+                  <PlanCard
+                    key={plan.id}
+                    plan={plan}
+                    canUpdate={canUpdate}
+                    onEdit={() => openEdit(plan)}
+                  />
+                ))}
+                {!agentPlans.length ? (
+                  <div className="col-span-full rounded-xl border bg-white px-4 py-10 text-center text-gray-500">
+                    No plans found. Start the backend so seeds can create default plans.
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="dbf" className="space-y-5 pt-4">
+            <DbfModeCard canUpdate={canUpdate} />
+            {loading ? (
+              <div className="flex justify-center py-20">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : (
+              <div className="grid gap-5 lg:grid-cols-2">
+                {dbfPlans.map((plan) => (
+                  <DbfPlanCard
+                    key={plan.id}
+                    plan={plan}
+                    canUpdate={canUpdate}
+                    onEdit={() => openEdit(plan)}
+                  />
+                ))}
+                {!dbfPlans.length ? (
+                  <div className="col-span-full rounded-xl border bg-white px-4 py-10 text-center text-gray-500">
+                    No Direct Builder Floor plans found. Restart the backend so seeds create
+                    DBF_FREE and DBF_PAID.
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
 
         <PlanFormDialog
           open={formOpen}

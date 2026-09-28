@@ -19,6 +19,51 @@ export type PlanLimits = {
   addonResaleBundlesMonthly: number;
   addonBuyReqBundlesMonthly: number;
   addonBuilderBundlesMonthly: number;
+  /** Direct Builder Floor post limits */
+  dbfPostsDaily: number;
+  dbfPostsMonthly: number;
+  /** null = no active post cap */
+  activeDbfPosts: number | null;
+};
+
+export type PlanAudience = 'agent' | 'dbf';
+
+export type DbfModeHistoryEntry = {
+  cycle: number;
+  action: 'on' | 'off' | 'postpone';
+  at: string;
+  freeEndsOn: string | null;
+  byUserId: string | null;
+};
+
+export type DbfModeState = {
+  mode: 'free' | 'paid';
+  cycle: number;
+  paidEnabledAt: string | null;
+  disabledAt: string | null;
+  freeEndsAt: string | null;
+  freeEndsOn: string | null;
+  enabledByUserId: string | null;
+  minFreeEndsOn: string;
+  cutoffPassed: boolean;
+  canPostpone: boolean;
+  canDisable: boolean;
+  history: DbfModeHistoryEntry[];
+};
+
+export type DbfModeImpact = {
+  lockedListings: number;
+  lockedListingOwners: number;
+  lockedUsers: number;
+  freeGraceUsers: number;
+  paidSubscribers: number;
+  autopaySubscribers: number;
+};
+
+export type DbfModeDisableResult = {
+  unlockedListings: number;
+  autopayStopped: number;
+  autopayFailed: number;
 };
 
 export type PlanFlags = {
@@ -40,9 +85,15 @@ export type SubscriptionPlanItem = {
   billingPeriod: string | null;
   promoPricePaise: number | null;
   promoWindowDays: number | null;
+  audience: PlanAudience;
   flags: PlanFlags;
   limits: PlanLimits | null;
 };
+
+export function isDbfPlanCode(code: string): boolean {
+  const key = String(code || '').toUpperCase();
+  return key === 'DBF_FREE' || key === 'DBF_PAID';
+}
 
 export type AddonCatalogItem = {
   id: string;
@@ -234,6 +285,50 @@ function normalizeLimits(raw: unknown): PlanLimits | null {
     addonResaleBundlesMonthly: asNum(row.addonResaleBundlesMonthly, 0),
     addonBuyReqBundlesMonthly: asNum(row.addonBuyReqBundlesMonthly, 0),
     addonBuilderBundlesMonthly: asNum(row.addonBuilderBundlesMonthly, 0),
+    dbfPostsDaily: asNum(row.dbfPostsDaily, 0),
+    dbfPostsMonthly: asNum(row.dbfPostsMonthly, 0),
+    activeDbfPosts: asNumOrNull(row.activeDbfPosts),
+  };
+}
+
+function normalizeDbfMode(raw: unknown): DbfModeState {
+  const row = asRecord(asRecord(raw)?.data ?? raw) || {};
+  const history = Array.isArray(row.history) ? row.history : [];
+  return {
+    mode: row.mode === 'paid' ? 'paid' : 'free',
+    cycle: asNum(row.cycle, 0),
+    paidEnabledAt: pickString(row.paidEnabledAt) || null,
+    disabledAt: pickString(row.disabledAt) || null,
+    freeEndsAt: pickString(row.freeEndsAt) || null,
+    freeEndsOn: pickString(row.freeEndsOn) || null,
+    enabledByUserId: pickString(row.enabledByUserId) || null,
+    minFreeEndsOn: pickString(row.minFreeEndsOn),
+    cutoffPassed: asBool(row.cutoffPassed, false),
+    canPostpone: asBool(row.canPostpone, false),
+    canDisable: asBool(row.canDisable, row.mode === 'paid'),
+    history: history
+      .map((item) => asRecord(item))
+      .filter((item): item is Record<string, unknown> => Boolean(item))
+      .map((item) => ({
+        cycle: asNum(item.cycle, 0),
+        action:
+          item.action === 'off' ? 'off' : item.action === 'postpone' ? 'postpone' : 'on',
+        at: pickString(item.at),
+        freeEndsOn: pickString(item.freeEndsOn) || null,
+        byUserId: pickString(item.byUserId) || null,
+      })),
+  };
+}
+
+function normalizeDbfImpact(raw: unknown): DbfModeImpact {
+  const row = asRecord(asRecord(raw)?.data ?? raw) || {};
+  return {
+    lockedListings: asNum(row.lockedListings, 0),
+    lockedListingOwners: asNum(row.lockedListingOwners, 0),
+    lockedUsers: asNum(row.lockedUsers, 0),
+    freeGraceUsers: asNum(row.freeGraceUsers, 0),
+    paidSubscribers: asNum(row.paidSubscribers, 0),
+    autopaySubscribers: asNum(row.autopaySubscribers, 0),
   };
 }
 
@@ -280,6 +375,8 @@ export function normalizePlan(raw: unknown): SubscriptionPlanItem | null {
     billingPeriod: pickString(row.billingPeriod, row.billing_period) || null,
     promoPricePaise: asNumOrNull(row.promoPricePaise ?? row.promo_price_paise),
     promoWindowDays: asNumOrNull(row.promoWindowDays ?? row.promo_window_days),
+    audience:
+      pickString(row.audience) === 'dbf' || isDbfPlanCode(code) ? 'dbf' : 'agent',
     flags: normalizeFlags(flagsRaw),
     limits: normalizeLimits(row.limits ?? row.entitlement),
   };
@@ -367,12 +464,53 @@ export function normalizeUserEntitlements(raw: unknown): UserEntitlements | null
 }
 
 export const subscriptionsService = {
-  listPlans: async (): Promise<SubscriptionPlanItem[]> => {
-    const response = await axiosClient.get('/admin/subscriptions/plans');
+  listPlans: async (audience?: PlanAudience): Promise<SubscriptionPlanItem[]> => {
+    const response = await axiosClient.get('/admin/subscriptions/plans', {
+      params: audience ? { audience } : undefined,
+    });
     return asArray(response.data)
       .map((row) => normalizePlan(row))
       .filter((row): row is SubscriptionPlanItem => !!row)
+      .filter((row) => !audience || row.audience === audience)
       .sort((a, b) => a.sortOrder - b.sortOrder);
+  },
+
+  getDbfMode: async (): Promise<DbfModeState> => {
+    const response = await axiosClient.get('/admin/subscriptions/dbf-mode');
+    return normalizeDbfMode(response.data);
+  },
+
+  /** Enables Paid mode (starts a new cycle), or postpones the free-end date before it passes. */
+  enableDbfPaidMode: async (freeEndsOn: string): Promise<DbfModeState> => {
+    const response = await axiosClient.put('/admin/subscriptions/dbf-mode', {
+      freeEndsOn,
+    });
+    return normalizeDbfMode(response.data);
+  },
+
+  disableDbfPaidMode: async (
+    notifyUsers: boolean,
+  ): Promise<{ mode: DbfModeState; result: DbfModeDisableResult }> => {
+    const response = await axiosClient.put('/admin/subscriptions/dbf-mode/disable', {
+      notifyUsers,
+    });
+    const body = asRecord(asRecord(response.data)?.data ?? response.data) || {};
+    const result = asRecord(body.result) || {};
+    return {
+      mode: normalizeDbfMode(body),
+      result: {
+        unlockedListings: asNum(result.unlockedListings, 0),
+        autopayStopped: asNum(result.autopayStopped, 0),
+        autopayFailed: Array.isArray(result.autopayFailed)
+          ? result.autopayFailed.length
+          : asNum(result.autopayFailed, 0),
+      },
+    };
+  },
+
+  getDbfModeImpact: async (): Promise<DbfModeImpact> => {
+    const response = await axiosClient.get('/admin/subscriptions/dbf-mode/impact');
+    return normalizeDbfImpact(response.data);
   },
 
   updatePlan: async (

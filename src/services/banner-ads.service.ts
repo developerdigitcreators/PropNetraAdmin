@@ -131,7 +131,14 @@ export const DEFAULT_PLACEMENTS: AdPlacementOption[] = [
   { key: 'direct_builder_floor', label: 'Direct Builder floor' },
   { key: 'upgrade', label: 'Upgrade / Unlock Plan' },
   { key: 'property_listing_form', label: 'Property Listing Form' },
+  { key: 'contact_reveal_popup', label: 'Contact Reveal Popup' },
 ];
+
+/** Placements that only allow the Top Banner section. */
+const TOP_ONLY_PLACEMENTS = new Set(['property_listing_form', 'contact_reveal_popup']);
+
+export const isTopOnlyPlacement = (placement?: string | null) =>
+  !!placement && TOP_ONLY_PLACEMENTS.has(placement);
 
 /** Managed from Subscription Plans — hide from Banner Ads page dropdown. */
 export const SUBSCRIPTION_PLAN_BANNER_PLACEMENT = 'upgrade';
@@ -223,9 +230,9 @@ export function sectionsForPlacement(
     return base.filter((s) => s.key === 'general');
   }
 
-  // Property Listing Form shows only the Top Banner (General hidden).
-  if (placement === 'property_listing_form') {
-    return base.filter((s) => s.key === 'top');
+  if (isTopOnlyPlacement(placement)) {
+    const top = base.filter((s) => s.key === 'top');
+    return top.length ? top : [{ key: 'top', label: sectionLabelForKey('top') }];
   }
 
   if (placement === 'chat_notification') {

@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { AdminUserSchema, AdminUserFormData } from '@/validators/rbac.schema';
@@ -23,16 +24,36 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatDisplayDateTime } from '@/lib/format-date';
 import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
-import { Loader2 } from 'lucide-react';
+import { useIsSuperAdmin } from '@/hooks/use-is-super-admin';
+import { humanizeRoleName } from '@/lib/role-label';
+import { KeyRound, Loader2 } from 'lucide-react';
 
 interface UserFormModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   user?: any;
   roles?: any[];
+  rolesLoading?: boolean;
   onSuccess: () => void;
   hidePassword?: boolean;
   showEditLogs?: boolean;
+  /** Admin panel staff user: super admins get a "Reset password" link when editing. */
+  adminPanel?: boolean;
+}
+
+type RoleOption = { value: string; label: string };
+
+type UserRoleShape = {
+  role_id?: string;
+  userRoles?: { role_id?: string; role?: { id?: string; name?: string } }[];
+};
+
+function currentRole(user: UserRoleShape | null | undefined): { id: string; name: string } {
+  const first = user?.userRoles?.[0];
+  return {
+    id: String(first?.role?.id || first?.role_id || user?.role_id || ''),
+    name: String(first?.role?.name || ''),
+  };
 }
 
 function formatLogTime(value?: string) {
@@ -57,11 +78,30 @@ export function UserFormModal({
   onOpenChange,
   user,
   roles = [],
+  rolesLoading = false,
   onSuccess,
   hidePassword = false,
   showEditLogs = false,
+  adminPanel = false,
 }: UserFormModalProps) {
   const isEdit = !!user;
+  const { superAdmin } = useIsSuperAdmin();
+
+  const roleOptions = useMemo<RoleOption[]>(() => {
+    const list: RoleOption[] = (roles || [])
+      .filter((role) => role?.id)
+      .map((role) => ({
+        value: String(role.id),
+        label: humanizeRoleName(role.label || role.roleLabel || role.name) || 'Unnamed role',
+      }));
+    if (isEdit) {
+      const cur = currentRole(user);
+      if (cur.id && cur.name && !list.some((o) => o.value === cur.id)) {
+        list.unshift({ value: cur.id, label: humanizeRoleName(cur.name) });
+      }
+    }
+    return list;
+  }, [roles, isEdit, user]);
 
   const [formError, setFormError] = useState('');
   const {
@@ -113,7 +153,7 @@ export function UserFormModal({
           email: user.email || '',
           contact: user.contact || '',
           password: '',
-          role_id: user.role_id || '',
+          role_id: currentRole(user).id,
         });
       } else {
         reset({
@@ -132,9 +172,7 @@ export function UserFormModal({
     try {
       if (isEdit) {
         const updateData = { ...data };
-        if (hidePassword || !updateData.password) {
-          delete updateData.password;
-        }
+        delete updateData.password;
         await adminUsersService.updateUser(user.id, {
           ...updateData,
           name: data.name.trim(),
@@ -230,11 +268,9 @@ export function UserFormModal({
             {errors.contact && <p className="text-red-500 text-xs">{errors.contact.message}</p>}
           </div>
 
-          {!hidePassword && (
+          {!isEdit && !hidePassword && (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">
-                {isEdit ? 'New Password (Optional)' : 'Password'}
-              </label>
+              <label className="text-sm font-medium text-gray-700">Password</label>
               <Input
                 type="password"
                 placeholder="••••••••"
@@ -245,23 +281,52 @@ export function UserFormModal({
             </div>
           )}
 
-          {!isEdit && (
+          {rolesLoading ? (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Assign Role (Optional)</label>
-              <Select value={selectedRoleId} onValueChange={(val) => setValue('role_id', val || undefined, { shouldValidate: true, shouldDirty: true })}>
-                <SelectTrigger className={errors.role_id ? 'border-red-500' : ''}>
-                  <SelectValue placeholder="Choose a role..." />
+              <label className="text-sm font-medium text-gray-700">
+                User Role {isEdit ? '' : '(Optional)'}
+              </label>
+              <div className="h-8 w-full animate-pulse rounded-lg bg-gray-100" />
+            </div>
+          ) : roleOptions.length ? (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">
+                User Role {isEdit ? '' : '(Optional)'}
+              </label>
+              <Select
+                value={selectedRoleId || undefined}
+                onValueChange={(val) =>
+                  setValue('role_id', val || '', { shouldValidate: true, shouldDirty: true })
+                }
+              >
+                <SelectTrigger className={`w-full ${errors.role_id ? 'border-red-500' : ''}`}>
+                  <SelectValue placeholder="Agent, Direct builder, Developer">
+                    {(value: string) =>
+                      roleOptions.find((o) => o.value === value)?.label ||
+                      'Agent, Direct builder, Developer'
+                    }
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {roles?.map((role) => (
-                    <SelectItem key={role.id} value={role.id}>
-                      {role.name}
+                  {roleOptions.map((role) => (
+                    <SelectItem key={role.value} value={role.value}>
+                      {role.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               {errors.role_id && <p className="text-red-500 text-xs">{errors.role_id.message}</p>}
             </div>
+          ) : null}
+
+          {isEdit && adminPanel && superAdmin && user?.id && (
+            <Link
+              href={`/reset-password?userId=${encodeURIComponent(String(user.id))}`}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+            >
+              <KeyRound className="h-4 w-4" />
+              Reset password →
+            </Link>
           )}
 
           {formError && <p className="text-red-500 text-xs">{formError}</p>}

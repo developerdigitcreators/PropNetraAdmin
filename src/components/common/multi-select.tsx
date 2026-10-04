@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronsUpDown } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, ChevronsUpDown, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Input } from '@/components/ui/input';
 
 export type MultiSelectOption = {
   value: string;
@@ -17,6 +18,8 @@ type MultiSelectProps = {
   emptyText?: string;
   disabled?: boolean;
   className?: string;
+  searchable?: boolean;
+  searchPlaceholder?: string;
 };
 
 export function MultiSelect({
@@ -27,11 +30,19 @@ export function MultiSelect({
   emptyText = 'No options found.',
   disabled = false,
   className,
+  searchable = false,
+  searchPlaceholder = 'Search…',
 }: MultiSelectProps) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
   const selected = options.filter((o) => values.includes(o.value));
   const label = selected.map((o) => o.label).join(', ');
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!searchable || !q) return options;
+    return options.filter((o) => o.label.toLowerCase().includes(q));
+  }, [options, query, searchable]);
 
   useEffect(() => {
     if (!open) return;
@@ -76,11 +87,23 @@ export function MultiSelect({
 
       {open && (
         <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-lg border border-input bg-white shadow-md">
+          {searchable ? (
+            <div className="relative border-b border-gray-100 p-2">
+              <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={searchPlaceholder}
+                className="pl-8"
+              />
+            </div>
+          ) : null}
           <div className="max-h-56 overflow-y-auto p-1">
-            {options.length === 0 ? (
+            {visible.length === 0 ? (
               <div className="px-3 py-6 text-center text-sm text-gray-500">{emptyText}</div>
             ) : (
-              options.map((option) => {
+              visible.map((option) => {
                 const active = values.includes(option.value);
                 return (
                   <button

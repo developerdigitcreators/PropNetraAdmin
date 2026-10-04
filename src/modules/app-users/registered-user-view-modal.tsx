@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { formatDisplayDateTime } from '@/lib/format-date';
 import { VerificationDocsSection } from '@/modules/user-analytics/verification-docs-section';
+import { DeviceLockSection } from '@/modules/user-analytics/device-lock-section';
 import { Check, X } from 'lucide-react';
 
 const STEP_CHIP: Record<string, { label: string; className: string }> = {
@@ -325,6 +326,10 @@ export function RegisteredUserViewModal({
               </ul>
             )}
           </div>
+
+          {user.id ? (
+            <DeviceLockSection userId={String(user.id)} />
+          ) : null}
 
           {user.id ? (
             <VerificationDocsSection userId={String(user.id)} />

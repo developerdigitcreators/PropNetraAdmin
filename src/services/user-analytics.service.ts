@@ -23,6 +23,8 @@ export type PersonRow = {
   city: string;
   location: string;
   bhk: string;
+  listingStatus?: string;
+  listingId?: string;
   occurredAt: string | null;
   channels: string[];
   /** Plan code snapshot at contact-reveal time (contacted / leads). */
@@ -72,6 +74,7 @@ export type UserAnalyticsDetail = {
   views: GroupedTab<PersonRow>;
   contacted: GroupedTab<PersonRow>;
   interested: GroupedTab<PersonRow>;
+  listingViewers: GroupedTab<PersonRow>;
 };
 
 export type UserAnalyticsTab = 'views' | 'contacted' | 'interested';
@@ -274,6 +277,9 @@ function normalizePerson(raw: unknown, index: number): PersonRow | null {
     occurredAt,
     channels: normalizeChannels(row),
     actorPlanCodeAtEvent,
+    listingId:
+      pickString(row.listingId, row.listing_id) || undefined,
+    listingStatus: pickString(row.listingStatus, row.listing_status, row.status) || undefined,
   };
 }
 
@@ -392,6 +398,9 @@ function normalizeDetail(raw: unknown, fallbackUser?: AnalyticsUser | null): Use
     interested: normalizeGroupedTab(
       tabs.interested ?? tabs.leads ?? tabs.inquiry ?? tabs.inquiries,
     ),
+    listingViewers: normalizeGroupedTab(
+      tabs.listingViewers ?? tabs.listing_viewers ?? tabs.viewers,
+    ),
   };
 }
 
@@ -410,15 +419,15 @@ export function countTabItems(tab: GroupedTab<PersonRow>): number {
 
 export const userAnalyticsService = {
   getStates: async (): Promise<AnalyticsPlace[]> => {
-    const response = await axiosClient.get('/admin/user-analytics/states');
+    const response = await axiosClient.get('/admin/states', { params: { activeOnly: true } });
     return asArray(response.data, 'states')
       .map(normalizePlace)
       .filter((row): row is AnalyticsPlace => !!row);
   },
 
   getCities: async (stateId: string): Promise<AnalyticsPlace[]> => {
-    const response = await axiosClient.get('/admin/user-analytics/cities', {
-      params: listParams({ stateId }),
+    const response = await axiosClient.get('/admin/cities', {
+      params: { activeOnly: true, ...listParams({ stateId }) },
     });
     return asArray(response.data, 'cities')
       .map(normalizePlace)
@@ -477,6 +486,7 @@ export const userAnalyticsService = {
         views: emptyTab(),
         contacted: emptyTab(),
         interested: emptyTab(),
+        listingViewers: emptyTab(),
       };
     }
     if (!detail.range.from) detail.range.from = params.from;

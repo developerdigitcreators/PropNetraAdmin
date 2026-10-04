@@ -1,6 +1,11 @@
 import { axiosClient } from "@/lib/axios-client";
 
-export type ReviewTab = "unverified" | "verified" | "rejected" | "dbf_catalog";
+export type ReviewTab =
+  | "unverified"
+  | "verified"
+  | "rejected"
+  | "dbf_catalog"
+  | "developer_catalog";
 
 export type RejectListingReviewPayload = {
   rejectPropertyName?: boolean;
@@ -99,8 +104,13 @@ export type ListingReviewItem = {
   allowCustomName?: boolean;
   createdAt?: string;
   created_at?: string;
-  user?: { name?: string; email?: string } | null;
-  submittedBy?: { name?: string; email?: string } | null;
+  user?: { name?: string; email?: string; companyName?: string | null } | null;
+  submittedBy?: { name?: string; email?: string; companyName?: string | null } | null;
+  companyName?: string | null;
+  leadContactName?: string | null;
+  leadContactPhone?: string | null;
+  leadUnitNo?: string | null;
+  createdByAdmin?: boolean;
   reviewLogs?: Array<{
     action?: string;
     adminUserId?: string;
@@ -386,9 +396,13 @@ export type CreateVerifiedListingPayload = {
   category_id: string;
   building_type_id: string;
   property_type_id: string;
-  property_name_id: string;
-  location_id: string;
-  micro_market_id: string;
+  property_name_id?: string;
+  property_name?: string;
+  location_id?: string;
+  location?: string;
+  micro_market_id?: string;
+  microMarket?: string;
+  city_id?: string;
   price?: number | null;
   price_on_request?: boolean;
   details?: Record<string, unknown>;
@@ -403,11 +417,52 @@ export type CreateVerifiedListingPayload = {
   }>;
 };
 
+export type CreateVerifiedListingResult = {
+  listing?: unknown;
+  meta?: {
+    live?: boolean;
+    verified?: boolean;
+    pendingReview?: boolean;
+    status?: string;
+    notifiedGroups?: boolean;
+    event?: string | null;
+  };
+};
+
 export type StaffAssignee = {
   id: string;
   name: string;
   contact: string;
+  email?: string | null;
 };
+
+function asStaffList(raw: unknown): StaffAssignee[] {
+  const data = raw as { data?: unknown; members?: unknown } | unknown[] | null;
+  const list = Array.isArray(data)
+    ? data
+    : Array.isArray((data as { members?: unknown })?.members)
+      ? ((data as { members: unknown[] }).members)
+      : Array.isArray((data as { data?: unknown })?.data)
+        ? ((data as { data: unknown[] }).data)
+        : Array.isArray(
+              ((data as { data?: { members?: unknown } })?.data)?.members,
+            )
+          ? ((data as { data: { members: unknown[] } }).data.members)
+          : [];
+  return list
+    .map((row): StaffAssignee | null => {
+      const r = row as Record<string, unknown>;
+      const id = String(r?.id ?? "").trim();
+      if (!id) return null;
+      return {
+        id,
+        name: String(r.name ?? "").trim(),
+        contact: String(r.contact ?? "").trim(),
+        email: r.email == null ? null : String(r.email),
+      };
+    })
+    .filter((row): row is StaffAssignee => !!row);
+}
 
 export type MyListingsTab = "all" | "admin_verified" | "app_postings";
 
@@ -492,7 +547,7 @@ export type ListingInterestUser = {
 
 export type ListingInterestDetails = {
   listing: { id: string; title: string };
-  lead: { name: string | null; phone: string | null };
+  lead: { name: string | null; phone: string | null; unitNo?: string | null };
   connectedStaff: { id: string; name: string; contact: string } | null;
   interestedUsers: ListingInterestUser[];
   remarks: Array<{
@@ -993,15 +1048,6 @@ export function listingCreateApiError(err: unknown, fallback: string): string {
   return e?.message || fallback;
 }
 
-/** Categories that appear in DB but are not product-ready for admin create yet. */
-export function isCreateCategoryDisabled(option: CreateFormOption): boolean {
-  const key = option.name
-    .trim()
-    .toLowerCase()
-    .replace(/[\s/_-]+/g, " ");
-  return key.includes("developer");
-}
-
 export const listingsService = {
   getReviewQueue: async (
     tab: ReviewTab = "unverified",
@@ -1130,22 +1176,33 @@ export const listingsService = {
 
   createVerifiedListing: async (
     payload: CreateVerifiedListingPayload,
-  ): Promise<unknown> => {
+  ): Promise<CreateVerifiedListingResult> => {
     const response = await axiosClient.post(
       "/admin/listings/verified",
       payload,
     );
-    return response.data;
+    return response.data as CreateVerifiedListingResult;
   },
 
-  getStaffAssignees: async (): Promise<StaffAssignee[]> => {
-    const response = await axiosClient.get("/admin/listings/staff-assignees");
-    const data = response.data;
-    return Array.isArray(data)
-      ? data
-      : Array.isArray(data?.data)
-        ? data.data
-        : [];
+  getStaffAssignees: async (
+    opts: { excludeSuperAdmin?: boolean } = {},
+  ): Promise<StaffAssignee[]> => {
+    const response = await axiosClient.get("/admin/listings/staff-assignees", {
+      params: opts.excludeSuperAdmin ? { excludeSuperAdmin: "true" } : {},
+    });
+    return asStaffList(response.data);
+  },
+
+  getSalesTeam: async (): Promise<StaffAssignee[]> => {
+    const response = await axiosClient.get("/admin/listings/sales-team");
+    return asStaffList(response.data);
+  },
+
+  updateSalesTeam: async (userIds: string[]): Promise<StaffAssignee[]> => {
+    const response = await axiosClient.put("/admin/listings/sales-team", {
+      userIds,
+    });
+    return asStaffList(response.data);
   },
 
   getMyListingsSummary: async (): Promise<MyListingsSummary> => {
@@ -1540,9 +1597,15 @@ export function canToggleForSaleTitle(item: ListingReviewItem): boolean {
 }
 
 export function getSubmittedBy(item: ListingReviewItem): string {
+  if (item.companyName?.trim()) return item.companyName.trim();
   const form = item.form as Record<string, unknown> | null | undefined;
   const fromForm = form?.submittedBy;
   if (fromForm && typeof fromForm === "object" && "name" in fromForm) {
+    const company =
+      "companyName" in fromForm
+        ? String((fromForm as { companyName?: string }).companyName || "").trim()
+        : "";
+    if (company) return company;
     const name = (fromForm as { name?: string }).name;
     if (name) return name;
   }
@@ -1633,6 +1696,8 @@ const SKIP_DETAIL_KEYS = new Set([
   "updated_at",
   "createdat",
   "updatedat",
+  "created_by_admin",
+  "realty_avenue",
   "created_by_admin_user_id",
   "connected_staff_user_id",
   "category_id",

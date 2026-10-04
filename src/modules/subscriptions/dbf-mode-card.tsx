@@ -19,6 +19,7 @@ import {
   type DbfModeDisableResult,
   type DbfModeImpact,
   type DbfModeState,
+  type ModeTrack,
 } from '@/services/subscriptions.service';
 import { AlertTriangle, CalendarClock, History, Loader2, Lock } from 'lucide-react';
 
@@ -56,9 +57,11 @@ const ACTION_LABEL: Record<DbfModeState['history'][number]['action'], string> = 
 
 type Props = {
   canUpdate: boolean;
+  track?: ModeTrack;
 };
 
-export function DbfModeCard({ canUpdate }: Props) {
+export function DbfModeCard({ canUpdate, track = 'dbf' }: Props) {
+  const label = track === 'developer' ? 'Developer' : 'Direct Builder Floor';
   const [mode, setMode] = useState<DbfModeState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -81,9 +84,9 @@ export function DbfModeCard({ canUpdate }: Props) {
     setLoading(true);
     setError('');
     try {
-      setMode(await subscriptionsService.getDbfMode());
+      setMode(await subscriptionsService.getDbfMode(track));
     } catch (err) {
-      setError(subscriptionApiError(err, 'Failed to load Direct Builder Floor mode.'));
+      setError(subscriptionApiError(err, `Failed to load ${label} mode.`));
     } finally {
       setLoading(false);
     }
@@ -91,7 +94,7 @@ export function DbfModeCard({ canUpdate }: Props) {
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [track]);
 
   const isPaid = mode?.mode === 'paid';
   const isPostpone = isPaid;
@@ -120,7 +123,7 @@ export function DbfModeCard({ canUpdate }: Props) {
     setImpact(null);
     setImpactLoading(true);
     try {
-      setImpact(await subscriptionsService.getDbfModeImpact());
+      setImpact(await subscriptionsService.getDbfModeImpact(track));
     } catch (err) {
       setOffError(subscriptionApiError(err, 'Failed to load the impact of turning Paid mode off.'));
     } finally {
@@ -144,10 +147,10 @@ export function DbfModeCard({ canUpdate }: Props) {
     setSaving(true);
     setDialogError('');
     try {
-      setMode(await subscriptionsService.enableDbfPaidMode(freeEndsOn));
+      setMode(await subscriptionsService.enableDbfPaidMode(freeEndsOn, track));
       setDialogOpen(false);
     } catch (err) {
-      setDialogError(subscriptionApiError(err, 'Failed to update Direct Builder Floor mode.'));
+      setDialogError(subscriptionApiError(err, `Failed to update ${label} mode.`));
     } finally {
       setSaving(false);
     }
@@ -161,7 +164,7 @@ export function DbfModeCard({ canUpdate }: Props) {
     setOffSaving(true);
     setOffError('');
     try {
-      const { mode: next, result } = await subscriptionsService.disableDbfPaidMode(notifyUsers);
+      const { mode: next, result } = await subscriptionsService.disableDbfPaidMode(notifyUsers, track);
       setMode(next);
       setOffOpen(false);
       setNotice(describeOffResult(result));
@@ -188,7 +191,7 @@ export function DbfModeCard({ canUpdate }: Props) {
             ) : null}
           </div>
           <p className="mt-1 max-w-2xl text-sm text-gray-500">
-            In Free mode every Direct Builder Floor user can view and post within the Post Free
+            In Free mode every {label} user can view and post within the Post Free
             Limit. When Paid mode is on, existing users keep free access until the date you pick
             (with reminders 15, 7, 3 and 1 days before), then need the plan; new sign-ups need the
             plan straight away. Turning it off unlocks everyone; paid users keep their plan until
@@ -313,7 +316,7 @@ export function DbfModeCard({ canUpdate }: Props) {
             <DialogDescription>
               {isPostpone
                 ? `Currently ends on ${formatIstDate(mode?.freeEndsOn)}. You can only move it later, and only before it passes. Users in the free period are notified of the new date.`
-                : 'Existing Direct Builder Floor users (including anyone who joined while Paid mode was off) keep free access until this date. New users must buy the plan to view or post.'}
+                : `Existing ${label} users (including anyone who joined while Paid mode was off) keep free access until this date. New users must buy the plan to view or post.`}
             </DialogDescription>
           </DialogHeader>
 
@@ -353,7 +356,7 @@ export function DbfModeCard({ canUpdate }: Props) {
           <DialogHeader>
             <DialogTitle>Turn off Paid mode</DialogTitle>
             <DialogDescription>
-              Direct Builder Floor becomes free for everyone. Plan-locked listings are unlocked
+              {label} becomes free for everyone. Plan-locked listings are unlocked
               and new users join free. Paid users keep their plan until it expires, but autopay
               will stop so they are not charged again.
             </DialogDescription>
@@ -386,7 +389,7 @@ export function DbfModeCard({ canUpdate }: Props) {
                 checked={notifyUsers}
                 onChange={(e) => setNotifyUsers(e.target.checked)}
               />
-              <span>Notify Direct Builder Floor users that the plan is free now</span>
+              <span>Notify {label} users that the plan is free now</span>
             </label>
 
             <label className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">

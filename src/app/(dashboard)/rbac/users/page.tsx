@@ -12,6 +12,7 @@ import { rbacService } from '@/services/rbac.service';
 import { adminUsersService } from '@/services/admin-users.service';
 import { Plus, Edit2, Trash2 } from 'lucide-react';
 import { useClientPagedRows } from '@/hooks/use-client-paged-rows';
+import { humanizeRoleName } from '@/lib/role-label';
 
 import { PermissionGuard } from '@/components/common/permission-guard';
 
@@ -20,6 +21,7 @@ export default function UsersPage() {
   const [isLoading, setIsLoading] = useState(true);
   
   const [roles, setRoles] = useState<any[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
 
   // Modal states
   const [assignRoleUser, setAssignRoleUser] = useState<any>(null);
@@ -56,7 +58,11 @@ export default function UsersPage() {
 
   useEffect(() => {
     fetchUsers();
-    rbacService.getRoles('admin_panel').then((data) => setRoles(Array.isArray(data) ? data : [])).catch(console.error);
+    rbacService
+      .getRoles('admin_panel')
+      .then((data) => setRoles(Array.isArray(data) ? data : []))
+      .catch(console.error)
+      .finally(() => setRolesLoading(false));
   }, []);
 
   const handleCreateNew = () => {
@@ -126,8 +132,8 @@ export default function UsersPage() {
                 </td>
                 <td className="px-6 py-4">
                   {user.userRoles && user.userRoles.length > 0 && user.userRoles[0]?.role?.name ? (
-                    <Badge variant="secondary" className="bg-primary-light text-primary hover:bg-primary/20 capitalize">
-                      {user.userRoles[0].role.name.replace('_', ' ')}
+                    <Badge variant="secondary" className="bg-primary-light text-primary hover:bg-primary/20">
+                      {humanizeRoleName(user.userRoles[0].role.name)}
                     </Badge>
                   ) : (
                     <span className="text-gray-400 italic text-xs">No role assigned</span>
@@ -157,7 +163,9 @@ export default function UsersPage() {
         onOpenChange={setFormOpen}
         user={formUser}
         roles={roles}
+        rolesLoading={rolesLoading}
         onSuccess={fetchUsers}
+        adminPanel
       />
 
       <DeleteUserAlert

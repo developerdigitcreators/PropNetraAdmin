@@ -24,9 +24,59 @@ export type PlanLimits = {
   dbfPostsMonthly: number;
   /** null = no active post cap */
   activeDbfPosts: number | null;
+  /** Developer project features — null = unlimited */
+  devCompareDaily: number | null;
+  devCompareMonthly: number | null;
+  devShareDaily: number | null;
+  devShareMonthly: number | null;
+  devBrochureDaily: number | null;
+  devBrochureMonthly: number | null;
+  devContactDaily: number | null;
+  devContactMonthly: number | null;
+  /** Agent plans: developer project page views — null = unlimited */
+  devViewDaily: number | null;
+  devViewMonthly: number | null;
+  /** Developer / DBF owners: listing-viewer number reveals — null = unlimited */
+  viewerRevealDaily: number | null;
+  viewerRevealMonthly: number | null;
+  /** Developer post limits */
+  developerPostsDaily: number;
+  developerPostsMonthly: number;
+  activeDeveloperPosts: number | null;
+  /** Developer: Launch Update cities included free with the plan */
+  includedCities: number;
+  developerGroupChatEnabled: boolean;
+  launchReelsEnabled: boolean;
 };
 
-export type PlanAudience = 'agent' | 'dbf';
+export type PlanAudience = 'agent' | 'dbf' | 'developer';
+
+/** Which role track a Plan mode card controls. */
+export type ModeTrack = 'dbf' | 'developer';
+
+export type CityAddonPeriodPrices = {
+  monthly: number;
+  quarterly: number;
+  half_yearly: number;
+  yearly: number;
+};
+
+export type CityAddonPricingCity = {
+  cityId: string;
+  cityName: string;
+  stateId?: string;
+  stateName: string;
+  prices: CityAddonPeriodPrices;
+  overridden?: boolean;
+};
+
+export type CityAddonPricing = {
+  secondPaise: number;
+  thirdPaise: number;
+  defaults: CityAddonPeriodPrices;
+  durations?: string[];
+  citiesCatalog?: CityAddonPricingCity[];
+};
 
 export type DbfModeHistoryEntry = {
   cycle: number;
@@ -73,6 +123,32 @@ export type PlanFlags = {
   builderContactsEnabled: boolean;
 };
 
+/** Hidden quotas for revealing contacts on Realty Avenue (verified) listings. null = unlimited. */
+export type VerifiedContactLimits = {
+  verifiedResaleContactsDaily: number | null;
+  verifiedResaleContactsMonthly: number | null;
+  verifiedRentContactsDaily: number | null;
+  verifiedRentContactsMonthly: number | null;
+  verifiedBuyReqContactsDaily: number | null;
+  verifiedBuyReqContactsMonthly: number | null;
+};
+
+export const VERIFIED_CONTACT_LIMIT_KEYS: Array<keyof VerifiedContactLimits> = [
+  'verifiedResaleContactsDaily',
+  'verifiedResaleContactsMonthly',
+  'verifiedRentContactsDaily',
+  'verifiedRentContactsMonthly',
+  'verifiedBuyReqContactsDaily',
+  'verifiedBuyReqContactsMonthly',
+];
+
+function normalizeVerifiedContactLimits(raw: unknown): VerifiedContactLimits {
+  const row = asRecord(raw) || {};
+  return Object.fromEntries(
+    VERIFIED_CONTACT_LIMIT_KEYS.map((key) => [key, asNumOrNull(row[key])]),
+  ) as VerifiedContactLimits;
+}
+
 export type SubscriptionPlanItem = {
   id: string;
   code: string;
@@ -88,11 +164,42 @@ export type SubscriptionPlanItem = {
   audience: PlanAudience;
   flags: PlanFlags;
   limits: PlanLimits | null;
+  verifiedContactLimits: VerifiedContactLimits;
 };
 
 export function isDbfPlanCode(code: string): boolean {
   const key = String(code || '').toUpperCase();
   return key === 'DBF_FREE' || key === 'DBF_PAID';
+}
+
+export function isDeveloperPlanCode(code: string): boolean {
+  return String(code || '').toUpperCase().startsWith('DEVELOPER_');
+}
+
+export function billingPeriodLabel(period: string | null | undefined): string {
+  switch (String(period || '').toLowerCase()) {
+    case 'monthly':
+      return 'Monthly';
+    case 'quarterly':
+      return 'Quarterly';
+    case 'half_yearly':
+      return 'Half-Yearly';
+    default:
+      return 'Yearly';
+  }
+}
+
+export function billingPeriodUnit(period: string | null | undefined): string {
+  switch (String(period || '').toLowerCase()) {
+    case 'monthly':
+      return 'month';
+    case 'quarterly':
+      return 'quarter';
+    case 'half_yearly':
+      return 'half-year';
+    default:
+      return 'year';
+  }
 }
 
 export type AddonCatalogItem = {
@@ -163,7 +270,7 @@ export type UpdatePlanPayload = {
   listingPriorityEnabled?: boolean;
   listingBoostEnabled?: boolean;
   builderContactsEnabled?: boolean;
-  entitlements?: Partial<PlanLimits>;
+  entitlements?: Partial<PlanLimits> & Partial<VerifiedContactLimits>;
 };
 
 export type UpdateAddonPayload = {
@@ -288,6 +395,24 @@ function normalizeLimits(raw: unknown): PlanLimits | null {
     dbfPostsDaily: asNum(row.dbfPostsDaily, 0),
     dbfPostsMonthly: asNum(row.dbfPostsMonthly, 0),
     activeDbfPosts: asNumOrNull(row.activeDbfPosts),
+    devCompareDaily: asNumOrNull(row.devCompareDaily),
+    devCompareMonthly: asNumOrNull(row.devCompareMonthly),
+    devShareDaily: asNumOrNull(row.devShareDaily),
+    devShareMonthly: asNumOrNull(row.devShareMonthly),
+    devBrochureDaily: asNumOrNull(row.devBrochureDaily),
+    devBrochureMonthly: asNumOrNull(row.devBrochureMonthly),
+    devContactDaily: asNumOrNull(row.devContactDaily),
+    devContactMonthly: asNumOrNull(row.devContactMonthly),
+    devViewDaily: asNumOrNull(row.devViewDaily),
+    devViewMonthly: asNumOrNull(row.devViewMonthly),
+    viewerRevealDaily: asNumOrNull(row.viewerRevealDaily),
+    viewerRevealMonthly: asNumOrNull(row.viewerRevealMonthly),
+    developerPostsDaily: asNum(row.developerPostsDaily, 0),
+    developerPostsMonthly: asNum(row.developerPostsMonthly, 0),
+    activeDeveloperPosts: asNumOrNull(row.activeDeveloperPosts),
+    includedCities: Math.max(1, asNum(row.includedCities, 1)),
+    developerGroupChatEnabled: asBool(row.developerGroupChatEnabled, false),
+    launchReelsEnabled: asBool(row.launchReelsEnabled, false),
   };
 }
 
@@ -376,9 +501,16 @@ export function normalizePlan(raw: unknown): SubscriptionPlanItem | null {
     promoPricePaise: asNumOrNull(row.promoPricePaise ?? row.promo_price_paise),
     promoWindowDays: asNumOrNull(row.promoWindowDays ?? row.promo_window_days),
     audience:
-      pickString(row.audience) === 'dbf' || isDbfPlanCode(code) ? 'dbf' : 'agent',
+      pickString(row.audience) === 'dbf' || isDbfPlanCode(code)
+        ? 'dbf'
+        : pickString(row.audience) === 'developer' || isDeveloperPlanCode(code)
+          ? 'developer'
+          : 'agent',
     flags: normalizeFlags(flagsRaw),
     limits: normalizeLimits(row.limits ?? row.entitlement),
+    verifiedContactLimits: normalizeVerifiedContactLimits(
+      row.verifiedContactLimits ?? row.limits ?? row.entitlement,
+    ),
   };
 }
 
@@ -475,14 +607,17 @@ export const subscriptionsService = {
       .sort((a, b) => a.sortOrder - b.sortOrder);
   },
 
-  getDbfMode: async (): Promise<DbfModeState> => {
-    const response = await axiosClient.get('/admin/subscriptions/dbf-mode');
+  getDbfMode: async (track: ModeTrack = 'dbf'): Promise<DbfModeState> => {
+    const response = await axiosClient.get(`/admin/subscriptions/${track}-mode`);
     return normalizeDbfMode(response.data);
   },
 
   /** Enables Paid mode (starts a new cycle), or postpones the free-end date before it passes. */
-  enableDbfPaidMode: async (freeEndsOn: string): Promise<DbfModeState> => {
-    const response = await axiosClient.put('/admin/subscriptions/dbf-mode', {
+  enableDbfPaidMode: async (
+    freeEndsOn: string,
+    track: ModeTrack = 'dbf',
+  ): Promise<DbfModeState> => {
+    const response = await axiosClient.put(`/admin/subscriptions/${track}-mode`, {
       freeEndsOn,
     });
     return normalizeDbfMode(response.data);
@@ -490,8 +625,9 @@ export const subscriptionsService = {
 
   disableDbfPaidMode: async (
     notifyUsers: boolean,
+    track: ModeTrack = 'dbf',
   ): Promise<{ mode: DbfModeState; result: DbfModeDisableResult }> => {
-    const response = await axiosClient.put('/admin/subscriptions/dbf-mode/disable', {
+    const response = await axiosClient.put(`/admin/subscriptions/${track}-mode/disable`, {
       notifyUsers,
     });
     const body = asRecord(asRecord(response.data)?.data ?? response.data) || {};
@@ -508,9 +644,70 @@ export const subscriptionsService = {
     };
   },
 
-  getDbfModeImpact: async (): Promise<DbfModeImpact> => {
-    const response = await axiosClient.get('/admin/subscriptions/dbf-mode/impact');
+  getDbfModeImpact: async (track: ModeTrack = 'dbf'): Promise<DbfModeImpact> => {
+    const response = await axiosClient.get(`/admin/subscriptions/${track}-mode/impact`);
     return normalizeDbfImpact(response.data);
+  },
+
+  getCityAddonPricing: async (): Promise<CityAddonPricing> => {
+    const response = await axiosClient.get('/admin/subscriptions/developer/city-addon-pricing');
+    const row = asRecord(asRecord(response.data)?.data ?? response.data) || {};
+    const defaultsRow = asRecord(row.defaults) || {};
+    const defaults: CityAddonPeriodPrices = {
+      monthly: asNum(defaultsRow.monthly, 9900),
+      quarterly: asNum(defaultsRow.quarterly, 24900),
+      half_yearly: asNum(defaultsRow.half_yearly, 49900),
+      yearly: asNum(defaultsRow.yearly, 99900),
+    };
+    const catalog = asArray(row.citiesCatalog).map((item) => {
+      const rec = asRecord(item) || {};
+      const prices = asRecord(rec.prices) || {};
+      return {
+        cityId: String(rec.cityId || rec.id || ''),
+        cityName: String(rec.cityName || rec.name || ''),
+        stateId: rec.stateId ? String(rec.stateId) : undefined,
+        stateName: String(rec.stateName || ''),
+        overridden: Boolean(rec.overridden),
+        prices: {
+          monthly: asNum(prices.monthly, defaults.monthly),
+          quarterly: asNum(prices.quarterly, defaults.quarterly),
+          half_yearly: asNum(prices.half_yearly, defaults.half_yearly),
+          yearly: asNum(prices.yearly, defaults.yearly),
+        },
+      };
+    });
+    return {
+      secondPaise: asNum(row.secondPaise, 117900),
+      thirdPaise: asNum(row.thirdPaise, 189900),
+      defaults,
+      durations: Array.isArray(row.durations) ? row.durations.map(String) : undefined,
+      citiesCatalog: catalog,
+    };
+  },
+
+  setCityAddonPricing: async (pricing: {
+    defaults?: Partial<CityAddonPeriodPrices>;
+    cities?: Array<{ cityId: string } & Partial<CityAddonPeriodPrices>>;
+    secondPaise?: number;
+    thirdPaise?: number;
+  }): Promise<CityAddonPricing> => {
+    const response = await axiosClient.put(
+      '/admin/subscriptions/developer/city-addon-pricing',
+      pricing,
+    );
+    return subscriptionsService.getCityAddonPricing().then((fresh) => fresh).catch(() => {
+      const row = asRecord(asRecord(response.data)?.data ?? response.data) || {};
+      return {
+        secondPaise: asNum(row.secondPaise, pricing.secondPaise || 0),
+        thirdPaise: asNum(row.thirdPaise, pricing.thirdPaise || 0),
+        defaults: {
+          monthly: asNum((asRecord(row.defaults) || {}).monthly, 9900),
+          quarterly: asNum((asRecord(row.defaults) || {}).quarterly, 24900),
+          half_yearly: asNum((asRecord(row.defaults) || {}).half_yearly, 49900),
+          yearly: asNum((asRecord(row.defaults) || {}).yearly, 99900),
+        },
+      };
+    });
   },
 
   updatePlan: async (

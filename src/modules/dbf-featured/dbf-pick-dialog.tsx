@@ -13,7 +13,7 @@ import { SearchableSelect } from '@/components/common/searchable-select';
 import { dbfFeaturedApiError } from '@/services/dbf-featured.service';
 import { Loader2 } from 'lucide-react';
 
-export type DbfPickOption = { value: string; label: string };
+export type DbfPickOption = { value: string; label: string; badge?: string | number };
 
 type DbfPickDialogProps = {
   open: boolean;

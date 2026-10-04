@@ -43,8 +43,14 @@ export const locationService = {
   // =====================
   // STATES
   // =====================
-  getStates: async () => {
-    const response = await axiosClient.get('/admin/states');
+  /**
+   * Pickers and filters pass `activeOnly: true`. Location Management and City
+   * Requests omit it so inactive rows stay visible.
+   */
+  getStates: async (opts: { activeOnly?: boolean } = {}) => {
+    const response = await axiosClient.get('/admin/states', {
+      params: opts.activeOnly ? { activeOnly: true } : undefined,
+    });
     return response.data;
   },
   createState: async (payload: { name: string; is_active?: boolean }) => {
@@ -63,8 +69,14 @@ export const locationService = {
   // =====================
   // CITIES
   // =====================
-  getCities: async () => {
-    const response = await axiosClient.get('/admin/cities');
+  /** `activeOnly` hides inactive cities and cities of inactive states (server-side). */
+  getCities: async (opts: { activeOnly?: boolean; stateId?: string } = {}) => {
+    const params: Record<string, string | boolean> = {};
+    if (opts.activeOnly) params.activeOnly = true;
+    if (opts.stateId) params.stateId = opts.stateId;
+    const response = await axiosClient.get('/admin/cities', {
+      params: Object.keys(params).length ? params : undefined,
+    });
     return response.data;
   },
   createCity: async (payload: { name: string; is_active?: boolean }) => {

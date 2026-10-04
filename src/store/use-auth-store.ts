@@ -32,6 +32,7 @@ interface AuthState {
     expiry?: TokenExpiryInput,
   ) => void;
   setActiveRole: (role: string) => void;
+  setPermissions: (permissions: string[]) => void;
   hasPermission: (moduleName: string, action: string) => boolean;
   logout: () => void;
 }
@@ -82,6 +83,7 @@ export const useAuthStore = create<AuthState>()(
         }
         set({ activeRole: role });
       },
+      setPermissions: (permissions) => set({ permissions: new Set(permissions) }),
       hasPermission: (moduleName, action) =>
         permissionSetHas(get().permissions, `${moduleName}:${action}`),
       logout: () => {

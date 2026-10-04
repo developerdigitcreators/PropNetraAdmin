@@ -11,7 +11,8 @@ export type DashboardUnreadKey =
   | 'accountDeletions'
   | 'myListingsActionable'
   | 'adminVerifiedLeads'
-  | 'subscriptionTracking';
+  | 'subscriptionTracking'
+  | 'listingFeedbacks';
 
 export type AdminDashboardSummary = {
   documentsPending?: number;
@@ -25,6 +26,7 @@ export type AdminDashboardSummary = {
   myListingsActionable?: number;
   adminVerifiedLeads?: number;
   subscriptionTracking?: number;
+  listingFeedbacks?: number;
   activeUsers?: number;
   inactiveUsers?: number;
   /** True when that card has unread/new rows needing attention. */

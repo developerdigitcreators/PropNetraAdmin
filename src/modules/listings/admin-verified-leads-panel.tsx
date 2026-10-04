@@ -5,6 +5,7 @@ import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { AdminDataTable } from '@/components/common/admin-data-table';
 import { newFirstCellClass, NewTag } from '@/components/common/new-row-marker';
+import { DateRangePicker } from '@/components/common/date-range-picker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -27,22 +28,38 @@ import { formatDisplayDateTime } from '@/lib/format-date';
 import {
   verifiedLeadsApiError,
   verifiedLeadsService,
-  type VerifiedLeadAssignee,
+  type VerifiedLeadFilterOption,
+  type VerifiedLeadFilterOptions,
+  type VerifiedLeadFilters,
+  type VerifiedLeadKind,
   type VerifiedLeadRemark,
   type VerifiedLeadRow,
   type VerifiedLeadStatus,
 } from '@/services/verified-leads.service';
 import {
+  ensureSelected,
+  VerifiedLeadsProjectFilter,
+  withCount,
+} from '@/modules/listings/verified-leads-project-filter';
+import {
   listingsService,
   type MyListingDetail,
 } from '@/services/listings.service';
+import { ListingFeedbackList } from '@/components/listing-feedback/listing-feedback-list';
 import {
   ChevronDown,
   ChevronRight,
   Loader2,
   RefreshCw,
   RotateCcw,
+  X,
 } from 'lucide-react';
+
+const KIND_FALLBACK: VerifiedLeadFilterOption[] = [
+  { value: 'all', label: 'All', count: 0 },
+  { value: 'leads', label: 'Leads', count: 0 },
+  { value: 'listing_viewers', label: 'Listing viewers', count: 0 },
+];
 
 function PlanBadge({ planCode }: { planCode?: string | null }) {
   const chip = resolvePlanChip(null, planCode);
@@ -73,19 +90,47 @@ function DetailField({
   );
 }
 
+function listingExpiryLabel(detail: {
+  status?: string | null;
+  daysLeft?: number | null;
+  expiresAt?: string | null;
+}): string {
+  const days =
+    typeof detail.daysLeft === 'number' && Number.isFinite(detail.daysLeft)
+      ? detail.daysLeft
+      : null;
+  const expired =
+    detail.status === 'expired' ||
+    (days != null && days < 0) ||
+    (!!detail.expiresAt &&
+      days == null &&
+      !Number.isNaN(new Date(detail.expiresAt).getTime()) &&
+      new Date(detail.expiresAt).getTime() < Date.now());
+  if (expired) return 'Expired';
+  if (days === 0) return 'Expiring today';
+  if (days != null && days > 0) {
+    return `Expiring in ${days} day${days === 1 ? '' : 's'}`;
+  }
+  return '—';
+}
+
 function listingStatusLabel(detail: MyListingDetail) {
   if (detail.status === 'expired') return 'Expired';
   if (!detail.isActive) return 'Inactive';
-  if (detail.expiringSoon) return `Expiring (${detail.daysLeft}d)`;
+  if (detail.expiringSoon) return listingExpiryLabel(detail);
   return 'Active';
 }
 
 export function AdminVerifiedLeadsPanel() {
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const user = useAuthStore((s) => s.user);
-  const superAdmin = isSuperAdmin(user);
-  const canAssign =
-    superAdmin || hasPermission('admin_verified_leads', 'assign');
+  const permissions = useAuthStore((s) => s.permissions);
+  const activeRole = useAuthStore((s) => s.activeRole);
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const superAdmin = useMemo(
+    () => isSuperAdmin({ user, permissions, activeRole, accessToken }),
+    [user, permissions, activeRole, accessToken],
+  );
   const canRemark = superAdmin || hasPermission('admin_verified_leads', 'create');
   const canStatus = superAdmin || hasPermission('admin_verified_leads', 'update');
 
@@ -93,12 +138,22 @@ export function AdminVerifiedLeadsPanel() {
   const [statuses, setStatuses] = useState<
     Array<{ value: VerifiedLeadStatus; label: string }>
   >([]);
-  const [assignees, setAssignees] = useState<VerifiedLeadAssignee[]>([]);
+  const [filterOptions, setFilterOptions] =
+    useState<VerifiedLeadFilterOptions | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [qDraft, setQDraft] = useState('');
   const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [kind, setKind] = useState<VerifiedLeadKind>('all');
+  const [userRole, setUserRole] = useState('all');
+  const [project, setProject] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [followUpFrom, setFollowUpFrom] = useState('');
+  const [followUpTo, setFollowUpTo] = useState('');
+  const [assigneeId, setAssigneeId] = useState('all');
+  const [followUpDraft, setFollowUpDraft] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [total, setTotal] = useState(0);
@@ -135,24 +190,32 @@ export function AdminVerifiedLeadsPanel() {
     }
   };
 
-  const load = useCallback(async () => {
+  const filters = useMemo<VerifiedLeadFilters>(
+    () => ({
+      kind,
+      status: statusFilter,
+      userRole,
+      project,
+      assigneeId,
+      from,
+      to,
+      followUpFrom,
+      followUpTo,
+      q,
+    }),
+    [kind, statusFilter, userRole, project, assigneeId, from, to, followUpFrom, followUpTo, q],
+  );
+
+  const loadList = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [list, staff] = await Promise.all([
-        verifiedLeadsService.list({
-          page,
-          limit: pageSize,
-          q: q.trim() || undefined,
-          status: statusFilter === 'all' ? undefined : statusFilter,
-        }),
-        canAssign
-          ? verifiedLeadsService.listAssignees().catch(() => [])
-          : Promise.resolve([]),
-      ]);
+      const list = await verifiedLeadsService.list(filters, {
+        page,
+        limit: pageSize,
+      });
       setItems(list.items || []);
       setStatuses(list.statuses || []);
-      setAssignees(staff || []);
       setTotal(list.meta?.total || 0);
       setTotalPages(list.meta?.totalPages || 1);
     } catch (err) {
@@ -163,16 +226,51 @@ export function AdminVerifiedLeadsPanel() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, q, statusFilter, canAssign]);
+  }, [filters, page, pageSize]);
+
+  const loadFilterOptions = useCallback(async () => {
+    try {
+      setFilterOptions(await verifiedLeadsService.filterOptions(filters));
+    } catch {
+      // Keep the last counts; the list call surfaces API errors.
+    }
+  }, [filters]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadList();
+  }, [loadList]);
+
+  useEffect(() => {
+    void loadFilterOptions();
+  }, [loadFilterOptions]);
+
+  useEffect(() => {
+    const next = qDraft.trim();
+    if (next === q) return;
+    const t = setTimeout(() => {
+      setQ(next);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [qDraft, q]);
+
+  const refreshAll = () => {
+    void loadList();
+    void loadFilterOptions();
+  };
 
   const resetFilters = () => {
     setQDraft('');
     setQ('');
     setStatusFilter('all');
+    setKind('all');
+    setUserRole('all');
+    setProject('');
+    setFrom('');
+    setTo('');
+    setFollowUpFrom('');
+    setFollowUpTo('');
+    setAssigneeId('all');
     setPage(1);
     setExpandedId(null);
   };
@@ -183,6 +281,81 @@ export function AdminVerifiedLeadsPanel() {
     setQ(qDraft.trim());
   };
 
+  const filterActive =
+    kind !== 'all' ||
+    statusFilter !== 'all' ||
+    userRole !== 'all' ||
+    !!project ||
+    assigneeId !== 'all' ||
+    !!from ||
+    !!to ||
+    !!followUpFrom ||
+    !!followUpTo ||
+    !!q;
+
+  const kindOptions = filterOptions?.kind.length ? filterOptions.kind : KIND_FALLBACK;
+  const statusFilterOptions = ensureSelected(filterOptions?.status || [], statusFilter);
+  const assigneeOptions = ensureSelected(filterOptions?.assignee || [], assigneeId);
+  const shownTotal = filterOptions?.total ?? total;
+
+  const labelOf = (opts: VerifiedLeadFilterOption[], value: string) =>
+    opts.find((o) => o.value === value)?.label || value;
+
+  const activeChips: Array<{ key: string; label: string; clear: () => void }> = [
+    kind !== 'all' && {
+      key: 'kind',
+      label: `Type: ${labelOf(kindOptions, kind)}`,
+      clear: () => setKind('all'),
+    },
+    userRole !== 'all' && {
+      key: 'role',
+      label: `Role: ${labelOf(filterOptions?.userRole || [], userRole)}`,
+      clear: () => setUserRole('all'),
+    },
+    !!project && {
+      key: 'project',
+      label: `Project: ${project}`,
+      clear: () => setProject(''),
+    },
+    statusFilter !== 'all' && {
+      key: 'status',
+      label: `Status: ${labelOf(statusFilterOptions, statusFilter)}`,
+      clear: () => setStatusFilter('all'),
+    },
+    assigneeId !== 'all' && {
+      key: 'assignee',
+      label: `Assignee: ${labelOf(assigneeOptions, assigneeId)}`,
+      clear: () => setAssigneeId('all'),
+    },
+    (!!from || !!to) && {
+      key: 'dates',
+      label: `Interested: ${from || '…'} – ${to || '…'}`,
+      clear: () => {
+        setFrom('');
+        setTo('');
+      },
+    },
+    (!!followUpFrom || !!followUpTo) && {
+      key: 'followUp',
+      label: `Follow-up: ${followUpFrom || '…'} – ${followUpTo || '…'}`,
+      clear: () => {
+        setFollowUpFrom('');
+        setFollowUpTo('');
+      },
+    },
+    !!q && {
+      key: 'q',
+      label: `Search: ${q}`,
+      clear: () => {
+        setQDraft('');
+        setQ('');
+      },
+    },
+  ].filter((c): c is { key: string; label: string; clear: () => void } => !!c);
+
+  const rangeStart = total ? (page - 1) * pageSize + 1 : 0;
+  const rangeEnd = Math.min(page * pageSize, total);
+
   const toggleExpand = async (row: VerifiedLeadRow) => {
     if (expandedId === row.id) {
       setExpandedId(null);
@@ -190,8 +363,8 @@ export function AdminVerifiedLeadsPanel() {
     }
     setExpandedId(row.id);
     setRemarkDraft('');
+    setFollowUpDraft(row.nextFollowUpAt ? String(row.nextFollowUpAt).slice(0, 10) : '');
     setStatusDraft(row.status);
-    if (remarksById[row.id]) return;
     setRemarksLoading(row.id);
     try {
       const remarks = await verifiedLeadsService.listRemarks(row.id);
@@ -200,38 +373,6 @@ export function AdminVerifiedLeadsPanel() {
       setError(verifiedLeadsApiError(err, 'Failed to load remarks.'));
     } finally {
       setRemarksLoading(null);
-    }
-  };
-
-  const onAssign = async (row: VerifiedLeadRow, staffUserId: string) => {
-    if (!staffUserId) return;
-    setSaving(true);
-    setError('');
-    const staff =
-      assignees.find((a) => a.id === staffUserId) ||
-      row.assignedStaff ||
-      null;
-    try {
-      const updated = await verifiedLeadsService.assign(row.id, staffUserId);
-      setItems((prev) =>
-        prev.map((item) =>
-          item.id === row.id
-            ? {
-                ...item,
-                ...updated,
-                isNew: false,
-                assignedStaff:
-                  updated.assignedStaff?.name
-                    ? updated.assignedStaff
-                    : staff || updated.assignedStaff,
-              }
-            : item,
-        ),
-      );
-    } catch (err) {
-      setError(verifiedLeadsApiError(err, 'Failed to assign lead.'));
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -245,10 +386,11 @@ export function AdminVerifiedLeadsPanel() {
         row.id,
         body,
         canStatus ? statusDraft : undefined,
+        followUpDraft || undefined,
       );
       setRemarksById((prev) => ({
         ...prev,
-        [row.id]: [...(prev[row.id] || []), remark],
+        [row.id]: [remark, ...(prev[row.id] || [])],
       }));
       setItems((prev) =>
         prev.map((item) =>
@@ -256,6 +398,8 @@ export function AdminVerifiedLeadsPanel() {
             ? {
                 ...item,
                 isNew: false,
+                latestRemark: remark,
+                nextFollowUpAt: followUpDraft || item.nextFollowUpAt,
                 ...(canStatus && statusDraft !== row.status
                   ? {
                       status: statusDraft,
@@ -269,6 +413,8 @@ export function AdminVerifiedLeadsPanel() {
         ),
       );
       setRemarkDraft('');
+      setFollowUpDraft('');
+      refreshAll();
     } catch (err) {
       setError(verifiedLeadsApiError(err, 'Failed to add remark.'));
     } finally {
@@ -295,14 +441,18 @@ export function AdminVerifiedLeadsPanel() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <Breadcrumb items={[{ label: 'Admin Verified My Leads' }]} />
-            <h1 className="mt-2 text-2xl font-bold text-gray-900">
+            <h1 className="mt-2 flex flex-wrap items-baseline gap-3 text-2xl font-bold text-gray-900">
               Admin Verified My Leads
+              <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-sm font-medium text-gray-700">
+                Total: {shownTotal}
+              </span>
             </h1>
             <p className="mt-1 text-sm text-gray-500">
-              Interests on admin-verified listings — one row per user × property.
+              Contacted leads and listing viewers on admin-verified listings —
+              one row per user × property.
               {superAdmin
-                ? ' Super Admin sees all leads.'
-                : ' You see leads assigned to you.'}
+                ? ' Super Admin sees all rows.'
+                : ' You see rows assigned to you and viewers on your posts.'}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -314,7 +464,7 @@ export function AdminVerifiedLeadsPanel() {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => void load()}
+              onClick={refreshAll}
               disabled={loading}
             >
               <RefreshCw className={`mr-1.5 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -323,36 +473,171 @@ export function AdminVerifiedLeadsPanel() {
           </div>
         </div>
 
-        <form className="flex flex-wrap gap-3" onSubmit={applySearch}>
-          <Input
-            value={qDraft}
-            onChange={(e) => setQDraft(e.target.value)}
-            placeholder="Search name, contact, project…"
-            className="max-w-xs"
-          />
-          <Select
-            value={statusFilter}
-            onValueChange={(v) => {
-              setStatusFilter(v);
+        <div className="inline-flex flex-wrap gap-1 rounded-lg bg-gray-100 p-1">
+          {kindOptions.map((k) => {
+            const active = kind === k.value;
+            return (
+              <button
+                key={k.value}
+                type="button"
+                onClick={() => {
+                  setKind(k.value as VerifiedLeadKind);
+                  setPage(1);
+                }}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  active
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : k.count === 0 && filterOptions
+                      ? 'text-gray-400 hover:text-gray-600'
+                      : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                {filterOptions ? withCount(k.label, k.count) : k.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <form className="flex flex-wrap items-end gap-3" onSubmit={applySearch}>
+          <DateRangePicker
+            from={from}
+            to={to}
+            onChange={(nextFrom, nextTo) => {
+              setFrom(nextFrom);
+              setTo(nextTo);
               setPage(1);
             }}
-          >
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              {statusOptions.map((s) => (
-                <SelectItem key={s.value} value={s.value}>
-                  {s.label}
+            label="Date range"
+          />
+          <VerifiedLeadsProjectFilter
+            roleOptions={filterOptions?.userRole || []}
+            role={userRole}
+            onRoleChange={(v) => {
+              setUserRole(v);
+              setPage(1);
+            }}
+            projectOptions={filterOptions?.project || []}
+            project={project}
+            onProjectChange={(v) => {
+              setProject(v);
+              setPage(1);
+            }}
+          />
+          <DateRangePicker
+            from={followUpFrom}
+            to={followUpTo}
+            onChange={(nextFrom, nextTo) => {
+              setFollowUpFrom(nextFrom);
+              setFollowUpTo(nextTo);
+              setPage(1);
+            }}
+            label="Follow-up date"
+          />
+          <div>
+            <label className="mb-1 block text-xs text-gray-500">Status</label>
+            <Select
+              value={statusFilter}
+              onValueChange={(v) => {
+                setStatusFilter(v ?? 'all');
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                {statusFilterOptions.some((s) => s.value === 'all') ? null : (
+                  <SelectItem value="all" label={withCount('All', filterOptions?.total)}>
+                    {withCount('All', filterOptions?.total)}
+                  </SelectItem>
+                )}
+                {statusFilterOptions.map((s) => (
+                  <SelectItem
+                    key={s.value}
+                    value={s.value}
+                    label={withCount(s.label, s.count)}
+                    className={s.count === 0 ? 'text-gray-400' : undefined}
+                  >
+                    {withCount(s.label, s.count)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-gray-500">Search</label>
+            <Input
+              value={qDraft}
+              onChange={(e) => setQDraft(e.target.value)}
+              placeholder="Name, contact, project…"
+              className="max-w-xs"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-gray-500">Assignee</label>
+            <Select
+              value={assigneeId}
+              onValueChange={(v) => {
+                setAssigneeId(v ?? 'all');
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Assignee" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem
+                  value="all"
+                  label={withCount('All assignees', filterOptions?.total)}
+                >
+                  {withCount('All assignees', filterOptions?.total)}
                 </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+                {assigneeOptions.map((a) => (
+                  <SelectItem
+                    key={a.value}
+                    value={a.value}
+                    label={withCount(a.label, a.count)}
+                    className={a.count === 0 ? 'text-gray-400' : undefined}
+                  >
+                    {withCount(a.label, a.count)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <Button type="submit" variant="outline" size="sm">
             Search
           </Button>
         </form>
+
+        {filterActive ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-gray-600">
+              {total
+                ? `Showing ${rangeStart}–${rangeEnd} of ${shownTotal}`
+                : `Showing 0 of ${shownTotal}`}
+            </span>
+            {activeChips.map((chip) => (
+              <span
+                key={chip.key}
+                className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-0.5 text-xs text-gray-700"
+              >
+                {chip.label}
+                <button
+                  type="button"
+                  aria-label={`Remove ${chip.label}`}
+                  className="text-gray-400 hover:text-gray-700"
+                  onClick={() => {
+                    chip.clear();
+                    setPage(1);
+                  }}
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
 
         <AdminDataTable
           page={page}
@@ -367,7 +652,18 @@ export function AdminVerifiedLeadsPanel() {
           loading={loading}
           error={error || null}
           isEmpty={!items.length}
-          emptyMessage="No leads found."
+          emptyMessage={
+            filterActive
+              ? 'No leads found for this filter'
+              : 'No leads or listing viewers found.'
+          }
+          emptyAction={
+            filterActive ? (
+              <Button type="button" variant="outline" size="sm" onClick={resetFilters}>
+                Clear filters
+              </Button>
+            ) : null
+          }
           syncKey={items.length}
         >
           <table className="min-w-full text-left text-sm">
@@ -383,8 +679,9 @@ export function AdminVerifiedLeadsPanel() {
                 <th className="px-4 py-3 font-semibold text-gray-700">City</th>
                 <th className="px-4 py-3 font-semibold text-gray-700">Location</th>
                 <th className="px-4 py-3 font-semibold text-gray-700">Dated</th>
+                <th className="px-4 py-3 font-semibold text-gray-700">Follow-up</th>
                 <th className="px-4 py-3 font-semibold text-gray-700">Status</th>
-                <th className="px-4 py-3 font-semibold text-gray-700">Assign</th>
+                <th className="px-4 py-3 font-semibold text-gray-700">Assigned to</th>
                 <th className="px-4 py-3 font-semibold text-gray-700">Post</th>
               </tr>
             </thead>
@@ -405,10 +702,30 @@ export function AdminVerifiedLeadsPanel() {
                           ) : (
                             <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
                           )}
-                          <span className="flex flex-wrap items-center gap-1.5">
-                            <NewTag show={row.isNew} />
-                            <span>{row.username}</span>
-                            <PlanBadge planCode={row.planCode} />
+                          <span className="flex flex-col gap-1">
+                            <span className="flex flex-wrap items-center gap-1.5">
+                              <NewTag show={row.isNew || row.dashboardAlert} />
+                              <span>{row.username}</span>
+                              <span
+                                className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
+                                  row.sourceKind === 'viewer'
+                                    ? 'bg-sky-50 text-sky-800'
+                                    : 'bg-emerald-50 text-emerald-800'
+                                }`}
+                              >
+                                {row.sourceKind === 'viewer' ? 'Viewer' : 'Lead'}
+                              </span>
+                            </span>
+                            {row.planCode || row.userRoleLabel ? (
+                              <span className="flex flex-wrap items-center gap-1.5">
+                                <PlanBadge planCode={row.planCode} />
+                                {row.userRoleLabel ? (
+                                  <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800">
+                                    {row.userRoleLabel}
+                                  </span>
+                                ) : null}
+                              </span>
+                            ) : null}
                           </span>
                         </button>
                       </td>
@@ -423,47 +740,28 @@ export function AdminVerifiedLeadsPanel() {
                       <td className="whitespace-nowrap px-4 py-3 text-gray-600">
                         {formatDisplayDateTime(row.interestedAt)}
                       </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-gray-600">
+                        {row.nextFollowUpAt ? formatDisplayDateTime(row.nextFollowUpAt) : '—'}
+                      </td>
                       <td className="px-4 py-3">
                         <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
                           {row.statusLabel}
                         </span>
                       </td>
-                      <td className="min-w-[180px] px-4 py-3">
-                        {canAssign && (!row.assignedLocked || superAdmin) ? (
-                          <Select
-                            value={row.assignedStaff?.id || undefined}
-                            onValueChange={(v) => {
-                              if (!v) return;
-                              void onAssign(row, v);
-                            }}
-                            disabled={saving}
-                          >
-                            <SelectTrigger className="h-8 w-[170px] text-xs">
-                              <span className="truncate">
-                                {assignees.find(
-                                  (a) => a.id === row.assignedStaff?.id,
-                                )?.name ||
-                                  row.assignedStaff?.name ||
-                                  'Assign staff'}
-                              </span>
-                            </SelectTrigger>
-                            <SelectContent>
-                              {assignees.map((a) => (
-                                <SelectItem key={a.id} value={a.id}>
-                                  {a.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : row.assignedStaff ? (
-                          <span className="text-xs text-gray-700">
-                            {row.assignedStaff.name}
-                            {row.assignedLocked ? (
-                              <span className="ml-1 text-gray-400">(locked)</span>
+                      <td className="min-w-[140px] px-4 py-3">
+                        {row.assignedStaff ? (
+                          <div className="leading-tight">
+                            <p className="text-sm text-gray-800">
+                              {row.assignedStaff.name}
+                            </p>
+                            {row.assignedStaff.contact ? (
+                              <p className="text-xs text-gray-500">
+                                {row.assignedStaff.contact}
+                              </p>
                             ) : null}
-                          </span>
+                          </div>
                         ) : (
-                          <span className="text-xs text-gray-400">Unassigned</span>
+                          <span className="text-xs text-gray-400">Not assigned</span>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -479,7 +777,7 @@ export function AdminVerifiedLeadsPanel() {
                     </tr>
                     {open ? (
                       <tr className="bg-slate-50/80">
-                        <td colSpan={13} className="px-4 py-4">
+                        <td colSpan={14} className="px-4 py-4">
                           <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
                             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                               Remarks
@@ -499,6 +797,9 @@ export function AdminVerifiedLeadsPanel() {
                                     <p className="mt-1 text-[11px] text-gray-500">
                                       {r.author?.name || 'Admin'}
                                       {r.statusLabel ? ` · ${r.statusLabel}` : ''}
+                                      {r.nextFollowUpAt
+                                        ? ` · Follow-up ${formatDisplayDateTime(r.nextFollowUpAt)}`
+                                        : ''}
                                       {' · '}
                                       {formatDisplayDateTime(r.createdAt)}
                                     </p>
@@ -533,6 +834,17 @@ export function AdminVerifiedLeadsPanel() {
                                     </Select>
                                   </div>
                                 ) : null}
+                                <div className="space-y-1">
+                                  <label className="text-[11px] text-gray-500">
+                                    Next follow-up
+                                  </label>
+                                  <Input
+                                    type="date"
+                                    value={followUpDraft}
+                                    onChange={(e) => setFollowUpDraft(e.target.value)}
+                                    className="h-9 w-[150px]"
+                                  />
+                                </div>
                                 <div className="min-w-[220px] flex-1 space-y-1">
                                   <label className="text-[11px] text-gray-500">
                                     Add remark
@@ -611,12 +923,8 @@ export function AdminVerifiedLeadsPanel() {
                     value={listingStatusLabel(listingDetail)}
                   />
                   <DetailField
-                    label="Expires"
-                    value={
-                      listingDetail.expiresAt
-                        ? formatDisplayDateTime(listingDetail.expiresAt)
-                        : null
-                    }
+                    label="Expiry"
+                    value={listingExpiryLabel(listingDetail)}
                   />
                   <DetailField
                     label="Unit No"
@@ -657,6 +965,7 @@ export function AdminVerifiedLeadsPanel() {
                     }
                   />
                 </div>
+                <ListingFeedbackList listingId={listingDetail.id} />
               </div>
             ) : null}
           </DialogContent>

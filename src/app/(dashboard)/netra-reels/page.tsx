@@ -7,6 +7,7 @@ import { Breadcrumb } from '@/components/common/breadcrumb';
 import { AdminDataTable } from '@/components/common/admin-data-table';
 import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { SortableTableBody } from '@/components/common/sortable-list';
@@ -14,9 +15,12 @@ import { ReelFormDialog } from '@/modules/netra-reels/reel-form-dialog';
 import { ReelPlayer } from '@/modules/netra-reels/reel-player';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 import {
+  formatTimeLeft,
   netraReelsApiError,
   netraReelsService,
   platformLabel,
+  reelFeedLabel,
+  type LaunchReelSettings,
   type NetraReel,
 } from '@/services/netra-reels.service';
 import {
@@ -45,6 +49,57 @@ export default function NetraReelsPage() {
   const [playerIndex, setPlayerIndex] = useState(0);
   const [playerReels, setPlayerReels] = useState<NetraReel[]>([]);
   const [statusBusyId, setStatusBusyId] = useState('');
+  const [cityFilter, setCityFilter] = useState('all');
+  const [launchSettings, setLaunchSettings] = useState<LaunchReelSettings | null>(null);
+  const [settingsDraft, setSettingsDraft] = useState({ validityHours: '', maxActivePerDeveloper: '' });
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState('');
+
+  const loadLaunchSettings = useCallback(async () => {
+    try {
+      const next = await netraReelsService.getLaunchSettings();
+      setLaunchSettings(next);
+      setSettingsDraft({
+        validityHours: String(next.validityHours),
+        maxActivePerDeveloper: String(next.maxActivePerDeveloper),
+      });
+    } catch {
+      // settings card stays hidden
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadLaunchSettings();
+  }, [loadLaunchSettings]);
+
+  const saveLaunchSettings = async () => {
+    const validityHours = Math.round(Number(settingsDraft.validityHours));
+    const maxActivePerDeveloper = Math.round(Number(settingsDraft.maxActivePerDeveloper));
+    if (!(validityHours >= 1 && validityHours <= 168) || !(maxActivePerDeveloper >= 1 && maxActivePerDeveloper <= 20)) {
+      setSettingsMessage('Validity must be 1–168 hours and max active 1–20.');
+      return;
+    }
+    setSavingSettings(true);
+    setSettingsMessage('');
+    try {
+      const next = await netraReelsService.updateLaunchSettings({ validityHours, maxActivePerDeveloper });
+      setLaunchSettings(next);
+      setSettingsMessage('Saved. Applies to reels posted from now on.');
+    } catch (err) {
+      setSettingsMessage(netraReelsApiError(err, 'Failed to save settings.'));
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const cityOptions = useMemo(
+    () => [...new Set(reels.map((r) => r.cityName).filter((c): c is string => Boolean(c)))].sort(),
+    [reels],
+  );
+  const visibleReels = useMemo(
+    () => (cityFilter === 'all' ? reels : reels.filter((r) => r.cityName === cityFilter)),
+    [reels, cityFilter],
+  );
 
   const fetchReels = useCallback(async () => {
     setLoading(true);
@@ -168,17 +223,79 @@ export default function NetraReelsPage() {
           <div className="p-3 text-sm text-red-600 bg-red-50 rounded-lg">{error}</div>
         ) : null}
 
+        {launchSettings ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="min-w-[220px] flex-1">
+                <h2 className="text-sm font-semibold text-gray-900">Launch reels (developer-posted)</h2>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  Developers add Launch reels from the app, in their own city. Each reel is deleted from the
+                  app and storage after the validity period, whether active or inactive.
+                </p>
+              </div>
+              <label className="space-y-1">
+                <span className="block text-xs font-medium text-gray-700">Validity (hours)</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={168}
+                  value={settingsDraft.validityHours}
+                  onChange={(e) => setSettingsDraft((d) => ({ ...d, validityHours: e.target.value }))}
+                  className="h-9 w-28 bg-white"
+                  disabled={!canUpdate}
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="block text-xs font-medium text-gray-700">Max active per developer</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={settingsDraft.maxActivePerDeveloper}
+                  onChange={(e) => setSettingsDraft((d) => ({ ...d, maxActivePerDeveloper: e.target.value }))}
+                  className="h-9 w-28 bg-white"
+                  disabled={!canUpdate}
+                />
+              </label>
+              {canUpdate ? (
+                <Button onClick={() => void saveLaunchSettings()} disabled={savingSettings} className="h-9">
+                  {savingSettings ? 'Saving…' : 'Save'}
+                </Button>
+              ) : null}
+            </div>
+            {settingsMessage ? <p className="mt-2 text-xs text-gray-700">{settingsMessage}</p> : null}
+          </div>
+        ) : null}
+
+        {cityOptions.length ? (
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-gray-600">City</span>
+            <select
+              value={cityFilter}
+              onChange={(e) => setCityFilter(e.target.value)}
+              className="h-9 rounded-md border border-gray-200 bg-white px-2 text-sm"
+            >
+              <option value="all">All reels</option>
+              {cityOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
         <AdminDataTable
           page={1}
-          limit={Math.max(reels.length, 1)}
-          total={reels.length}
+          limit={Math.max(visibleReels.length, 1)}
+          total={visibleReels.length}
           totalPages={1}
           onPageChange={() => {}}
           onPageSizeChange={() => {}}
           loading={loading}
-          isEmpty={!reels.length}
+          isEmpty={!visibleReels.length}
           emptyMessage="No reels yet. Upload a video to get started."
-          syncKey={reels.length}
+          syncKey={visibleReels.length}
           hidePaginationWhenEmpty
         >
           <table className="w-full text-sm text-left">
@@ -193,8 +310,8 @@ export default function NetraReelsPage() {
               </tr>
             </thead>
             <SortableTableBody
-              items={reels}
-              disabled={!canUpdate}
+              items={visibleReels}
+              disabled={!canUpdate || cityFilter !== 'all'}
               onReorder={handleReorder}
               renderRow={(reel, { dragHandle }) => (
                 <>
@@ -237,6 +354,27 @@ export default function NetraReelsPage() {
                         {platformLabel(reel.platform)}
                       </span>
                     </Badge>
+                    <Badge
+                      variant="outline"
+                      className={`mt-1.5 block w-fit ${
+                        reel.feed === 'launch'
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : 'bg-blue-50 text-blue-700 border-blue-200'
+                      }`}
+                    >
+                      {reelFeedLabel(reel.feed)}
+                    </Badge>
+                    {reel.postedByDeveloper ? (
+                      <div className="mt-1.5 text-xs text-gray-600">
+                        <p className="truncate max-w-[200px]">
+                          By {reel.developerName || 'developer'}
+                          {reel.cityName ? ` · ${reel.cityName}` : ''}
+                        </p>
+                        {reel.expiresAt ? (
+                          <p className="text-amber-700">{formatTimeLeft(reel.expiresAt)}</p>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-5 py-4">{dragHandle}</td>
                   <td className="px-5 py-4">

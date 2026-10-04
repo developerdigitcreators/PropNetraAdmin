@@ -29,7 +29,8 @@ import {
   emptyDraft,
   type BroadcastDraft,
 } from "@/modules/notifications/chat/draft";
-import { ArrowLeft, Bell, Inbox, Lock, MapPin, Megaphone, RefreshCw, Smartphone, Users } from "lucide-react";
+import { ArrowLeft, Bell, Building2, Inbox, Lock, MapPin, Megaphone, RefreshCw, Smartphone, Users } from "lucide-react";
+import { DeveloperGroupsPanel } from "@/modules/notifications/developer-groups/developer-groups-panel";
 import { PopupsPanel } from "@/modules/notifications/popups/popups-panel";
 import { PushPanel } from "@/modules/notifications/push/push-panel";
 import { useNotificationsRealtime } from "@/modules/notifications/use-notifications-realtime";
@@ -317,6 +318,13 @@ export default function NotificationsPage() {
               <Inbox className="w-4 h-4" />
               General
             </TabsTrigger>
+            <TabsTrigger
+              value="developer-groups"
+              className="gap-1.5 rounded-md px-5 data-[state=active]:bg-primary-light data-[state=active]:text-primary"
+            >
+              <Building2 className="w-4 h-4" />
+              Developer groups
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="groups" className="mt-4">
@@ -487,6 +495,16 @@ export default function NotificationsPage() {
               inboxTick={inboxTick}
               inboxEvent={inboxEvent}
               onWatchUser={onWatchUser}
+            />
+          </TabsContent>
+
+          <TabsContent value="developer-groups" className="mt-4">
+            <DeveloperGroupsPanel
+              cities={cities}
+              citiesLoading={citiesLoading}
+              canUpdate={canUpdate}
+              canDelete={canDelete}
+              onToast={showToast}
             />
           </TabsContent>
         </Tabs>

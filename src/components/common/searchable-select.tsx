@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input';
 export type SearchableSelectOption = {
   value: string;
   label: string;
+  /** Shown as a pill on the right of the option row. */
+  badge?: string | number;
 };
 
 type SearchableSelectProps = {
@@ -195,7 +197,7 @@ export function SearchableSelect({
             !displayLabel && 'text-muted-foreground'
           )}
         >
-          <span className="truncate text-left">
+          <span className="min-w-0 flex-1 truncate text-left" title={displayLabel || undefined}>
             {displayLabel || placeholder}
           </span>
           <span className="flex items-center gap-1 shrink-0">
@@ -258,7 +260,12 @@ export function SearchableSelect({
                       )}
                     >
                       <Check className={cn('size-3.5 shrink-0', active ? 'opacity-100' : 'opacity-0')} />
-                      <span className="truncate">{option.label}</span>
+                      <span className="min-w-0 flex-1 truncate" title={option.label}>{option.label}</span>
+                      {option.badge != null && option.badge !== '' && (
+                        <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+                          {option.badge}
+                        </span>
+                      )}
                     </button>
                   );
                 })}

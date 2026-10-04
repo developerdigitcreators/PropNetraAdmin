@@ -11,6 +11,8 @@ import {
   placementsForBannerAdsDropdown,
   bannerAdsListHref,
   sectionsForPlacement,
+  sectionLabelForKey,
+  isTopOnlyPlacement,
   type AdBanner,
   type AdPageOption,
   type AdPlacementOption,
@@ -207,7 +209,10 @@ export function BannerForm({
   }, [posts, listingId, banner]);
 
   const placementLabel = placements.find((p) => p.key === placement)?.label || placement;
-  const sectionLabel = sections.find((s) => s.key === section)?.label || section;
+  const topOnly = isTopOnlyPlacement(placement);
+  const sectionLabel = topOnly
+    ? sectionLabelForKey('top')
+    : sections.find((s) => s.key === section)?.label || section;
   const linkPageLabel = pages.find((p) => p.key === pageKey)?.label || pageKey;
   const formPlacementOptions = useMemo(() => {
     const list = lockedPlacement
@@ -249,7 +254,7 @@ export function BannerForm({
       mediaUrl: mediaUrl.trim(),
       mediaType,
       placement,
-      section,
+      section: topOnly ? 'top' : section,
       linkType,
       listingId: linkType === 'post' ? listingId : null,
       pageKey: linkType === 'page' ? pageKey : null,
@@ -337,7 +342,7 @@ export function BannerForm({
         </div>
         <div className="space-y-1.5">
           <label className="text-sm font-medium text-gray-700">Section</label>
-          {lockedSection || lockedPlacement === 'popup' ? (
+          {lockedSection || lockedPlacement === 'popup' || topOnly ? (
             <Input
               value={
                 lockedPlacement === 'popup'

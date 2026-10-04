@@ -5,6 +5,7 @@ import { formatDisplayDateTime } from "@/lib/format-date";
 import { locationService } from "@/services/location.service";
 import { listingConfigService } from "@/services/listing-config.service";
 import { useDialogUnsavedGuard } from "@/hooks/use-unsaved-changes-guard";
+import { ListingFeedbackList } from "@/components/listing-feedback/listing-feedback-list";
 import {
   canToggleForSaleTitle,
   getCatalogSavedId,
@@ -76,7 +77,7 @@ import {
 
 type ListingReviewTableProps = {
   items: ListingReviewItem[];
-  mode: "unverified" | "verified" | "rejected" | "dbf_catalog";
+  mode: "unverified" | "verified" | "rejected" | "dbf_catalog" | "developer_catalog";
   onApprove: (
     id: string,
     payload: ApproveListingReviewPayload,
@@ -866,14 +867,18 @@ export function ListingReviewTable({
   });
   const isGrabbingRef = useRef(false);
 
+  // DBF and Developer listings are live; these tabs only copy typed names into the catalog.
+  const isCatalogMode = mode === "dbf_catalog" || mode === "developer_catalog";
+  const isDbfMode = mode === "dbf_catalog";
+
   const colCount =
     mode === "unverified"
-      ? 9
-      : mode === "dbf_catalog"
+      ? 10
+      : isCatalogMode
         ? 7
         : mode === "verified"
-          ? 8
-          : 7;
+          ? 9
+          : 8;
 
   const toggleExpanded = (id: string) => {
     setExpandedIds((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -924,7 +929,7 @@ export function ListingReviewTable({
         name: (ov?.microMarket?.name || pickMmName).trim(),
       };
     }
-    if (mode === "dbf_catalog") {
+    if (isDbfMode) {
       const dbfId = dbfPropertyTypeId(propertyTypes);
       if (dbfId) draft.propertyTypeIds = [dbfId];
     }
@@ -1179,7 +1184,7 @@ export function ListingReviewTable({
         };
 
         if (
-          mode !== "dbf_catalog" &&
+          !isCatalogMode &&
           !payload.rejectPropertyName &&
           !payload.rejectLocation &&
           !payload.rejectMicroMarket
@@ -1310,7 +1315,7 @@ export function ListingReviewTable({
       return;
     }
 
-    const dbfTypeId = dbfPropertyTypeId(types);
+    const dbfTypeId = isDbfMode ? dbfPropertyTypeId(types) : "";
     const imageUrl = pickStr(
       item.property_name?.image_url,
       (item as { primaryImageUrl?: string }).primaryImageUrl,
@@ -1413,9 +1418,9 @@ export function ListingReviewTable({
         .map((chip) => chip.name.trim());
       const primary = merged.locations[0];
       const dbfTypeId =
-        mode === "dbf_catalog" ? dbfPropertyTypeId(propertyTypes) : "";
+        isDbfMode ? dbfPropertyTypeId(propertyTypes) : "";
       const typeIds =
-        mode === "dbf_catalog" && dbfTypeId
+        isDbfMode && dbfTypeId
           ? [dbfTypeId]
           : saveDraft.propertyTypeIds;
       const payload: SaveListingCatalogPayload = saveDraft.forSale
@@ -1502,7 +1507,7 @@ export function ListingReviewTable({
     const pickedFromCatalog =
       !!fieldEditPick.id &&
       editOptions.some((o) => o.id === fieldEditPick.id);
-    if (mode !== "dbf_catalog" && !pickedFromCatalog) {
+    if (!isCatalogMode && !pickedFromCatalog) {
       alert(
         fieldEdit.field === "location" && !editMmId
           ? "Set a micro market first, then pick a location in that market."
@@ -1515,7 +1520,7 @@ export function ListingReviewTable({
       editItem ? getFieldOriginal(editItem, field).name : "";
 
     // DBF pencil: persist draft to DB (reload-safe). Outer Save / Reject leaves the queue.
-    if (mode === "dbf_catalog") {
+    if (isCatalogMode) {
       const linkedPnId =
         typeof editItem?.property_name?.id === "string"
           ? editItem.property_name.id
@@ -1694,8 +1699,10 @@ export function ListingReviewTable({
       <div className="bg-gray-50/50 border border-dashed border-gray-200 rounded-2xl p-16 text-center text-sm text-gray-500">
         {mode === "unverified"
           ? "No unverified listings pending review."
-          : mode === "dbf_catalog"
-            ? "No Direct builder floor listings waiting for Save to DB."
+          : isCatalogMode
+            ? isDbfMode
+              ? "No Direct builder floor listings waiting for Save to DB."
+              : "No Developer listings waiting for Save to DB."
             : "No verified (published) listings yet."}
       </div>
     );
@@ -1706,7 +1713,7 @@ export function ListingReviewTable({
   const originalLoc = saveItem ? getHighlightedLocationName(saveItem) : "";
   const originalMm = saveItem ? getHighlightedMicroMarketName(saveItem) : "";
   const saveTypeOptions =
-    mode === "dbf_catalog"
+    isCatalogMode
       ? uniquePropertyTypes(propertyTypes).filter((t) => t.isDirectBuilderFloor)
       : uniquePropertyTypes(propertyTypes);
   const saveTypeIds = saveDraft
@@ -1787,7 +1794,7 @@ export function ListingReviewTable({
         : microMarkets
     : [];
   const fieldEditReady =
-    mode === "dbf_catalog"
+    isCatalogMode
       ? !!fieldEditPick?.name?.trim()
       : !!fieldEditPick?.id &&
         fieldEditOptions.some((o) => o.id === fieldEditPick.id);
@@ -1796,7 +1803,7 @@ export function ListingReviewTable({
       ? items.find((row) => row.id === confirm.id) || null
       : null;
   const rejectNothingPending =
-    mode !== "dbf_catalog" &&
+    !isCatalogMode &&
     !!rejectDialogItem &&
     !hasPendingRejectTargets(
       rejectDialogItem,
@@ -1853,19 +1860,22 @@ export function ListingReviewTable({
               <TableRow className="bg-gray-50/80">
                 <TableHead className="w-10" />
                 <TableHead className="min-w-35">User Details</TableHead>
+                {!isCatalogMode ? (
+                  <TableHead className="min-w-24">Unit No</TableHead>
+                ) : null}
                 <TableHead className="min-w-45">Listing</TableHead>
                 <TableHead className="min-w-40">Property name</TableHead>
                 <TableHead className="min-w-40">Location</TableHead>
                 <TableHead className="min-w-40">Micro market</TableHead>
-                {mode !== "dbf_catalog" ? (
+                {!isCatalogMode ? (
                   <TableHead className="min-w-50">Title display</TableHead>
                 ) : null}
                 {mode === "unverified" ? (
                   <TableHead className="min-w-35">Save to DB</TableHead>
                 ) : null}
-                {mode === "unverified" || mode === "dbf_catalog" ? (
+                {mode === "unverified" || isCatalogMode ? (
                   <TableHead className="text-right min-w-45">
-                    {mode === "dbf_catalog" ? "Save / Reject" : "Approve / Reject"}
+                    {isCatalogMode ? "Save / Reject" : "Approve / Reject"}
                   </TableHead>
                 ) : mode === "verified" ? (
                   <TableHead className="text-right min-w-45">
@@ -1927,13 +1937,13 @@ export function ListingReviewTable({
                   mode === "rejected" && mmStatus === "rejected";
                 const catalogSaved = hasCatalogSave(item);
                 const canSave =
-                  mode === "dbf_catalog"
+                  isCatalogMode
                     ? isPropertyNamePending(item) ||
                       isLocationPending(item) ||
                       isMicroMarketPending(item)
                     : pnCell.pending || locCell.pending || mmCell.pending;
                 const canEditField =
-                  mode === "unverified" || mode === "dbf_catalog";
+                  mode === "unverified" || isCatalogMode;
                 const rowBusy = busyId === item.id;
                 const expanded = !!expandedIds[item.id];
                 const detailRows = expanded ? getListingDetailRows(item) : [];
@@ -1973,6 +1983,14 @@ export function ListingReviewTable({
                           <NewTag show={item.isNew} />
                           <div>
                             {getSubmittedBy(item)}
+                            {item.leadContactName ? (
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                {item.leadContactName}
+                                {item.leadContactPhone
+                                  ? ` · ${item.leadContactPhone}`
+                                  : ""}
+                              </p>
+                            ) : null}
                             {(item.created_at || item.createdAt) && (
                               <p className="text-[10px] text-gray-400 mt-1">
                                 {formatDisplayDateTime(
@@ -1983,6 +2001,12 @@ export function ListingReviewTable({
                           </div>
                         </div>
                       </TableCell>
+
+                      {!isCatalogMode ? (
+                        <TableCell className="align-top text-sm text-gray-700">
+                          {item.leadUnitNo?.trim() || "—"}
+                        </TableCell>
+                      ) : null}
 
                       <TableCell className="align-top">
                         <div className="space-y-1">
@@ -2060,7 +2084,7 @@ export function ListingReviewTable({
                         />
                       </TableCell>
 
-                      {mode !== "dbf_catalog" ? (
+                      {!isCatalogMode ? (
                         <TableCell className="align-top">
                           <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 px-3 py-2">
                             <div>
@@ -2116,10 +2140,10 @@ export function ListingReviewTable({
                         </TableCell>
                       ) : null}
 
-                      {mode === "unverified" || mode === "dbf_catalog" ? (
+                      {mode === "unverified" || isCatalogMode ? (
                         <TableCell className="align-top text-right">
                           <div className="inline-flex gap-2">
-                            {mode === "dbf_catalog" ? (
+                            {isCatalogMode ? (
                               <Button
                                 size="sm"
                                 className="bg-primary text-white hover:bg-primary/90"
@@ -2134,7 +2158,7 @@ export function ListingReviewTable({
                                 Save
                               </Button>
                             ) : null}
-                            {mode === "dbf_catalog" ||
+                            {isCatalogMode ||
                             hasPendingRejectTargets(
                               item,
                               getDraft(item).forSale,
@@ -2218,12 +2242,39 @@ export function ListingReviewTable({
                                 Listing details
                               </p>
                             </div>
-                            {detailRows.length === 0 ? (
+                            {detailRows.length === 0 &&
+                            !item.leadUnitNo &&
+                            !item.leadContactName ? (
                               <p className="text-sm text-gray-400">
                                 No extra form fields on this listing.
                               </p>
                             ) : (
                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2">
+                                {item.leadUnitNo ? (
+                                  <div className="text-sm min-w-0">
+                                    <span className="text-gray-400">
+                                      Unit No:{" "}
+                                    </span>
+                                    <span className="text-gray-800 wrap-break-word">
+                                      {item.leadUnitNo}
+                                    </span>
+                                  </div>
+                                ) : null}
+                                {item.leadContactName ? (
+                                  <div className="text-sm min-w-0">
+                                    <span className="text-gray-400">
+                                      Owner:{" "}
+                                    </span>
+                                    <span className="text-gray-800 wrap-break-word">
+                                      {[
+                                        item.leadContactName,
+                                        item.leadContactPhone,
+                                      ]
+                                        .filter(Boolean)
+                                        .join(" · ")}
+                                    </span>
+                                  </div>
+                                ) : null}
                                 {detailRows.map((row) => (
                                   <div
                                     key={row.key}
@@ -2279,6 +2330,9 @@ export function ListingReviewTable({
                                 </div>
                               );
                             })()}
+                            <div className="mt-4 border-t border-gray-100 pt-3">
+                              <ListingFeedbackList listingId={item.id} />
+                            </div>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -2579,12 +2633,12 @@ export function ListingReviewTable({
               Edit {fieldEdit ? FIELD_LABEL[fieldEdit.field] : ""}
             </DialogTitle>
             <DialogDescription>
-              {mode === "dbf_catalog"
+              {isCatalogMode
                 ? "Pick an approved name or type a new value. Save stores a draft (keeps after reload). Use Save / Reject on the row to finish and remove it from this queue."
                 : "Left is the current value. Right: pick an approved catalog name."}
-              {mode !== "dbf_catalog" && fieldEdit?.field === "propertyName"
+              {!isCatalogMode && fieldEdit?.field === "propertyName"
                 ? " Choosing a property name also overrides Location and Micro market from that name’s catalog links."
-                : mode !== "dbf_catalog"
+                : !isCatalogMode
                   ? " Custom names that are not in the list stay on the left until you choose one from DB or reject the listing."
                   : ""}
             </DialogDescription>
@@ -2595,9 +2649,9 @@ export function ListingReviewTable({
               <CompareField
                 label={FIELD_LABEL[fieldEdit.field]}
                 original={fieldEditOriginal}
-                leftLabel={mode === "dbf_catalog" ? "Earlier" : "Current"}
+                leftLabel={isCatalogMode ? "Earlier" : "Current"}
                 rightLabel={
-                  mode === "dbf_catalog"
+                  isCatalogMode
                     ? "Select or type"
                     : "Select from DB"
                 }
@@ -2606,7 +2660,7 @@ export function ListingReviewTable({
                     options={fieldEditOptions}
                     value={fieldEditPick}
                     loading={catalogLoading}
-                    allowCreate={mode === "dbf_catalog"}
+                    allowCreate={isCatalogMode}
                     emptyText={
                       fieldEdit.field === "location"
                         ? fieldEditMmId
@@ -2615,7 +2669,7 @@ export function ListingReviewTable({
                         : "No options found."
                     }
                     placeholder={
-                      mode === "dbf_catalog"
+                      isCatalogMode
                         ? `Select or type ${FIELD_LABEL[fieldEdit.field].toLowerCase()}`
                         : FIELD_PLACEHOLDER[fieldEdit.field]
                     }
@@ -2634,7 +2688,7 @@ export function ListingReviewTable({
                   options are limited to that market.
                 </p>
               ) : null}
-              {mode !== "dbf_catalog" &&
+              {!isCatalogMode &&
               fieldEditOriginal &&
               !fieldEditOptions.some(
                 (o) => o.name.toLowerCase() === fieldEditOriginal.toLowerCase(),
@@ -2691,8 +2745,8 @@ export function ListingReviewTable({
             <DialogTitle>Are you sure?</DialogTitle>
             <DialogDescription>
               {confirm?.action === "reject"
-                ? mode === "dbf_catalog"
-                  ? "Reject removes this listing from the Direct builder floor Save-to-DB queue. Optionally mark which catalog fields to reject with a remark."
+                ? isCatalogMode
+                  ? `Reject removes this listing from the ${isDbfMode ? "Direct builder floor" : "Developer"} Save-to-DB queue. The listing stays live. Optionally mark which catalog fields to reject with a remark.`
                   : "Select what to reject and add a remark for each. Listing stays off search (draft). For location, pick micro market first, then search locations in that market."
                 : "Listing will go live (published). Save to DB is separate — this will not save Property Name/location to catalog."}
             </DialogDescription>
@@ -3002,7 +3056,7 @@ export function ListingReviewTable({
                 disabled={
                   !!busyId ||
                   (confirm?.action === "reject" &&
-                    mode !== "dbf_catalog" &&
+                    !isCatalogMode &&
                     (() => {
                       const anySelected =
                         !!rejectRemarksDraft.rejectPropertyName ||
@@ -3019,7 +3073,7 @@ export function ListingReviewTable({
                       );
                     })()) ||
                   (confirm?.action === "reject" &&
-                    mode === "dbf_catalog" &&
+                    isCatalogMode &&
                     ((!!rejectRemarksDraft.rejectPropertyName &&
                       !rejectRemarksDraft.propertyNameRemark?.trim()) ||
                       (!!rejectRemarksDraft.rejectLocation &&

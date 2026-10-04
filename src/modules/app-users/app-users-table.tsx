@@ -59,6 +59,7 @@ import {
 } from "lucide-react";
 import { OtpVerifiedAddUserModal } from "@/modules/app-users/otp-verified-add-user-modal";
 import { VerificationDocsSection } from "@/modules/user-analytics/verification-docs-section";
+import { DeviceLockSection } from "@/modules/user-analytics/device-lock-section";
 
 export type AppUsersTab = "otp_issued" | "otp_verified" | "master";
 
@@ -70,6 +71,30 @@ type AccountStatusFilter =
   | "";
 
 const NO_CITY_FILTER = "__no_city__";
+
+const USER_ROLE_OPTIONS = [
+  { value: "agent", label: "Agent" },
+  { value: "floor", label: "Direct Builder" },
+  { value: "developer", label: "Developer" },
+] as const;
+
+function appRoleKey(user: any): string {
+  const raw = String(
+    user?.appRole ||
+      user?.userRoles?.[0]?.role?.name ||
+      user?.role ||
+      user?.roleLabel ||
+      "",
+  )
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (raw.includes("developer")) return "developer";
+  if (raw.includes("floor") || raw.includes("builder") || raw === "dbf") {
+    return "floor";
+  }
+  if (raw.includes("agent")) return "agent";
+  return "";
+}
 
 type UserRemark = SignupRemark;
 
@@ -658,6 +683,10 @@ function ViewOnlyModal({
           )}
 
           {isRegistered && user.id ? (
+            <DeviceLockSection userId={String(user.id)} />
+          ) : null}
+
+          {isRegistered && user.id ? (
             <VerificationDocsSection userId={String(user.id)} />
           ) : null}
         </div>
@@ -1029,10 +1058,12 @@ export function AppUsersTable({ tab }: Props) {
     q: "",
     status: "",
     city: "",
+    role: "",
   });
   const search = filters.q;
   const statusFilter = filters.status as AccountStatusFilter;
   const cityFilter = filters.city;
+  const roleFilter = filters.role;
 
   const [roles, setRoles] = useState<any[]>([]);
   const [formUser, setFormUser] = useState<any>(null);
@@ -1088,8 +1119,11 @@ export function AppUsersTable({ tab }: Props) {
   useEffect(() => {
     if (tab !== "master" && tab !== "otp_verified") return;
     rbacService
-      .getRoles("app")
-      .then((data) => setRoles(Array.isArray(data) ? data : []))
+      .getUserRoleOptions()
+      .then((data) => {
+        const list = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+        setRoles(list);
+      })
       .catch(console.error);
   }, [tab]);
 
@@ -1136,9 +1170,10 @@ export function AppUsersTable({ tab }: Props) {
               String(a.email || "").toLowerCase().includes(q) ||
               String(a.contact || "").toLowerCase().includes(q),
           ));
-      return matchStatus && matchCity && matchSearch;
+      const matchRole = !roleFilter || appRoleKey(user) === roleFilter;
+      return matchStatus && matchCity && matchSearch && matchRole;
     });
-  }, [users, search, statusFilter, cityFilter, tab]);
+  }, [users, search, statusFilter, cityFilter, roleFilter, tab]);
 
   const {
     page,
@@ -1153,7 +1188,7 @@ export function AppUsersTable({ tab }: Props) {
 
   useEffect(() => {
     resetPage();
-  }, [search, statusFilter, cityFilter, resetPage]);
+  }, [search, statusFilter, cityFilter, roleFilter, resetPage]);
 
   useEffect(() => {
     const onReset = () => {
@@ -1177,6 +1212,17 @@ export function AppUsersTable({ tab }: Props) {
       else if (u.status === "without_referral") counts.without_referral += 1;
       else if (u.status === "active") counts.active += 1;
       else if (u.status === "suspended") counts.suspended += 1;
+    }
+    return counts;
+  }, [users]);
+
+  const roleCounts = useMemo(() => {
+    const counts = { agent: 0, floor: 0, developer: 0 };
+    for (const u of users) {
+      const key = appRoleKey(u);
+      if (key === "agent" || key === "floor" || key === "developer") {
+        counts[key] += 1;
+      }
     }
     return counts;
   }, [users]);
@@ -1338,6 +1384,33 @@ export function AppUsersTable({ tab }: Props) {
                 {withCount("No city", cityBreakdown.noCity)}
               </SelectItem>
             )}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={roleFilter}
+          onValueChange={(v) => setFilters({ role: v ?? "" })}
+        >
+          <SelectTrigger className="w-52 bg-white">
+            <span>
+              {!roleFilter
+                ? withCount("All user roles", users.length)
+                : withCount(
+                    USER_ROLE_OPTIONS.find((o) => o.value === roleFilter)
+                      ?.label || roleFilter,
+                    roleCounts[roleFilter as keyof typeof roleCounts] || 0,
+                  )}
+            </span>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">
+              {withCount("All user roles", users.length)}
+            </SelectItem>
+            {USER_ROLE_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {withCount(opt.label, roleCounts[opt.value])}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 

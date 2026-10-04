@@ -14,6 +14,7 @@ type DocRow = {
   fileName: string | null;
   status: string;
   adminRemark: string | null;
+  reviewedByName?: string | null;
   createdAt: string;
   isReupload?: boolean;
 };
@@ -263,6 +264,11 @@ export function VerificationDocsSection({ userId }: { userId: string }) {
                 {d.adminRemark && d.status !== 'pending_review' ? (
                   <p className="text-xs text-gray-600">
                     Reason: {d.adminRemark}
+                  </p>
+                ) : null}
+                {d.reviewedByName && d.status !== 'pending_review' ? (
+                  <p className="text-xs text-gray-500">
+                    Reviewed by {d.reviewedByName}
                   </p>
                 ) : null}
 

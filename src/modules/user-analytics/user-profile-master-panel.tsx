@@ -62,8 +62,8 @@ type FilterCategory = AppUserFilterType | '';
 
 const ROLE_OPTIONS = [
   { value: 'agent', label: 'Agent' },
+  { value: 'floor', label: 'Direct Builder' },
   { value: 'developer', label: 'Developer' },
-  { value: 'floor', label: 'Direct builder floor' },
 ] as const;
 
 const PLAN_OPTIONS = [
@@ -122,21 +122,30 @@ function formatDateTime(value?: string | Date | null) {
 function DocumentsStatusBadge({
   status,
   label,
+  reviewedByName,
 }: {
   status?: string | null;
   label?: string | null;
+  reviewedByName?: string | null;
 }) {
   if (!status || status === 'none') {
     return <span className="text-gray-400 text-xs">—</span>;
   }
   const chip = DOC_STATUS_CHIP[status];
+  const showReviewer =
+    !!reviewedByName && (status === 'approved' || status === 'rejected');
   return (
-    <Badge
-      variant="outline"
-      className={chip?.className || 'bg-gray-50 text-gray-700 border-gray-200'}
-    >
-      {chip?.label || label || status}
-    </Badge>
+    <div className="flex flex-col items-start gap-1">
+      <Badge
+        variant="outline"
+        className={chip?.className || 'bg-gray-50 text-gray-700 border-gray-200'}
+      >
+        {chip?.label || label || status}
+      </Badge>
+      {showReviewer ? (
+        <span className="text-[11px] text-gray-500">By {reviewedByName}</span>
+      ) : null}
+    </div>
   );
 }
 
@@ -205,7 +214,6 @@ function isWithoutReferralRow(user: any) {
 }
 
 function valueOptionsFor(category: FilterCategory) {
-  if (category === 'role') return ROLE_OPTIONS;
   if (category === 'plan') return PLAN_OPTIONS;
   if (category === 'kyc_documents' || category === 'documents') return KYC_OPTIONS;
   if (category === 'referral') return REFERRAL_OPTIONS;
@@ -226,6 +234,7 @@ const PROFILE_FILTER_DEFAULTS = {
   cityId: '',
   createdFrom: '',
   createdTo: '',
+  role: '',
   filterType: '',
   filterValue: '',
 };
@@ -245,6 +254,7 @@ export function UserProfileMasterPanel() {
     cityId,
     createdFrom,
     createdTo,
+    role: roleFilter,
     filterType: filterTypeRaw,
     filterValue,
   } = filters;
@@ -301,8 +311,16 @@ export function UserProfileMasterPanel() {
         cityId: cityId || undefined,
         createdFrom: createdFrom || undefined,
         createdTo: createdTo || undefined,
-        filterType: filterType || undefined,
-        filterValue: filterType && filterValue ? filterValue : undefined,
+        role:
+          roleFilter ||
+          (filterType === 'role' ? filterValue : '') ||
+          undefined,
+        filterType:
+          filterType && filterType !== 'role' ? filterType : undefined,
+        filterValue:
+          filterType && filterType !== 'role' && filterValue
+            ? filterValue
+            : undefined,
       });
       setUsers(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -311,7 +329,7 @@ export function UserProfileMasterPanel() {
     } finally {
       setIsLoading(false);
     }
-  }, [appliedQ, stateId, cityId, createdFrom, createdTo, filterType, filterValue]);
+  }, [appliedQ, stateId, cityId, createdFrom, createdTo, roleFilter, filterType, filterValue]);
 
   useEffect(() => {
     void fetchUsers();
@@ -320,9 +338,10 @@ export function UserProfileMasterPanel() {
   useEffect(() => {
     let cancelled = false;
     rbacService
-      .getRoles('app')
+      .getUserRoleOptions()
       .then((rows) => {
-        if (!cancelled) setRoles(Array.isArray(rows) ? rows : []);
+        const list = Array.isArray(rows) ? rows : Array.isArray(rows?.data) ? rows.data : [];
+        if (!cancelled) setRoles(list);
       })
       .catch(() => {
         if (!cancelled) setRoles([]);
@@ -335,7 +354,10 @@ export function UserProfileMasterPanel() {
   useEffect(() => {
     let cancelled = false;
     setLocationsLoading(true);
-    Promise.all([locationService.getStates(), locationService.getCities()])
+    Promise.all([
+      locationService.getStates({ activeOnly: true }),
+      locationService.getCities({ activeOnly: true }),
+    ])
       .then(([nextStates, nextCities]) => {
         if (cancelled) return;
         setStates(Array.isArray(nextStates) ? nextStates : []);
@@ -592,6 +614,31 @@ export function UserProfileMasterPanel() {
             />
           </div>
 
+          <div className="w-48">
+            <label className="mb-1 block text-xs font-medium text-gray-500">
+              User Role
+            </label>
+            <Select
+              value={roleFilter || null}
+              onValueChange={(v) => setFilters({ role: v ?? '' })}
+            >
+              <SelectTrigger className="w-full bg-white">
+                <span className={!roleFilter ? 'text-muted-foreground' : ''}>
+                  {ROLE_OPTIONS.find((o) => o.value === roleFilter)?.label ||
+                    'All roles'}
+                </span>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">All roles</SelectItem>
+                {ROLE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="w-40">
             <label className="mb-1 block text-xs font-medium text-gray-500">Category</label>
             <Select
@@ -606,7 +653,6 @@ export function UserProfileMasterPanel() {
               <SelectContent>
                 <SelectItem value="">Any</SelectItem>
                 <SelectItem value="plan">Plan</SelectItem>
-                <SelectItem value="role">Role</SelectItem>
                 <SelectItem value="kyc_documents">KYC documents</SelectItem>
                 <SelectItem value="referral">Referral</SelectItem>
                 <SelectItem value="status">Status</SelectItem>
@@ -755,6 +801,7 @@ export function UserProfileMasterPanel() {
                           <DocumentsStatusBadge
                             status={user.documentsStatus}
                             label={user.documentsStatusLabel}
+                            reviewedByName={user.documentsReviewedByName}
                           />
                         </td>
                         <td className="whitespace-nowrap px-5 py-4 text-xs text-gray-600">

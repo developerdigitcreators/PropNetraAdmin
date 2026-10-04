@@ -60,7 +60,7 @@ function ReviewListingPageInner() {
   });
 
   const tab = (
-    ["unverified", "verified", "rejected", "dbf_catalog"].includes(urlFilters.tab)
+    ["unverified", "verified", "rejected", "dbf_catalog", "developer_catalog"].includes(urlFilters.tab)
       ? urlFilters.tab
       : "unverified"
   ) as ReviewTab;
@@ -70,6 +70,10 @@ function ReviewListingPageInner() {
   const [verified, setVerified] = useState<ListingReviewItem[]>([]);
   const [rejected, setRejected] = useState<ListingReviewItem[]>([]);
   const [dbfCatalog, setDbfCatalog] = useState<ListingReviewItem[]>([]);
+  const [devCatalog, setDevCatalog] = useState<ListingReviewItem[]>([]);
+  const [devCatalogPage, setDevCatalogPage] = useState(1);
+  const [devCatalogTotal, setDevCatalogTotal] = useState(0);
+  const [devCatalogTotalPages, setDevCatalogTotalPages] = useState(1);
   const [pageSize, setPageSize] = useState<number>(10);
   const [unverifiedPage, setUnverifiedPage] = useState(1);
   const [verifiedPage, setVerifiedPage] = useState(1);
@@ -88,6 +92,7 @@ function ReviewListingPageInner() {
     verified?: ReviewQueueFiltersResponse | null;
     rejected?: ReviewQueueFiltersResponse | null;
     dbf_catalog?: ReviewQueueFiltersResponse | null;
+    developer_catalog?: ReviewQueueFiltersResponse | null;
   }>({});
 
   // Defaults are applied by backend when these are undefined / omitted:
@@ -124,8 +129,9 @@ function ReviewListingPageInner() {
 
   const fetchTab = useCallback(
     async (target: ReviewTab, page: number) => {
-      // Save to DB (DBF): no category/building/property filters — show all rows.
-      const filters = target === "dbf_catalog" ? undefined : apiFilters;
+      // Save to DB tabs: no category/building/property filters — show all rows.
+      const filters =
+        target === "dbf_catalog" || target === "developer_catalog" ? undefined : apiFilters;
       const result = await listingsService.getReviewQueue(
         target,
         page,
@@ -147,6 +153,10 @@ function ReviewListingPageInner() {
         setDbfCatalog(result.items);
         setDbfCatalogTotal(result.total);
         setDbfCatalogTotalPages(result.totalPages ?? 1);
+      } else if (target === "developer_catalog") {
+        setDevCatalog(result.items);
+        setDevCatalogTotal(result.total);
+        setDevCatalogTotalPages(result.totalPages ?? 1);
       } else {
         setUnverified(result.items);
         setUnverifiedTotal(result.total);
@@ -195,13 +205,14 @@ function ReviewListingPageInner() {
         fetchTab("verified", verifiedPage),
         fetchTab("rejected", rejectedPage),
         fetchTab("dbf_catalog", dbfCatalogPage),
+        fetchTab("developer_catalog", devCatalogPage),
       ]);
     } catch (err) {
       console.error(err);
     } finally {
       setIsLoading(false);
     }
-  }, [fetchTab, unverifiedPage, verifiedPage, rejectedPage, dbfCatalogPage]);
+  }, [fetchTab, unverifiedPage, verifiedPage, rejectedPage, dbfCatalogPage, devCatalogPage]);
 
   const handlePageChange = useCallback(
     (target: ReviewTab, nextPage: number) => {
@@ -209,6 +220,7 @@ function ReviewListingPageInner() {
       if (target === "verified") setVerifiedPage(nextPage);
       if (target === "rejected") setRejectedPage(nextPage);
       if (target === "dbf_catalog") setDbfCatalogPage(nextPage);
+      if (target === "developer_catalog") setDevCatalogPage(nextPage);
     },
     [],
   );
@@ -220,6 +232,7 @@ function ReviewListingPageInner() {
     setVerifiedPage(1);
     setRejectedPage(1);
     setDbfCatalogPage(1);
+    setDevCatalogPage(1);
   }, []);
 
   useEffect(() => {
@@ -231,6 +244,7 @@ function ReviewListingPageInner() {
     setVerifiedPage(1);
     setRejectedPage(1);
     setDbfCatalogPage(1);
+    setDevCatalogPage(1);
   }, []);
 
   const handleResetFilters = useCallback(() => {
@@ -337,7 +351,7 @@ function ReviewListingPageInner() {
                 className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
               >
                 <Plus className="w-4 h-4 mr-2" />
-                Add Post
+                Add Internal post
               </Link>
             ) : null}
           </AdminListToolbar>
@@ -383,6 +397,15 @@ function ReviewListingPageInner() {
               Save to DB (DBF)
               <span className="ml-2 bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">
                 {dbfCatalogTotal}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="developer_catalog"
+              className="data-[state=active]:bg-primary-light data-[state=active]:text-primary rounded-md px-6 text-sm"
+            >
+              Save to DB (Developer)
+              <span className="ml-2 bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">
+                {devCatalogTotal}
               </span>
             </TabsTrigger>
           </TabsList>
@@ -522,6 +545,32 @@ function ReviewListingPageInner() {
                 <ListingReviewTable
                   items={dbfCatalog}
                   mode="dbf_catalog"
+                  onApprove={handleApprove}
+                  onReject={handleReject}
+                  onSaveToDb={handleSaveToDb}
+                  onToggleForSale={handleToggleForSale}
+                />
+              </AdminDataTable>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="developer_catalog" className="focus-visible:outline-none">
+            <div className="space-y-4">
+              <AdminDataTable
+                page={devCatalogPage}
+                limit={pageSize}
+                total={devCatalogTotal}
+                totalPages={devCatalogTotalPages}
+                onPageChange={(p) => handlePageChange("developer_catalog", p)}
+                onPageSizeChange={handlePageSizeChange}
+                loading={isLoading}
+                isEmpty={!devCatalog.length}
+                emptyMessage="No Developer listings waiting for Save to DB."
+                syncKey={devCatalog.length}
+              >
+                <ListingReviewTable
+                  items={devCatalog}
+                  mode="developer_catalog"
                   onApprove={handleApprove}
                   onReject={handleReject}
                   onSaveToDb={handleSaveToDb}

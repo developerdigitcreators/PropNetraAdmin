@@ -7,9 +7,17 @@ import {
   netraReelsService,
   parseReelSource,
   platformLabel,
+  reelFeedLabel,
   type NetraReel,
+  type ReelFeed,
 } from '@/services/netra-reels.service';
-import { uploadAdminMedia } from '@/services/media.service';
+import {
+  formatMb,
+  getAdminMediaLimits,
+  uploadAdminMedia,
+  type MediaLimits,
+} from '@/services/media.service';
+import { uploadHintText } from '@/components/image-url-or-upload';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -43,6 +51,7 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
   const [caption, setCaption] = useState('');
   const [thumbnailUrl, setThumbnailUrl] = useState('');
   const [isActive, setIsActive] = useState(true);
+  const [feed, setFeed] = useState<ReelFeed>('propulse');
   const [previewing, setPreviewing] = useState(false);
   const [previewedUrl, setPreviewedUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -54,6 +63,35 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const thumbInputRef = useRef<HTMLInputElement | null>(null);
   const baselineRef = useRef('');
+  const [limits, setLimits] = useState<MediaLimits | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void getAdminMediaLimits().then((l) => {
+      if (alive) setLimits(l);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const pickVideo = (file: File | null) => {
+    if (file && limits && file.size > limits.videoMaxBytes) {
+      setError(`Video is too large. Max ${formatMb(limits.videoMaxBytes)}.`);
+      if (videoInputRef.current) videoInputRef.current.value = '';
+      return;
+    }
+    setVideoFile(file);
+  };
+
+  const pickThumbnail = (file: File | null) => {
+    if (file && limits && file.size > limits.imageMaxBytes) {
+      setError(`Image is too large. Max ${formatMb(limits.imageMaxBytes)}.`);
+      if (thumbInputRef.current) thumbInputRef.current.value = '';
+      return false;
+    }
+    return true;
+  };
 
   const parsed = useMemo(() => parseReelSource(sourceUrl), [sourceUrl]);
   const urlLooksValid = isSupportedReelUrl(sourceUrl);
@@ -77,6 +115,7 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
       setCaption(reel.caption);
       setThumbnailUrl(reel.thumbnailUrl);
       setIsActive(reel.isActive);
+      setFeed(reel.feed);
       setPreviewedUrl(reel.platform === 'upload' ? '' : reel.sourceUrl);
       baselineRef.current = JSON.stringify({
         sourceUrl: reel.platform === 'upload' ? '' : reel.sourceUrl,
@@ -84,6 +123,7 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
         caption: reel.caption,
         thumbnailUrl: reel.thumbnailUrl,
         isActive: reel.isActive,
+        feed: reel.feed,
         hasVideoFile: false,
         hasThumbFile: false,
       });
@@ -93,6 +133,7 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
       setCaption('');
       setThumbnailUrl('');
       setIsActive(true);
+      setFeed('propulse');
       setPreviewedUrl('');
       baselineRef.current = JSON.stringify({
         sourceUrl: '',
@@ -100,6 +141,7 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
         caption: '',
         thumbnailUrl: '',
         isActive: true,
+        feed: 'propulse',
         hasVideoFile: false,
         hasThumbFile: false,
       });
@@ -115,6 +157,7 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
       caption,
       thumbnailUrl,
       isActive,
+      feed,
       hasVideoFile: Boolean(videoFile),
       hasThumbFile: Boolean(thumbnailFile),
     }) !== baselineRef.current;
@@ -194,6 +237,7 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
           caption: caption.trim() || undefined,
           thumbnailUrl: thumbnailUrl.trim() || undefined,
           isActive,
+          feed,
         };
         if (isEdit && reel) {
           await netraReelsService.update(reel.id, payload);
@@ -213,6 +257,7 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
             caption: caption.trim() || undefined,
             thumbnailUrl: thumbnailUrl.trim() || undefined,
             isActive,
+            feed,
           });
         } else {
           if (!videoFile) {
@@ -225,6 +270,7 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
             title: title.trim() || undefined,
             caption: caption.trim() || undefined,
             isActive,
+            feed,
           });
         }
       }
@@ -267,6 +313,18 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
             )}
             */}
 
+            <div className="min-w-0 space-y-1.5">
+              <label className="text-sm font-medium text-gray-700">Show in</label>
+              <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                {reelFeedLabel(feed)}
+              </p>
+              {feed === 'propulse' ? (
+                <p className="text-xs text-gray-500">
+                  Launch Connect reels are added by developers from the app.
+                </p>
+              ) : null}
+            </div>
+
             {effectiveMode === 'instagram' ? (
               <div className="min-w-0 space-y-1.5">
                 <label className="text-sm font-medium text-gray-700">Instagram URL</label>
@@ -303,7 +361,7 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
                     type="file"
                     accept={VIDEO_ACCEPT}
                     className="hidden"
-                    onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
+                    onChange={(e) => pickVideo(e.target.files?.[0] || null)}
                   />
                   <Button
                     type="button"
@@ -313,9 +371,15 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
                   >
                     <Upload className="h-4 w-4 shrink-0" />
                     <span className="truncate">
-                      {videoFile?.name || (isEdit && reel?.videoUrl ? 'Replace video (optional)' : 'Choose MP4, MOV, or WebM (max 50MB)')}
+                      {videoFile?.name ||
+                        (isEdit && reel?.videoUrl
+                          ? 'Replace video (optional)'
+                          : `Choose MP4, MOV, or WebM${limits ? ` (max ${formatMb(limits.videoMaxBytes)})` : ''}`)}
                     </span>
                   </Button>
+                  <p className="text-xs text-gray-500">
+                    {uploadHintText(limits?.videoMaxBytes ?? null, '1080×1920')}
+                  </p>
                   {isEdit && reel?.videoUrl && !videoFile && (
                     <p className="text-xs text-gray-500">Current video is saved. Pick a file only to replace it.</p>
                   )}
@@ -386,7 +450,7 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
                     className="hidden"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
-                      if (file) void uploadThumbnailFromFile(file);
+                      if (file && pickThumbnail(file)) void uploadThumbnailFromFile(file);
                     }}
                   />
                   <Button
@@ -413,7 +477,7 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
                     className="hidden"
                     onChange={(e) => {
                       const file = e.target.files?.[0] || null;
-                      setThumbnailFile(file);
+                      if (pickThumbnail(file)) setThumbnailFile(file);
                     }}
                   />
                   <Button
@@ -434,6 +498,9 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
                   </Button>
                 </>
               )}
+              <p className="text-xs text-gray-500">
+                {uploadHintText(limits?.imageMaxBytes ?? null, '1080×1920')}
+              </p>
             </div>
 
             <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white px-4 py-3">

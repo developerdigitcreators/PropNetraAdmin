@@ -9,6 +9,7 @@ import {
   Inbox,
   Loader2,
   MessageSquare,
+  MessageSquareWarning,
   UserCheck,
   UserX,
   Users,
@@ -41,6 +42,7 @@ const ACTION_KEYS: DashboardUnreadKey[] = [
   'myListingsActionable',
   'adminVerifiedLeads',
   'subscriptionTracking',
+  'listingFeedbacks',
 ];
 
 export default function DashboardHome() {
@@ -144,6 +146,13 @@ export default function DashboardHome() {
         show: can('feedbacks', 'read'),
       },
       {
+        key: 'listingFeedbacks',
+        label: 'Listing Feedback',
+        href: '/listing-feedbacks',
+        icon: MessageSquareWarning,
+        show: can('listing_feedbacks', 'read'),
+      },
+      {
         key: 'supportTickets',
         label: 'Support tickets',
         href: '/support-tickets',
@@ -179,7 +188,16 @@ export default function DashboardHome() {
         show: superAdmin,
       },
     ];
-    return all.filter((c) => c.show).map(({ show: _show, ...card }) => card);
+    return all
+      .filter((c) => c.show)
+      .map(({ show: _show, ...card }) => card)
+      .sort((a, b) => {
+        const ca = Number(summary?.[a.key] ?? 0);
+        const cb = Number(summary?.[b.key] ?? 0);
+        if (ca > 0 && cb === 0) return -1;
+        if (ca === 0 && cb > 0) return 1;
+        return 0;
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- can/hasPermission derived from store
   }, [superAdmin, hasPermission, permissions, summary, canUserProfile]);
 

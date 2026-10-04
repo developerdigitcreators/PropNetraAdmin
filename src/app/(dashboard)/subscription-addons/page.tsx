@@ -16,6 +16,7 @@ import {
   type UpdateAddonPayload,
 } from '@/services/subscriptions.service';
 import { useClientPagedRows } from '@/hooks/use-client-paged-rows';
+import { useViewerSwitches, viewerAddonVisible } from '@/modules/subscriptions/use-viewer-switches';
 import { Package, Edit2 } from 'lucide-react';
 
 const AUTOMATIC_ADDON_TYPES = new Set(['LISTING_PRIORITY']);
@@ -35,6 +36,8 @@ export default function SubscriptionAddonsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const viewerSwitches = useViewerSwitches();
+  const visibleAddons = addons.filter((a) => viewerAddonVisible(a.type, viewerSwitches));
 
   const {
     page,
@@ -44,7 +47,7 @@ export default function SubscriptionAddonsPage() {
     pageRows,
     onPageChange,
     onPageSizeChange,
-  } = useClientPagedRows(addons);
+  } = useClientPagedRows(visibleAddons);
 
   const fetchAddons = useCallback(async () => {
     setLoading(true);

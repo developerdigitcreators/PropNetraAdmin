@@ -4,7 +4,10 @@ import { useAuthStore } from '@/store/use-auth-store';
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
 
 function isAdminLoginRequest(url?: string) {
-  return typeof url === 'string' && url.includes('/auth/admin/login');
+  return (
+    typeof url === 'string' &&
+    (url.includes('/auth/admin/login') || url.includes('/auth/admin/forgot-password'))
+  );
 }
 
 export const axiosClient = axios.create({

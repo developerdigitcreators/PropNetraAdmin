@@ -1333,13 +1333,8 @@ export const notificationsService = {
   },
 
   getBroadcastCities: async (): Promise<BroadcastCity[]> => {
-    try {
-      const response = await axiosClient.get('/cities');
-      return asNamedList(response.data);
-    } catch {
-      const response = await axiosClient.get('/admin/cities');
-      return asNamedList(response.data);
-    }
+    const response = await axiosClient.get('/admin/cities', { params: { activeOnly: true } });
+    return asNamedList(response.data);
   },
 
   getBroadcastOptions: async (): Promise<BroadcastOptions> => {

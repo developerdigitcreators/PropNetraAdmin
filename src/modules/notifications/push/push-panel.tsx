@@ -101,7 +101,7 @@ export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
     let cancelled = false;
     setPlacesLoading(true);
     locationService
-      .getStates()
+      .getStates({ activeOnly: true })
       .then((data) => {
         if (!cancelled) setStates(parseNamedPlaces(data));
       })
@@ -325,6 +325,7 @@ export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
             value={draft.imageUrl}
             onChange={(url) => patch({ imageUrl: url })}
             kind="popup"
+            recommendedSize={draft.style === "lead_interest" ? "400×400" : "1024×512"}
             placeholder="https://cdn.example.com/banner.jpg"
             hint={
               draft.style === "lead_interest"

@@ -18,6 +18,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RoleSelectionModal } from '@/components/common/role-selection-modal';
+import { useFloatingToast } from '@/components/common/floating-toast';
+import { ForgotPasswordDialog } from '@/modules/auth/forgot-password-dialog';
 import { cn } from '@/lib/utils';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 
@@ -98,6 +100,9 @@ export default function LoginPage() {
   const [resendAvailableAt, setResendAvailableAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [resending, setResending] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotKey, setForgotKey] = useState(0);
+  const toast = useFloatingToast();
 
   const {
     register,
@@ -291,6 +296,18 @@ export default function LoginPage() {
               {errors.password && (
                 <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>
               )}
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForgotKey((k) => k + 1);
+                    setForgotOpen(true);
+                  }}
+                  className="text-sm font-medium text-primary hover:underline"
+                >
+                  Forgot password?
+                </button>
+              </div>
             </div>
 
             {error && (
@@ -408,6 +425,14 @@ export default function LoginPage() {
           }}
         />
       )}
+
+      <ForgotPasswordDialog
+        key={forgotKey}
+        open={forgotOpen}
+        onOpenChange={setForgotOpen}
+        onReset={() => toast.show('Password reset. Please log in.')}
+      />
+      {toast.node}
     </div>
   );
 }

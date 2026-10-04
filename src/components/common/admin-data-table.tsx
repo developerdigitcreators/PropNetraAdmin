@@ -20,6 +20,8 @@ type AdminDataTableProps = {
   loading?: boolean;
   error?: string | null;
   emptyMessage?: string;
+  /** Optional control under the empty message (e.g. "Clear filters"). */
+  emptyAction?: ReactNode;
   isEmpty?: boolean;
   className?: string;
   /** Re-measure horizontal scroll when this changes (e.g. row count). */
@@ -46,6 +48,7 @@ export function AdminDataTable({
   loading = false,
   error = null,
   emptyMessage = 'No rows to show.',
+  emptyAction,
   isEmpty = false,
   className,
   syncKey,
@@ -70,9 +73,10 @@ export function AdminDataTable({
 
   if (isEmpty) {
     return (
-      <p className="rounded-xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
-        {emptyMessage}
-      </p>
+      <div className="space-y-3 rounded-xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
+        <p>{emptyMessage}</p>
+        {emptyAction ? <div className="flex justify-center">{emptyAction}</div> : null}
+      </div>
     );
   }
 

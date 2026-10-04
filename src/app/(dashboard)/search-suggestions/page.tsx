@@ -91,7 +91,10 @@ function SearchSuggestionsPageInner() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([locationService.getStates(), locationService.getCities()])
+    Promise.all([
+      locationService.getStates({ activeOnly: true }),
+      locationService.getCities({ activeOnly: true }),
+    ])
       .then(([statesRes, citiesRes]) => {
         if (cancelled) return;
         const nextStates = (Array.isArray(statesRes) ? statesRes : []) as LocItem[];

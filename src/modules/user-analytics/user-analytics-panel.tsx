@@ -17,6 +17,13 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import {
   countTabItems,
   userAnalyticsApiError,
   userAnalyticsService,
@@ -37,6 +44,7 @@ import { SubscriptionTab } from "@/modules/user-analytics/subscription-tab";
 import { ReferralTab } from "@/modules/user-analytics/referral-tab";
 import { UserListingsTab } from "@/modules/user-analytics/user-listings-tab";
 import { VerificationDocsSection } from "@/modules/user-analytics/verification-docs-section";
+import { DeviceLockSection } from "@/modules/user-analytics/device-lock-section";
 import Link from "next/link";
 import {
   BarChart3,
@@ -48,6 +56,7 @@ import {
   MapPin,
   Mail,
   MessageSquare,
+  MessageSquareWarning,
   Phone,
   Sparkles,
   ArrowLeft,
@@ -59,9 +68,22 @@ import {
 import { USER_PROFILE_READ_PERMISSIONS } from "@/modules/app-users/app-users-access";
 import { useUrlFilters } from "@/hooks/use-url-filters";
 import { planLabelFromCode, resolvePlanChip } from "@/lib/plan-labels";
+import { ListingFeedbackList } from "@/components/listing-feedback/listing-feedback-list";
+import { useAuthStore } from "@/store/use-auth-store";
+import {
+  listingsService,
+  getListingDetailRows,
+  type MyListingDetail,
+} from "@/services/listings.service";
 
-type ProfileTab = "subscription" | "refer" | "analytics" | "write" | "listings";
-type DetailTab = "views" | "contacted" | "leads";
+type ProfileTab =
+  | "subscription"
+  | "refer"
+  | "analytics"
+  | "write"
+  | "listings"
+  | "listingFeedback";
+type DetailTab = "views" | "contacted" | "leads" | "listingViewers";
 
 type ProfileUser = AnalyticsUser & {
   status?: string;
@@ -238,11 +260,15 @@ function PeopleTable({
   items,
   showChannels,
   showPlan,
+  showStatus,
+  onPreviewListing,
   empty,
 }: {
   items: PersonRow[];
   showChannels?: boolean;
   showPlan?: boolean;
+  showStatus?: boolean;
+  onPreviewListing?: (listingId: string) => void;
   empty?: string;
 }) {
   if (!items.length) {
@@ -266,6 +292,11 @@ function PeopleTable({
             </th>
             <th className="px-4 py-2.5 font-semibold text-gray-700">Project</th>
             <th className="px-4 py-2.5 font-semibold text-gray-700">BHK</th>
+            {showStatus ? (
+              <th className="px-4 py-2.5 font-semibold text-gray-700">
+                Status
+              </th>
+            ) : null}
             <th className="px-4 py-2.5 font-semibold text-gray-700">City</th>
             <th className="px-4 py-2.5 font-semibold text-gray-700">
               Location
@@ -273,6 +304,7 @@ function PeopleTable({
             <th className="px-4 py-2.5 font-semibold text-gray-700">
               Date & time
             </th>
+            <th className="px-4 py-2.5 font-semibold text-gray-700" />
           </tr>
         </thead>
         <tbody>
@@ -302,10 +334,27 @@ function PeopleTable({
               </td>
               <td className="px-4 py-3 text-gray-900">{dash(row.project)}</td>
               <td className="px-4 py-3 text-gray-600">{dash(row.bhk)}</td>
+              {showStatus ? (
+                <td className="px-4 py-3 text-gray-600 capitalize">
+                  {dash(row.listingStatus)}
+                </td>
+              ) : null}
               <td className="px-4 py-3 text-gray-600">{dash(row.city)}</td>
               <td className="px-4 py-3 text-gray-600">{dash(row.location)}</td>
               <td className="whitespace-nowrap px-4 py-3 text-gray-600">
                 {formatDateTime(row.occurredAt)}
+              </td>
+              <td className="px-3 py-3">
+                {row.listingId && onPreviewListing ? (
+                  <button
+                    type="button"
+                    title="Property details"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-primary"
+                    onClick={() => onPreviewListing(row.listingId!)}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
               </td>
             </tr>
           ))}
@@ -319,11 +368,15 @@ function CollapsibleDay({
   day,
   showChannels,
   showPlan,
+  showStatus,
+  onPreviewListing,
   emptyDetail,
 }: {
   day: DayBucket<PersonRow>;
   showChannels?: boolean;
   showPlan?: boolean;
+  showStatus?: boolean;
+  onPreviewListing?: (listingId: string) => void;
   emptyDetail: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -351,6 +404,8 @@ function CollapsibleDay({
             items={day.items}
             showChannels={showChannels}
             showPlan={showPlan}
+            showStatus={showStatus}
+            onPreviewListing={onPreviewListing}
             empty={emptyDetail}
           />
         ) : (
@@ -370,6 +425,8 @@ function CollapsibleTimeline({
   emptyDetail,
   showChannels,
   showPlan,
+  showStatus,
+  onPreviewListing,
 }: {
   tab: GroupedTab<PersonRow>;
   groupBy: "day" | "month";
@@ -377,6 +434,8 @@ function CollapsibleTimeline({
   emptyDetail: string;
   showChannels?: boolean;
   showPlan?: boolean;
+  showStatus?: boolean;
+  onPreviewListing?: (listingId: string) => void;
 }) {
   const days =
     groupBy === "day" ? tab.days : tab.months.flatMap((month) => month.days);
@@ -409,6 +468,8 @@ function CollapsibleTimeline({
                   day={day}
                   showChannels={showChannels}
                   showPlan={showPlan}
+                  showStatus={showStatus}
+                  onPreviewListing={onPreviewListing}
                   emptyDetail={emptyDetail}
                 />
               ))}
@@ -427,6 +488,8 @@ function CollapsibleTimeline({
           day={day}
           showChannels={showChannels}
           showPlan={showPlan}
+          showStatus={showStatus}
+          onPreviewListing={onPreviewListing}
           emptyDetail={emptyDetail}
         />
       ))}
@@ -531,6 +594,10 @@ function WriteToUsTab({ userId }: { userId: string }) {
 export function UserAnalyticsPanel() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const canReadListingFeedback = useAuthStore((s) => s.hasPermission)(
+    "listing_feedbacks",
+    "read",
+  );
   const { filters, setFilters, resetFilters } = useUrlFilters({
     from: "",
     to: "",
@@ -545,14 +612,19 @@ export function UserAnalyticsPanel() {
   const stateId = filters.stateId;
   const cityId = filters.cityId;
   const profileTab = (
-    ["subscription", "refer", "analytics", "write", "listings"].includes(
-      filters.tab,
-    )
+    [
+      "subscription",
+      "refer",
+      "analytics",
+      "write",
+      "listings",
+      "listingFeedback",
+    ].includes(filters.tab)
       ? filters.tab
       : "subscription"
   ) as ProfileTab;
   const analyticsTab = (
-    ["views", "contacted", "leads"].includes(filters.aTab)
+    ["views", "contacted", "leads", "listingViewers"].includes(filters.aTab)
       ? filters.aTab
       : "views"
   ) as DetailTab;
@@ -581,6 +653,23 @@ export function UserAnalyticsPanel() {
 
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<UserAnalyticsDetail | null>(null);
+  const [preview, setPreview] = useState<MyListingDetail | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  const openListingPreview = useCallback(async (listingId: string) => {
+    setPreviewOpen(true);
+    setPreviewLoading(true);
+    setPreview(null);
+    try {
+      const row = await listingsService.getMyListingDetail(listingId);
+      setPreview(row);
+    } catch {
+      setPreview(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, []);
 
   const replaceAnalyticsQuery = useCallback(
     (params: URLSearchParams) => {
@@ -590,7 +679,10 @@ export function UserAnalyticsPanel() {
         const currentQs = window.location.search.startsWith("?")
           ? window.location.search.slice(1)
           : window.location.search;
-        if (window.location.pathname === "/user-analytics" && currentQs === qs) {
+        if (
+          window.location.pathname === "/user-analytics" &&
+          currentQs === qs
+        ) {
           return;
         }
       }
@@ -910,6 +1002,7 @@ export function UserAnalyticsPanel() {
   const viewsCount = detail ? countTabItems(detail.views) : 0;
   const contactedCount = detail ? countTabItems(detail.contacted) : 0;
   const leadsCount = detail ? countTabItems(detail.interested) : 0;
+  const listingViewersCount = detail ? countTabItems(detail.listingViewers) : 0;
   const usage = detail?.usage;
   const profileGridCells = useMemo(
     () =>
@@ -1167,6 +1260,8 @@ export function UserAnalyticsPanel() {
               </div>
             </div>
 
+            <DeviceLockSection key={`device-${userId}-${refreshNonce}`} userId={userId} />
+
             <Tabs
               value={profileTab}
               onValueChange={(value) => {
@@ -1176,7 +1271,8 @@ export function UserAnalyticsPanel() {
                   value === "refer" ||
                   value === "analytics" ||
                   value === "write" ||
-                  value === "listings"
+                  value === "listings" ||
+                  value === "listingFeedback"
                 ) {
                   setProfileTab(value);
                 }
@@ -1213,6 +1309,15 @@ export function UserAnalyticsPanel() {
                   <Building2 className="h-4 w-4" />
                   Listings
                 </TabsTrigger>
+                {canReadListingFeedback ? (
+                  <TabsTrigger
+                    value="listingFeedback"
+                    className="gap-1.5 rounded-md px-4"
+                  >
+                    <MessageSquareWarning className="h-4 w-4" />
+                    Listing Feedback
+                  </TabsTrigger>
+                ) : null}
               </TabsList>
 
               <TabsContent value="subscription" className="space-y-4">
@@ -1233,6 +1338,18 @@ export function UserAnalyticsPanel() {
               <TabsContent value="listings">
                 <UserListingsTab key={`list-${refreshNonce}`} userId={userId} />
               </TabsContent>
+              {canReadListingFeedback ? (
+                <TabsContent value="listingFeedback">
+                  <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                    <ListingFeedbackList
+                      key={`lf-${refreshNonce}`}
+                      ownerUserId={userId}
+                      showListing
+                      title="Feedback received on this user's listings"
+                    />
+                  </div>
+                </TabsContent>
+              ) : null}
               <TabsContent value="analytics" className="space-y-4">
                 {detailLoading && !detail ? (
                   <div className="flex justify-center py-20">
@@ -1246,7 +1363,8 @@ export function UserAnalyticsPanel() {
                       if (
                         value === "views" ||
                         value === "contacted" ||
-                        value === "leads"
+                        value === "leads" ||
+                        value === "listingViewers"
                       ) {
                         setAnalyticsTab(value);
                       }
@@ -1283,6 +1401,16 @@ export function UserAnalyticsPanel() {
                           {leadsCount}
                         </span>
                       </TabsTrigger>
+                      <TabsTrigger
+                        value="listingViewers"
+                        className="gap-1.5 rounded-md px-5"
+                      >
+                        <Eye className="h-4 w-4" />
+                        Listing viewers
+                        <span className="ml-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                          {listingViewersCount}
+                        </span>
+                      </TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="views">
@@ -1298,6 +1426,7 @@ export function UserAnalyticsPanel() {
                         groupBy={groupBy}
                         empty="This user did not view any listings in this range."
                         emptyDetail="No view details on this date."
+                        onPreviewListing={openListingPreview}
                       />
                     </TabsContent>
                     <TabsContent value="contacted">
@@ -1315,6 +1444,7 @@ export function UserAnalyticsPanel() {
                         emptyDetail="No contact details on this date."
                         showChannels
                         showPlan
+                        onPreviewListing={openListingPreview}
                       />
                     </TabsContent>
                     <TabsContent value="leads">
@@ -1332,6 +1462,25 @@ export function UserAnalyticsPanel() {
                         emptyDetail="No lead details on this date."
                         showChannels
                         showPlan
+                        onPreviewListing={openListingPreview}
+                      />
+                    </TabsContent>
+                    <TabsContent value="listingViewers">
+                      <CollapsibleTimeline
+                        tab={
+                          detail?.listingViewers || {
+                            days: [],
+                            months: [],
+                            summary: [],
+                            total: 0,
+                          }
+                        }
+                        groupBy={groupBy}
+                        empty="No listing viewers on this user’s listings in this range."
+                        emptyDetail="No listing-viewer details on this date."
+                        showPlan
+                        showStatus
+                        onPreviewListing={openListingPreview}
                       />
                     </TabsContent>
                   </Tabs>
@@ -1341,6 +1490,50 @@ export function UserAnalyticsPanel() {
           </div>
         )}
       </div>
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {preview?.displayTitle ||
+                (typeof preview?.property_name === "object"
+                  ? preview?.property_name?.name
+                  : null) ||
+                "Property details"}
+            </DialogTitle>
+          </DialogHeader>
+          {previewLoading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : preview ? (
+            <div className="space-y-2 text-sm">
+              <p>
+                <span className="text-gray-500">Status: </span>
+                <span className="capitalize">{String(preview.status || "—")}</span>
+              </p>
+              <p>
+                <span className="text-gray-500">Category: </span>
+                {typeof preview.category === "object"
+                  ? preview.category?.name
+                  : String(preview.category || "—")}
+              </p>
+              {getListingDetailRows(preview as never)
+                .slice(0, 12)
+                .map((row) => (
+                  <p key={row.label}>
+                    <span className="text-gray-500">{row.label}: </span>
+                    {String(row.value ?? "—")}
+                  </p>
+                ))}
+              <Button type="button" variant="outline" className="mt-2" onClick={() => setPreviewOpen(false)}>
+                Close
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">Listing details unavailable.</p>
+          )}
+        </DialogContent>
+      </Dialog>
     </PermissionGuard>
   );
 }

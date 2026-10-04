@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { PlanFormDialog } from '@/modules/subscriptions/plan-form-dialog';
 import { PlanPopupBannerDialog } from '@/modules/subscriptions/plan-popup-banner-dialog';
 import { DbfModeCard } from '@/modules/subscriptions/dbf-mode-card';
+import { DeveloperPlansTab } from '@/modules/subscriptions/developer-plans-tab';
+import { useViewerSwitches, viewerQuotaLabel } from '@/modules/subscriptions/use-viewer-switches';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   formatInrFromPaise,
@@ -152,6 +154,19 @@ function PlanCard({
                   : `${limits.listingViewsDaily ?? 0} per day · ${limits.listingViewsMonthly ?? 0} per month`
               }
             />
+            <LimitRow
+              label="Developer projects"
+              hint="Page views · Compare · Share · Brochure · Contact (per day / per month)"
+              value={[
+                [limits.devViewDaily, limits.devViewMonthly],
+                [limits.devCompareDaily, limits.devCompareMonthly],
+                [limits.devShareDaily, limits.devShareMonthly],
+                [limits.devBrochureDaily, limits.devBrochureMonthly],
+                [limits.devContactDaily, limits.devContactMonthly],
+              ]
+                .map(([d, m]) => `${d ?? '∞'}/${m ?? '∞'}`)
+                .join(' · ')}
+            />
           </div>
         ) : (
           <p className="text-sm text-gray-500">No limits configured.</p>
@@ -190,10 +205,12 @@ function PlanCard({
 function DbfPlanCard({
   plan,
   canUpdate,
+  showViewerContacts,
   onEdit,
 }: {
   plan: SubscriptionPlanItem;
   canUpdate: boolean;
+  showViewerContacts: boolean;
   onEdit: () => void;
 }) {
   const limits = plan.limits;
@@ -278,6 +295,13 @@ function DbfPlanCard({
                   : `${limits.listingViewsDaily ?? 0} per day · ${limits.listingViewsMonthly ?? 0} per month`
               }
             />
+            {showViewerContacts ? (
+              <LimitRow
+                label="Listing viewer contacts"
+                hint="Agent numbers revealed from recent viewers"
+                value={viewerQuotaLabel(limits.viewerRevealDaily, limits.viewerRevealMonthly)}
+              />
+            ) : null}
           </div>
         ) : (
           <p className="text-sm text-gray-500">No limits configured.</p>
@@ -312,9 +336,11 @@ export default function SubscriptionPlansPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [resyncing, setResyncing] = useState(false);
-  const [tab, setTab] = useState<'agent' | 'dbf'>('agent');
-  const agentPlans = plans.filter((p) => p.audience !== 'dbf');
+  const [tab, setTab] = useState<'agent' | 'dbf' | 'developer'>('agent');
+  const viewerSwitches = useViewerSwitches();
+  const agentPlans = plans.filter((p) => p.audience === 'agent');
   const dbfPlans = plans.filter((p) => p.audience === 'dbf');
+  const developerPlans = plans.filter((p) => p.audience === 'developer');
 
   const fetchPlans = useCallback(async () => {
     setLoading(true);
@@ -344,7 +370,10 @@ export default function SubscriptionPlansPage() {
     setSaving(true);
     setFormError('');
     try {
-      await subscriptionsService.updatePlan(editing.code, payload);
+      const updated = await subscriptionsService.updatePlan(editing.code, payload);
+      if (updated) {
+        setPlans((prev) => prev.map((p) => (p.code === updated.code ? updated : p)));
+      }
       setFormOpen(false);
       setEditing(null);
       await fetchPlans();
@@ -442,10 +471,14 @@ export default function SubscriptionPlansPage() {
           </div>
         ) : null}
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v === 'dbf' ? 'dbf' : 'agent')}>
+        <Tabs
+          value={tab}
+          onValueChange={(v) => setTab(v === 'dbf' || v === 'developer' ? v : 'agent')}
+        >
           <TabsList>
             <TabsTrigger value="agent">Agent subscription</TabsTrigger>
             <TabsTrigger value="dbf">Direct Builder Floor</TabsTrigger>
+            <TabsTrigger value="developer">Developer</TabsTrigger>
           </TabsList>
 
           <TabsContent value="agent" className="pt-4">
@@ -485,6 +518,7 @@ export default function SubscriptionPlansPage() {
                     key={plan.id}
                     plan={plan}
                     canUpdate={canUpdate}
+                    showViewerContacts={viewerSwitches.dbf}
                     onEdit={() => openEdit(plan)}
                   />
                 ))}
@@ -496,6 +530,15 @@ export default function SubscriptionPlansPage() {
                 ) : null}
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="developer" className="pt-4">
+            <DeveloperPlansTab
+              plans={developerPlans}
+              loading={loading}
+              canUpdate={canUpdate}
+              onEdit={openEdit}
+            />
           </TabsContent>
         </Tabs>
 

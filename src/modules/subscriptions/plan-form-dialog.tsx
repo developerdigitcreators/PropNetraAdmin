@@ -12,15 +12,20 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  billingPeriodLabel,
+  billingPeriodUnit,
   isDbfPlanCode,
+  isDeveloperPlanCode,
   isPaidSubscriptionPlan,
   paiseToRupeesInput,
   rupeesInputToPaise,
   type PlanLimits,
   type SubscriptionPlanItem,
   type UpdatePlanPayload,
+  type VerifiedContactLimits,
 } from '@/services/subscriptions.service';
 import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
+import { useViewerSwitches } from './use-viewer-switches';
 import { Loader2 } from 'lucide-react';
 
 type PlanFormDialogProps = {
@@ -53,6 +58,65 @@ function emptyLimits(): PlanLimits {
     dbfPostsDaily: 0,
     dbfPostsMonthly: 0,
     activeDbfPosts: null,
+    devCompareDaily: 0,
+    devCompareMonthly: 0,
+    devShareDaily: 0,
+    devShareMonthly: 0,
+    devBrochureDaily: 0,
+    devBrochureMonthly: 0,
+    devContactDaily: 0,
+    devContactMonthly: 0,
+    devViewDaily: null,
+    devViewMonthly: null,
+    viewerRevealDaily: 0,
+    viewerRevealMonthly: 0,
+    developerPostsDaily: 0,
+    developerPostsMonthly: 0,
+    activeDeveloperPosts: null,
+    includedCities: 1,
+    developerGroupChatEnabled: false,
+    launchReelsEnabled: false,
+  };
+}
+
+const DEV_FEATURE_FIELDS: Array<{
+  label: string;
+  daily: keyof PlanLimits;
+  monthly: keyof PlanLimits;
+}> = [
+  { label: 'Compare', daily: 'devCompareDaily', monthly: 'devCompareMonthly' },
+  { label: 'Share (without link)', daily: 'devShareDaily', monthly: 'devShareMonthly' },
+  { label: 'Brochure download', daily: 'devBrochureDaily', monthly: 'devBrochureMonthly' },
+  { label: 'Developer contact reveal', daily: 'devContactDaily', monthly: 'devContactMonthly' },
+];
+
+const AGENT_DEV_FEATURE_FIELDS: typeof DEV_FEATURE_FIELDS = [
+  { label: 'Developer project page views', daily: 'devViewDaily', monthly: 'devViewMonthly' },
+  ...DEV_FEATURE_FIELDS,
+];
+
+const VERIFIED_CONTACT_ROWS: Array<{
+  label: string;
+  daily: keyof VerifiedContactLimits;
+  monthly: keyof VerifiedContactLimits;
+}> = [
+  { label: 'Resale', daily: 'verifiedResaleContactsDaily', monthly: 'verifiedResaleContactsMonthly' },
+  { label: 'Rent', daily: 'verifiedRentContactsDaily', monthly: 'verifiedRentContactsMonthly' },
+  {
+    label: 'Buy Requirement',
+    daily: 'verifiedBuyReqContactsDaily',
+    monthly: 'verifiedBuyReqContactsMonthly',
+  },
+];
+
+function emptyVerifiedLimits(): VerifiedContactLimits {
+  return {
+    verifiedResaleContactsDaily: null,
+    verifiedResaleContactsMonthly: null,
+    verifiedRentContactsDaily: null,
+    verifiedRentContactsMonthly: null,
+    verifiedBuyReqContactsDaily: null,
+    verifiedBuyReqContactsMonthly: null,
   };
 }
 
@@ -98,14 +162,21 @@ export function PlanFormDialog({
   const [builderContactsEnabled, setBuilderContactsEnabled] = useState(false);
   const [unlimitedViews, setUnlimitedViews] = useState(false);
   const [limits, setLimits] = useState<PlanLimits>(emptyLimits());
+  const [verifiedLimits, setVerifiedLimits] =
+    useState<VerifiedContactLimits>(emptyVerifiedLimits());
   const [localError, setLocalError] = useState('');
   const baselineRef = useRef('');
 
   const isDbf = plan ? isDbfPlanCode(plan.code) || plan.audience === 'dbf' : false;
   const isDbfFree = plan?.code === 'DBF_FREE';
-  const showPricing = plan ? isPaidSubscriptionPlan(plan.code) && !isDbfFree : false;
+  const isDeveloper = plan ? isDeveloperPlanCode(plan.code) || plan.audience === 'developer' : false;
+  const isDeveloperFree = plan?.code === 'DEVELOPER_FREE';
+  const isTrackFree = isDbfFree || isDeveloperFree;
+  const showPricing = plan ? isPaidSubscriptionPlan(plan.code) && !isTrackFree : false;
   const isLifetimeFree = plan?.code === 'FREE_LIFETIME';
-  const showVisibilityToggles = !isLifetimeFree && !isDbfFree;
+  const showVisibilityToggles = !isLifetimeFree && !isTrackFree;
+  const periodUnit = isDeveloper ? billingPeriodUnit(plan?.billingPeriod) : 'year';
+  const periodName = isDeveloper ? billingPeriodLabel(plan?.billingPeriod) : 'Yearly';
 
   const snapshot = useMemo(
     () =>
@@ -124,6 +195,7 @@ export function PlanFormDialog({
         builderContactsEnabled,
         unlimitedViews,
         limits,
+        verifiedLimits,
       }),
     [
       displayName,
@@ -140,6 +212,7 @@ export function PlanFormDialog({
       builderContactsEnabled,
       unlimitedViews,
       limits,
+      verifiedLimits,
     ],
   );
 
@@ -168,6 +241,8 @@ export function PlanFormDialog({
     const unlimited =
       next.listingViewsDaily == null && next.listingViewsMonthly == null;
     setUnlimitedViews(unlimited);
+    const nextVerified = { ...emptyVerifiedLimits(), ...plan.verifiedContactLimits };
+    setVerifiedLimits(nextVerified);
     baselineRef.current = JSON.stringify({
       displayName: plan.displayName,
       sortOrder: plan.sortOrder,
@@ -184,6 +259,7 @@ export function PlanFormDialog({
       builderContactsEnabled: plan.flags.builderContactsEnabled,
       unlimitedViews: unlimited,
       limits: { ...next },
+      verifiedLimits: { ...nextVerified },
     });
   }, [open, plan]);
 
@@ -213,28 +289,103 @@ export function PlanFormDialog({
     }));
   };
 
+  const setNullableLimit = (key: keyof PlanLimits, value: string) => {
+    const n = value.trim() === '' ? null : Number(value);
+    setLimits((prev) => ({
+      ...prev,
+      [key]: n == null || !Number.isFinite(n) ? null : Math.max(0, Math.floor(n)),
+    }));
+  };
+
+  const setVerifiedLimit = (key: keyof VerifiedContactLimits, value: string) => {
+    const n = value.trim() === '' ? null : Number(value);
+    setVerifiedLimits((prev) => ({
+      ...prev,
+      [key]: n == null || !Number.isFinite(n) ? null : Math.max(0, Math.floor(n)),
+    }));
+  };
+
   const handleSubmit = () => {
     if (!displayName.trim()) {
       setLocalError('Display name is required.');
       return;
     }
+    if (isDeveloper && limits.developerPostsMonthly < limits.developerPostsDaily) {
+      setLocalError('Monthly post limit cannot be lower than the daily limit.');
+      return;
+    }
+    if (!isDbf) {
+      const bad = (isDeveloper ? DEV_FEATURE_FIELDS : AGENT_DEV_FEATURE_FIELDS).find(({ daily, monthly }) => {
+        const d = limits[daily] as number | null;
+        const m = limits[monthly] as number | null;
+        return d != null && m != null && m < d;
+      });
+      if (bad) {
+        setLocalError(`${bad.label}: monthly limit cannot be lower than the daily limit.`);
+        return;
+      }
+    }
     if (isDbf && limits.dbfPostsMonthly < limits.dbfPostsDaily) {
       setLocalError('Monthly post limit cannot be lower than the daily limit.');
       return;
     }
+    if (
+      (isDbf || isDeveloper) &&
+      limits.viewerRevealDaily != null &&
+      limits.viewerRevealMonthly != null &&
+      limits.viewerRevealMonthly < limits.viewerRevealDaily
+    ) {
+      setLocalError('Viewer contact reveals: monthly limit cannot be lower than the daily limit.');
+      return;
+    }
     setLocalError('');
-    const entitlements: Partial<PlanLimits> = isDbf
+    if (isDeveloper) {
+      onSubmit({
+        displayName: displayName.trim(),
+        sortOrder,
+        isActive: isDeveloperFree ? Boolean(plan?.isActive) : isActive,
+        showOnApp: isDeveloperFree ? Boolean(plan?.showOnApp) : showOnApp,
+        pricePaise: showPricing ? rupeesInputToPaise(priceRupees) : null,
+        promoPricePaise: showPricing ? rupeesInputToPaise(promoPriceRupees) : null,
+        promoWindowDays: showPricing && promoWindowDays !== '' ? Number(promoWindowDays) : null,
+        entitlements: {
+          developerPostsDaily: limits.developerPostsDaily,
+          developerPostsMonthly: limits.developerPostsMonthly,
+          activeDeveloperPosts: limits.activeDeveloperPosts,
+          devCompareDaily: limits.devCompareDaily,
+          devCompareMonthly: limits.devCompareMonthly,
+          devShareDaily: limits.devShareDaily,
+          devShareMonthly: limits.devShareMonthly,
+          devBrochureDaily: limits.devBrochureDaily,
+          devBrochureMonthly: limits.devBrochureMonthly,
+          devContactDaily: limits.devContactDaily,
+          devContactMonthly: limits.devContactMonthly,
+          viewerRevealDaily: limits.viewerRevealDaily,
+          viewerRevealMonthly: limits.viewerRevealMonthly,
+          includedCities: Math.max(1, Math.floor(limits.includedCities || 1)),
+          developerGroupChatEnabled: limits.developerGroupChatEnabled,
+          launchReelsEnabled: limits.launchReelsEnabled,
+          ...verifiedLimits,
+        },
+      });
+      return;
+    }
+    const entitlements: UpdatePlanPayload['entitlements'] = isDbf
       ? {
           dbfPostsDaily: limits.dbfPostsDaily,
           dbfPostsMonthly: limits.dbfPostsMonthly,
           activeDbfPosts: limits.activeDbfPosts,
+          viewerRevealDaily: limits.viewerRevealDaily,
+          viewerRevealMonthly: limits.viewerRevealMonthly,
           listingViewsDaily: unlimitedViews ? null : limits.listingViewsDaily ?? 0,
           listingViewsMonthly: unlimitedViews ? null : limits.listingViewsMonthly ?? 0,
+          ...verifiedLimits,
         }
       : {
           ...limits,
           listingViewsDaily: unlimitedViews ? null : limits.listingViewsDaily ?? 0,
           listingViewsMonthly: unlimitedViews ? null : limits.listingViewsMonthly ?? 0,
+          ...verifiedLimits,
         };
     if (isDbf) {
       onSubmit({
@@ -266,6 +417,32 @@ export function PlanFormDialog({
       entitlements,
     });
   };
+
+  const viewerSwitches = useViewerSwitches();
+  const viewerRevealSection = (
+    <Section
+      title="Listing viewer contacts"
+      description="How many viewer numbers the owner can reveal. There is no viewer-contact add-on — only this plan quota (admin-controlled)."
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <NumField
+          label="Reveals per day"
+          value={limits.viewerRevealDaily == null ? '' : String(limits.viewerRevealDaily)}
+          onChange={(v) => setNullableLimit('viewerRevealDaily', v)}
+          placeholder="Unlimited"
+        />
+        <NumField
+          label="Reveals per month"
+          value={limits.viewerRevealMonthly == null ? '' : String(limits.viewerRevealMonthly)}
+          onChange={(v) => setNullableLimit('viewerRevealMonthly', v)}
+          placeholder="Unlimited"
+        />
+      </div>
+      <p className="text-xs text-gray-500">
+        Leave empty for unlimited. 0 = cannot reveal contacts. Revealing the same viewer again on the same day is free.
+      </p>
+    </Section>
+  );
 
   return (
     <>
@@ -325,12 +502,12 @@ export function PlanFormDialog({
 
           {showPricing ? (
             <Section
-              title="Pricing (₹ per year, exclusive of GST)"
-              description="Enter GST-exclusive yearly prices. Customers pay base + GST (default 18%). After changing prices, resync Razorpay yearly plans so autopay includes GST."
+              title={`Pricing (₹ per ${periodUnit}, exclusive of GST)`}
+              description={`Enter GST-exclusive prices. Customers pay base + GST (default 18%) and autopay renews every ${periodUnit}. After changing prices, resync Razorpay plans so autopay includes GST.`}
             >
               <div className="grid gap-3 sm:grid-cols-3">
                 <NumField
-                  label="Yearly price (₹, exclusive of GST)"
+                  label={`${periodName} price (₹, exclusive of GST)`}
                   value={priceRupees}
                   onChange={setPriceRupees}
                   placeholder="1189"
@@ -381,7 +558,84 @@ export function PlanFormDialog({
             </Section>
           ) : null}
 
-          {isDbf ? (
+          {isDeveloper ? (
+            <>
+              <Section
+                title={
+                  isDeveloperFree
+                    ? 'Post Free Limit (applies before Paid mode)'
+                    : 'Post Plan Limit (applies in Paid mode)'
+                }
+                description="Developer project posts. Leave “Max active posts” empty for no cap."
+              >
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <NumField
+                    label="Posts per day"
+                    value={String(limits.developerPostsDaily)}
+                    onChange={(v) => setLimitField('developerPostsDaily', v)}
+                  />
+                  <NumField
+                    label="Posts per month"
+                    value={String(limits.developerPostsMonthly)}
+                    onChange={(v) => setLimitField('developerPostsMonthly', v)}
+                  />
+                  <NumField
+                    label="Max active posts"
+                    value={
+                      limits.activeDeveloperPosts == null ? '' : String(limits.activeDeveloperPosts)
+                    }
+                    onChange={(v) => setNullableLimit('activeDeveloperPosts', v)}
+                    placeholder="No cap"
+                  />
+                </div>
+              </Section>
+              <Section
+                title="Developer project limits"
+                description="Compare, share, brochure and contact limits on other developers' projects."
+              >
+                {DEV_FEATURE_FIELDS.map(({ label, daily, monthly }) => (
+                  <div key={daily} className="grid gap-3 sm:grid-cols-2">
+                    <NumField
+                      label={`${label} per day`}
+                      value={limits[daily] == null ? '' : String(limits[daily])}
+                      onChange={(v) => setNullableLimit(daily, v)}
+                      placeholder="Unlimited"
+                    />
+                    <NumField
+                      label={`${label} per month`}
+                      value={limits[monthly] == null ? '' : String(limits[monthly])}
+                      onChange={(v) => setNullableLimit(monthly, v)}
+                      placeholder="Unlimited"
+                    />
+                  </div>
+                ))}
+                <p className="text-xs text-gray-500">Leave empty for unlimited. 0 = feature blocked.</p>
+              </Section>
+              {viewerSwitches.developer ? viewerRevealSection : null}
+              <Section
+                title="Launch Connect"
+                description="Launch Update city group chat and Launch Reels. Extra cities beyond the included ones are paid city add-ons."
+              >
+                <NumField
+                  label="Cities included"
+                  value={String(limits.includedCities)}
+                  onChange={(v) => setLimitField('includedCities', v)}
+                />
+                <FlagRow
+                  label="Group messages (Launch Update)"
+                  hint="Post in own city groups; agents get a push"
+                  checked={limits.developerGroupChatEnabled}
+                  onChange={(v) => setLimits((prev) => ({ ...prev, developerGroupChatEnabled: v }))}
+                />
+                <FlagRow
+                  label="Launch Reels"
+                  hint="Publish project reels to agents"
+                  checked={limits.launchReelsEnabled}
+                  onChange={(v) => setLimits((prev) => ({ ...prev, launchReelsEnabled: v }))}
+                />
+              </Section>
+            </>
+          ) : isDbf ? (
             <>
               <Section
                 title={
@@ -417,6 +671,7 @@ export function PlanFormDialog({
                   Leave “Max active posts” empty for no cap.
                 </p>
               </Section>
+              {viewerSwitches.dbf ? viewerRevealSection : null}
               <Section title="Listing views">
                 <FlagRow
                   label="Unlimited listing views"
@@ -442,6 +697,7 @@ export function PlanFormDialog({
             </>
           ) : (
           <>
+          {viewerSwitches.agent ? viewerRevealSection : null}
           <Section
             title="Optional features"
             description="Turn on add-on purchases, boosts, priority placement, or builder contact packs."
@@ -604,6 +860,29 @@ export function PlanFormDialog({
             </Section>
           ) : null}
 
+          <Section
+            title="Developer project limits"
+            description="Independent daily and monthly limits for developer projects. A full 3-project compare counts as 1. Repeating the same action on the same project the same day is free. No add-on credits apply."
+          >
+            {AGENT_DEV_FEATURE_FIELDS.map(({ label, daily, monthly }) => (
+              <div key={daily} className="grid gap-3 sm:grid-cols-2">
+                <NumField
+                  label={`${label} per day`}
+                  value={limits[daily] == null ? '' : String(limits[daily])}
+                  onChange={(v) => setNullableLimit(daily, v)}
+                  placeholder="Unlimited"
+                />
+                <NumField
+                  label={`${label} per month`}
+                  value={limits[monthly] == null ? '' : String(limits[monthly])}
+                  onChange={(v) => setNullableLimit(monthly, v)}
+                  placeholder="Unlimited"
+                />
+              </div>
+            ))}
+            <p className="text-xs text-gray-500">Leave empty for unlimited. 0 = feature blocked.</p>
+          </Section>
+
           <Section title="Views, coins & boost">
             <div className="grid gap-3 sm:grid-cols-2">
               {!unlimitedViews ? (
@@ -629,6 +908,39 @@ export function PlanFormDialog({
           </Section>
           </>
           )}
+
+          <Section
+            title="Verified listing contact limits (hidden from users)"
+            description="Used only when a user reveals the contact on a Realty Avenue (verified) listing. Same listing again the same day is free. Not shown anywhere in the app. No add-on."
+          >
+            <div className="grid grid-cols-[minmax(0,8rem)_1fr_1fr] items-center gap-x-3 gap-y-2">
+              <span />
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                Daily
+              </span>
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                Monthly
+              </span>
+              {VERIFIED_CONTACT_ROWS.map((row) => (
+                <div key={row.label} className="contents">
+                  <span className="text-sm font-medium text-gray-700">{row.label}</span>
+                  {[row.daily, row.monthly].map((key) => (
+                    <Input
+                      key={key}
+                      type="number"
+                      min={0}
+                      step={1}
+                      aria-label={`${row.label} ${key.endsWith('Daily') ? 'daily' : 'monthly'}`}
+                      placeholder="Unlimited"
+                      value={verifiedLimits[key] == null ? '' : String(verifiedLimits[key])}
+                      onChange={(e) => setVerifiedLimit(key, e.target.value)}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500">Leave empty for unlimited. 0 = blocked.</p>
+          </Section>
 
           {(localError || error) && (
             <p className="text-sm text-red-600">{localError || error}</p>

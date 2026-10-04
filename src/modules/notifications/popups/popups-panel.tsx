@@ -172,7 +172,10 @@ export function PopupsPanel({
   useEffect(() => {
     let cancelled = false;
     setPlacesLoading(true);
-    Promise.all([locationService.getStates(), locationService.getCities()])
+    Promise.all([
+      locationService.getStates({ activeOnly: true }),
+      locationService.getCities({ activeOnly: true }),
+    ])
       .then(([nextStates, nextCities]) => {
         if (cancelled) return;
         setStates(parseNamedPlaces(nextStates));

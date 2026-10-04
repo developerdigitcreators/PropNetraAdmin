@@ -38,11 +38,11 @@ import { planLabelFromCode, resolvePlanChip } from "@/lib/plan-labels";
 import { useUrlFilters } from "@/hooks/use-url-filters";
 import { useDialogUnsavedGuard } from "@/hooks/use-unsaved-changes-guard";
 import {
-  ExternalLink,
   Loader2,
   MessageSquare,
   Plus,
   X,
+  ExternalLink,
 } from "lucide-react";
 
 function formatDateTime(value?: string | Date | null) {
@@ -59,7 +59,10 @@ function isAdminVerifiedRow(item: MyListingItem) {
   );
 }
 
-function ownerAnalyticsHref(item: MyListingItem) {
+function ownerAnalyticsHref(
+  item: MyListingItem,
+  opts?: { tab?: string; aTab?: string },
+) {
   const ownerId = item.ownerUser?.id?.trim();
   if (!ownerId) return null;
   const today = new Date();
@@ -68,18 +71,18 @@ function ownerAnalyticsHref(item: MyListingItem) {
   const toYmd = (d: Date) => d.toISOString().slice(0, 10);
   const params = new URLSearchParams({
     userId: ownerId,
-    tab: "analytics",
-    aTab: "leads",
+    tab: opts?.tab || "analytics",
     from: toYmd(start),
     to: toYmd(today),
   });
+  if (opts?.aTab) params.set("aTab", opts.aTab);
   return `/user-analytics?${params.toString()}`;
 }
 
 function InterestCell({ item }: { item: MyListingItem }) {
   const views = item.viewCount ?? 0;
   const leads = item.leadCount ?? item.interestCount ?? 0;
-  const href = ownerAnalyticsHref(item);
+  const viewersHref = ownerAnalyticsHref(item, { aTab: "listingViewers" });
 
   return (
     <div className="flex items-center gap-2" onPointerDown={stopRowClick}>
@@ -87,11 +90,11 @@ function InterestCell({ item }: { item: MyListingItem }) {
         <span>View {views}</span>
         <span>Lead {leads}</span>
       </div>
-      {href ? (
+      {viewersHref ? (
         <Link
-          href={href}
-          title="Open owner analytics (leads)"
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-primary"
+          href={viewersHref}
+          title="Owner analytics — Listing viewers"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-primary"
           onPointerDown={stopRowClick}
           onClick={stopRowClick}
         >
@@ -135,10 +138,34 @@ function InterestPlanBadge({ planCode }: { planCode?: string | null }) {
 
 type StatusFilter = "all" | "active" | "expired" | "inactive";
 
+function listingExpiryLabel(item: {
+  status?: string | null;
+  daysLeft?: number | null;
+  expiresAt?: string | null;
+}): string {
+  const days =
+    typeof item.daysLeft === "number" && Number.isFinite(item.daysLeft)
+      ? item.daysLeft
+      : null;
+  const expired =
+    item.status === "expired" ||
+    (days != null && days < 0) ||
+    (!!item.expiresAt &&
+      days == null &&
+      !Number.isNaN(new Date(item.expiresAt).getTime()) &&
+      new Date(item.expiresAt).getTime() < Date.now());
+  if (expired) return "Expired";
+  if (days === 0) return "Expiring today";
+  if (days != null && days > 0) {
+    return `Expiring in ${days} day${days === 1 ? "" : "s"}`;
+  }
+  return "—";
+}
+
 function statusBadge(item: MyListingItem) {
   if (item.status === "expired") return "Expired";
   if (!item.isActive) return "Inactive";
-  if (item.expiringSoon) return `Expiring (${item.daysLeft}d)`;
+  if (item.expiringSoon) return listingExpiryLabel(item);
   return "Active";
 }
 
@@ -527,7 +554,7 @@ export function MyListingsPanel() {
               className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
             >
               <Plus className="mr-2 h-4 w-4" />
-              Add Post
+              Add Internal post
             </Link>
           </AdminListToolbar>
         </div>
@@ -764,6 +791,7 @@ export function MyListingsPanel() {
                       ) : (
                         <>
                           <th className="px-4 py-3">Owner detail</th>
+                          <th className="px-4 py-3">Unit No</th>
                           <th className="px-4 py-3">Team member</th>
                           <th className="px-4 py-3">Remark added by</th>
                         </>
@@ -807,9 +835,7 @@ export function MyListingsPanel() {
                               </div>
                               {verifiedStyle ? (
                                 <div className="text-xs text-gray-500">
-                                  {item.expiresAt
-                                    ? `Expires ${new Date(item.expiresAt).toLocaleDateString()}`
-                                    : "—"}
+                                  {listingExpiryLabel(item)}
                                 </div>
                               ) : null}
                             </div>
@@ -840,14 +866,6 @@ export function MyListingsPanel() {
                                   <span className="text-xs">
                                     {item.leadContactPhone || ""}
                                   </span>
-                                  {item.leadUnitNo ? (
-                                    <>
-                                      <br />
-                                      <span className="text-xs text-gray-500">
-                                        Unit {item.leadUnitNo}
-                                      </span>
-                                    </>
-                                  ) : null}
                                 </>
                               ) : (
                                 <>
@@ -860,6 +878,9 @@ export function MyListingsPanel() {
                                   </div>
                                 </>
                               )}
+                            </td>
+                            <td className="px-4 py-3 text-gray-600">
+                              {item.leadUnitNo?.trim() || "—"}
                             </td>
                             <td className="px-4 py-3 text-gray-600">
                               {item.connectedStaff?.name || "—"}
@@ -1056,12 +1077,8 @@ export function MyListingsPanel() {
                     />
                     {tab !== "app_postings" ? (
                       <DetailField
-                        label="Expires"
-                        value={
-                          listingDetail.expiresAt
-                            ? formatDateTime(listingDetail.expiresAt)
-                            : null
-                        }
+                        label="Expiry"
+                        value={listingExpiryLabel(listingDetail)}
                       />
                     ) : null}
                     {tab !== "app_postings" &&
@@ -1071,15 +1088,16 @@ export function MyListingsPanel() {
                           label="Owner detail"
                           value={
                             [
-                              listingDetail.leadUnitNo
-                                ? `Unit ${listingDetail.leadUnitNo}`
-                                : null,
                               listingDetail.leadContactName,
                               listingDetail.leadContactPhone,
                             ]
                               .filter(Boolean)
                               .join(" · ") || null
                           }
+                        />
+                        <DetailField
+                          label="Unit No"
+                          value={listingDetail.leadUnitNo}
                         />
                         <DetailField
                           label="Team member"
@@ -1284,6 +1302,16 @@ export function MyListingsPanel() {
                             <p className="text-sm font-medium text-gray-900">
                               {interestDetails.lead.phone ||
                                 interestListing?.leadContactPhone ||
+                                "—"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-gray-400">
+                              Unit No
+                            </p>
+                            <p className="text-sm font-medium text-gray-900">
+                              {interestDetails.lead.unitNo ||
+                                interestListing?.leadUnitNo ||
                                 "—"}
                             </p>
                           </div>

@@ -8,6 +8,16 @@ export const rbacService = {
     return response.data;
   },
 
+  /** App user roles: Agent, Direct builder floor, Developer */
+  getUserRoleOptions: async () => {
+    try {
+      const response = await axiosClient.get("/admin/users/role-options");
+      return response.data;
+    } catch {
+      return rbacService.getOtpVerifiedRoleOptions();
+    }
+  },
+
   /** OTP Verified Add User — Agent, Direct builder floor, Developer */
   getOtpVerifiedRoleOptions: async () => {
     try {

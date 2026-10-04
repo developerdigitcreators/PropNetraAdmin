@@ -17,6 +17,7 @@ import {
   CircleHelp,
   Search,
   MessageSquare,
+  MessageSquareWarning,
   Headset,
   BarChart3,
   Trash2,
@@ -26,7 +27,10 @@ import {
   Package,
   Gift,
   ClipboardList,
+  ToggleRight,
+  KeyRound,
 } from "lucide-react";
+import { useIsSuperAdmin } from "@/hooks/use-is-super-admin";
 import { PermissionGuard } from "@/components/common/permission-guard";
 import { useAuthStore } from "@/store/use-auth-store";
 import {
@@ -52,6 +56,7 @@ type MenuItem = {
   children?: MenuChild[];
   defaultChildPath?: string;
   badgeKey?: keyof AdminDashboardSummary;
+  superAdminOnly?: boolean;
 };
 
 const MENU_ITEMS: MenuItem[] = [
@@ -108,7 +113,7 @@ const MENU_ITEMS: MenuItem[] = [
     badgeKey: "adminVerifiedLeads",
   },
   {
-    name: "Add Post",
+    name: "Add Internal post",
     path: "/add-post",
     icon: PlusSquare,
     permission: ["locations:read", "listings:create"],
@@ -150,6 +155,24 @@ const MENU_ITEMS: MenuItem[] = [
     permission: "dbf_featured:read",
   },
   {
+    name: "Developer Similar Projects",
+    path: "/developer-similar-projects",
+    icon: Building2,
+    permission: "developer_similar_projects:read",
+  },
+  {
+    name: "Developer Home (Trending / Coming Soon / New Launch / Top Picker)",
+    path: "/developer-home-sections",
+    icon: Building2,
+    permission: "developer_home_sections:read",
+  },
+  {
+    name: "Developer Team Members",
+    path: "/developer-team",
+    icon: Building2,
+    permission: "developer_team:read",
+  },
+  {
     name: "Notifications",
     path: "/notifications",
     icon: Bell,
@@ -181,6 +204,18 @@ const MENU_ITEMS: MenuItem[] = [
     permission: "subscriptions:read",
   },
   {
+    name: "Feature Controls",
+    path: "/feature-controls",
+    icon: ToggleRight,
+    permission: "feature_controls:read",
+  },
+  {
+    name: "Developer Postings Analytics",
+    path: "/developer-postings-analytics",
+    icon: BarChart3,
+    permission: "developer_postings_analytics:read",
+  },
+  {
     name: "Referral Benefits",
     path: "/referral-benefits",
     icon: Gift,
@@ -204,6 +239,25 @@ const MENU_ITEMS: MenuItem[] = [
     icon: MessageSquare,
     permission: "feedbacks:read",
     badgeKey: "feedbacks",
+  },
+  {
+    name: "Listing Feedback",
+    path: "/listing-feedbacks",
+    icon: MessageSquareWarning,
+    permission: "listing_feedbacks:read",
+    badgeKey: "listingFeedbacks",
+  },
+  {
+    name: "City Requests",
+    path: "/city-interest",
+    icon: MapPin,
+    permission: "city_interest:read",
+  },
+  {
+    name: "Fake Listing Stats",
+    path: "/listing-fake-stats",
+    icon: BarChart3,
+    permission: "listing_fake_stats:read",
   },
   {
     name: "Support Tickets",
@@ -230,6 +284,12 @@ const MENU_ITEMS: MenuItem[] = [
     path: "/rbac/users",
     icon: Users,
     permission: "users:read",
+  },
+  {
+    name: "Reset password",
+    path: "/reset-password",
+    icon: KeyRound,
+    superAdminOnly: true,
   },
   {
     name: "Deleted Items",
@@ -269,6 +329,7 @@ function SidebarBadge({ count }: { count: number }) {
 export function Sidebar() {
   const pathname = usePathname();
   const hasPermission = useAuthStore((s) => s.hasPermission);
+  const { superAdmin } = useIsSuperAdmin();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     "/app-users": pathname.startsWith("/app-users") || pathname.startsWith("/rbac/app-users"),
   });
@@ -314,6 +375,7 @@ export function Sidebar() {
 
       <nav className="flex-1 py-6 px-3 space-y-1 overflow-y-auto">
         {MENU_ITEMS.map((item) => {
+          if (item.superAdminOnly && !superAdmin) return null;
           const Icon = item.icon;
           const hasChildren = !!item.children?.length;
           const childActive = item.children?.some(

@@ -50,8 +50,8 @@ function NewBannerContent() {
     }
     let cancelled = false;
     Promise.all([
-      locationService.getStates(),
-      locationService.getCities(),
+      locationService.getStates({ activeOnly: true }),
+      locationService.getCities({ activeOnly: true }),
       bannerAdsService.getPlacements(),
       bannerAdsService.getSections(placement),
     ])

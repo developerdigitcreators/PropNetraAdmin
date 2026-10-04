@@ -50,6 +50,10 @@ export function authApiErrorMessage(err: unknown, fallback: string) {
   if (typeof data === "string" && data.trim()) return data;
   if (data && typeof data === "object") {
     const record = data as { message?: unknown; error?: unknown };
+    const nested = record.error as { message?: unknown } | undefined;
+    if (nested && typeof nested === "object" && typeof nested.message === "string" && nested.message.trim()) {
+      return nested.message;
+    }
     if (typeof record.message === "string" && record.message.trim()) {
       return record.message;
     }

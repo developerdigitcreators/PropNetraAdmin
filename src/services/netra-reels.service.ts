@@ -3,8 +3,20 @@ import { deleteWithRemark } from '@/lib/delete-with-remark';
 
 export type ReelPlatform = 'instagram' | 'upload' | 'youtube' | 'unknown';
 
+export type ReelFeed = 'propulse' | 'launch';
+
+export const REEL_FEED_OPTIONS: { key: ReelFeed; label: string }[] = [
+  { key: 'propulse', label: 'Propulse' },
+  { key: 'launch', label: 'Launch Connect' },
+];
+
+export function reelFeedLabel(feed: ReelFeed): string {
+  return REEL_FEED_OPTIONS.find((o) => o.key === feed)?.label ?? 'Propulse';
+}
+
 export type NetraReel = {
   id: string;
+  feed: ReelFeed;
   sourceUrl: string;
   title: string;
   caption: string;
@@ -17,7 +29,27 @@ export type NetraReel = {
   externalId: string;
   createdAt?: string;
   updatedAt?: string;
+  postedByDeveloper?: boolean;
+  developerName?: string;
+  cityId?: string;
+  cityName?: string;
+  expiresAt?: string;
 };
+
+export type LaunchReelSettings = {
+  validityHours: number;
+  maxActivePerDeveloper: number;
+};
+
+/** "Deletes in 5h 20m" for a developer reel. */
+export function formatTimeLeft(expiresAt?: string): string {
+  const ms = expiresAt ? new Date(expiresAt).getTime() - Date.now() : NaN;
+  if (!Number.isFinite(ms)) return '';
+  if (ms <= 0) return 'Deleting soon';
+  const mins = Math.max(1, Math.round(ms / 60000));
+  const h = Math.floor(mins / 60);
+  return `Deletes in ${h ? `${h}h ` : ''}${mins % 60}m`;
+}
 
 export type NetraReelPreview = {
   sourceUrl: string;
@@ -32,6 +64,7 @@ export type NetraReelPreview = {
 
 export type CreateNetraReelPayload = {
   sourceUrl: string;
+  feed?: ReelFeed;
   title?: string;
   caption?: string;
   thumbnailUrl?: string;
@@ -41,6 +74,7 @@ export type CreateNetraReelPayload = {
 export type CreateNetraReelUploadPayload = {
   video: File;
   thumbnail?: File | null;
+  feed?: ReelFeed;
   title?: string;
   caption?: string;
   isActive?: boolean;
@@ -94,7 +128,8 @@ function asArray<T>(data: unknown): T[] {
 
 export function netraReelsApiError(err: unknown, fallback: string): string {
   const e = err as { response?: { data?: { message?: unknown; error?: unknown } }; message?: string };
-  const msg = e?.response?.data?.message ?? e?.response?.data?.error;
+  const nested = asRecord(e?.response?.data?.error)?.message;
+  const msg = nested ?? e?.response?.data?.message ?? e?.response?.data?.error;
   if (Array.isArray(msg)) return msg.filter(Boolean).join(', ');
   if (typeof msg === 'string' && msg.trim()) return msg;
   return e?.message || fallback;
@@ -210,6 +245,7 @@ export function normalizeNetraReel(raw: unknown, index = 0): NetraReel | null {
 
   return {
     id: id || `temp-${index}`,
+    feed: obj.feed === 'launch' ? 'launch' : 'propulse',
     sourceUrl: sourceUrl || videoUrl,
     title: pickString(obj.title, obj.name),
     caption: pickString(obj.caption, obj.description, obj.body),
@@ -222,6 +258,11 @@ export function normalizeNetraReel(raw: unknown, index = 0): NetraReel | null {
     externalId,
     createdAt: pickString(obj.createdAt, obj.created_at) || undefined,
     updatedAt: pickString(obj.updatedAt, obj.updated_at) || undefined,
+    postedByDeveloper: obj.postedByDeveloper === true,
+    developerName: pickString(obj.developerName) || undefined,
+    cityId: pickString(obj.cityId) || undefined,
+    cityName: pickString(obj.cityName) || undefined,
+    expiresAt: pickString(obj.expiresAt) || undefined,
   };
 }
 
@@ -280,6 +321,7 @@ export const netraReelsService = {
     const response = await axiosClient.post('/admin/netra-reels', payload);
     return normalizeNetraReel(response.data) || {
       id: '',
+      feed: payload.feed ?? 'propulse',
       sourceUrl: payload.sourceUrl,
       title: payload.title || '',
       caption: payload.caption || '',
@@ -297,6 +339,7 @@ export const netraReelsService = {
     const form = new FormData();
     form.append('video', payload.video);
     if (payload.thumbnail) form.append('thumbnail', payload.thumbnail);
+    if (payload.feed) form.append('feed', payload.feed);
     if (payload.title?.trim()) form.append('title', payload.title.trim());
     if (payload.caption?.trim()) form.append('caption', payload.caption.trim());
     if (payload.isActive === false) form.append('isActive', 'false');
@@ -331,5 +374,23 @@ export const netraReelsService = {
 
   remove: async (id: string, remark: string): Promise<void> => {
     await deleteWithRemark(`/admin/netra-reels/${id}`, remark);
+  },
+
+  getLaunchSettings: async (): Promise<LaunchReelSettings> => {
+    const response = await axiosClient.get('/admin/netra-reels/launch-settings');
+    const obj = asRecord(response.data) || {};
+    return {
+      validityHours: Number(obj.validityHours) || 24,
+      maxActivePerDeveloper: Number(obj.maxActivePerDeveloper) || 3,
+    };
+  },
+
+  updateLaunchSettings: async (payload: Partial<LaunchReelSettings>): Promise<LaunchReelSettings> => {
+    const response = await axiosClient.put('/admin/netra-reels/launch-settings', payload);
+    const obj = asRecord(response.data) || {};
+    return {
+      validityHours: Number(obj.validityHours) || 24,
+      maxActivePerDeveloper: Number(obj.maxActivePerDeveloper) || 3,
+    };
   },
 };

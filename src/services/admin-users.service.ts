@@ -22,6 +22,7 @@ export type GetUsersParams = {
   createdTo?: string;
   filterType?: AppUserFilterType;
   filterValue?: string;
+  role?: string;
 };
 
 export type SignupRemark = {
@@ -82,6 +83,26 @@ export type WithoutReferralApprovalSetting = {
   required: boolean;
 };
 
+export type UserDeviceLock = {
+  userId: string;
+  boundDeviceId: string | null;
+  isDeviceLockExempt: boolean;
+};
+
+function toDeviceLock(body: unknown, fallbackUserId: string): UserDeviceLock {
+  const outer = (body ?? {}) as { data?: unknown };
+  const raw = (outer.data && typeof outer.data === 'object' ? outer.data : outer) as Record<
+    string,
+    unknown
+  >;
+  const bound = raw.boundDeviceId;
+  return {
+    userId: String(raw.userId ?? fallbackUserId),
+    boundDeviceId: typeof bound === 'string' && bound.trim() ? bound : null,
+    isDeviceLockExempt: raw.isDeviceLockExempt === true,
+  };
+}
+
 function buildListParams(audienceOrParams?: AppUserAudience | GetUsersParams) {
   const params: Record<string, string | boolean> = {};
   if (typeof audienceOrParams === 'string') {
@@ -101,6 +122,7 @@ function buildListParams(audienceOrParams?: AppUserAudience | GetUsersParams) {
   if (audienceOrParams.createdTo) params.createdTo = audienceOrParams.createdTo;
   if (audienceOrParams.filterType) params.filterType = audienceOrParams.filterType;
   if (audienceOrParams.filterValue) params.filterValue = audienceOrParams.filterValue;
+  if (audienceOrParams.role) params.role = audienceOrParams.role;
   return params;
 }
 
@@ -179,6 +201,28 @@ export const adminUsersService = {
       status: active ? 'active' : 'suspended',
     });
     return response.data;
+  },
+
+  getDeviceLock: async (id: string): Promise<UserDeviceLock> => {
+    const response = await axiosClient.get(
+      `/admin/users/${encodeURIComponent(id)}/device-lock`,
+    );
+    return toDeviceLock(response.data, id);
+  },
+
+  resetDevice: async (id: string): Promise<UserDeviceLock> => {
+    const response = await axiosClient.patch(
+      `/admin/users/${encodeURIComponent(id)}/reset-device`,
+    );
+    return toDeviceLock(response.data, id);
+  },
+
+  setDeviceExemption: async (id: string, isExempt: boolean): Promise<UserDeviceLock> => {
+    const response = await axiosClient.patch(
+      `/admin/users/${encodeURIComponent(id)}/device-exemption`,
+      { isExempt: isExempt === true },
+    );
+    return toDeviceLock(response.data, id);
   },
 
   listRemarks: async (signupSessionId: string) => {

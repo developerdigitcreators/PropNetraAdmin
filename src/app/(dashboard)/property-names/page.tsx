@@ -275,8 +275,8 @@ function PropertyNamesPageInner() {
     setIsLoading(true);
     try {
       const [s, c, mm, locs, pns, pts] = await Promise.all([
-        locationService.getStates(),
-        locationService.getCities(),
+        locationService.getStates({ activeOnly: true }),
+        locationService.getCities({ activeOnly: true }),
         locationService.getMicroMarkets(),
         locationService.getLocations(),
         locationService.getPropertyNames(),

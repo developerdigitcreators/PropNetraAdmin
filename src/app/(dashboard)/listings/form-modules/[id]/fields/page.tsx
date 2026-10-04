@@ -16,16 +16,37 @@ import { Breadcrumb } from '@/components/common/breadcrumb';
 import { SortableGrid } from '@/components/common/sortable-list';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
+import { ImageUrlOrUpload } from '@/components/image-url-or-upload';
 import React from 'react';
+
+const FIELD_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'text', label: 'Text (Short)' },
+  { value: 'textarea', label: 'Paragraph (Long text)' },
+  { value: 'number', label: 'Number' },
+  { value: 'range', label: 'Range (Min – Max)' },
+  { value: 'date', label: 'Date' },
+  { value: 'select', label: 'Select (Dropdown)' },
+  { value: 'multi_select', label: 'Multi Select' },
+  { value: 'radio', label: 'Radio' },
+  { value: 'checkbox', label: 'Checkbox' },
+  { value: 'creatable_select', label: 'Creatable Select' },
+  { value: 'file_upload', label: 'File Upload' },
+  { value: 'media_gallery', label: 'Media Gallery (Images, Videos, YouTube)' },
+  { value: 'floor_plans', label: 'Floor Plans' },
+  { value: 'location_advantage', label: 'Location Advantage (Map places)' },
+  { value: 'brochure', label: 'Brochure (PDF)' },
+  { value: 'team_members', label: 'Team Members' },
+];
 
 const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canManageOptions: boolean }) => {
   const [options, setOptions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingOption, setEditingOption] = useState<any>(null);
-  const [formData, setFormData] = useState({ label: '', value: '', sort_order: 1 });
+  const [formData, setFormData] = useState({ label: '', value: '', sort_order: 1, icon_url: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [optionToDelete, setOptionToDelete] = useState<any>(null);
+  const supportsIcons = field.field_type === 'multi_select' || field.field_type === 'select';
   const baselineRef = useRef('');
   const formSnapshot = useMemo(() => JSON.stringify(formData), [formData]);
   const dirty =
@@ -86,6 +107,7 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
           label: opt.option_label || opt.label,
           value: opt.option_value || opt.value,
           sort_order: opt.sort_order || 1,
+          icon_url: opt.icon_url || opt.iconUrl || '',
         }
       : {
           label: '',
@@ -94,6 +116,7 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
             options.length > 0
               ? Math.max(...options.map((o) => o.sort_order || 0)) + 1
               : 1,
+          icon_url: '',
         };
     setFormData(next);
     baselineRef.current = JSON.stringify(next);
@@ -110,6 +133,7 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
         sort_order: Number(formData.sort_order),
         field_id: field.id,
       };
+      if (supportsIcons) payload.icon_url = formData.icon_url.trim() || null;
       if (editingOption) {
         await moduleOptionsService.updateOption(editingOption.id, payload);
       } else {
@@ -158,7 +182,15 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
             onReorder={handleReorder}
             renderItem={(opt, { dragHandle }) => (
               <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100 group hover:border-gray-300 transition-colors h-full">
-                <div className="min-w-0 pr-2">
+                {supportsIcons && (opt.icon_url || opt.iconUrl) ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={opt.icon_url || opt.iconUrl}
+                    alt=""
+                    className="h-8 w-8 rounded border bg-white object-contain mr-2 shrink-0"
+                  />
+                ) : null}
+                <div className="min-w-0 pr-2 flex-1">
                   <p className="font-medium text-sm text-gray-900 truncate">{opt.option_label || opt.label}</p>
                   {(opt.option_value || opt.value) && (
                     <p className="text-xs text-gray-500 font-mono mt-0.5 truncate">
@@ -215,6 +247,18 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
                 Optional — if empty, backend generates from label.
               </p>
             </div>
+            {supportsIcons && (
+              <div className="sm:col-span-2">
+                <ImageUrlOrUpload
+                  label="Icon (optional)"
+                  kind="icon"
+                  value={formData.icon_url}
+                  onChange={(url) => setFormData({ ...formData, icon_url: url })}
+                  hint="Shown next to the option in the app (e.g. amenity icons). Square PNG works best."
+                  previewClassName="h-10 w-10 rounded border bg-white object-contain"
+                />
+              </div>
+            )}
           </div>
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" size="sm" onClick={() => void closeOptionForm()} className="h-8">Cancel</Button>
@@ -318,7 +362,7 @@ export default function FormFieldsPage() {
   };
 
   const handleSave = async () => {
-    if (!formData.key || !formData.label) return;
+    if (!formData.label) return;
     setIsSubmitting(true);
     try {
       const payload: any = { 
@@ -391,7 +435,7 @@ export default function FormFieldsPage() {
                   <div>
                     <h3 className="font-semibold text-gray-900 text-lg">{item.label}</h3>
                     <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
-                      <span>Type: <span className="font-medium text-gray-700 capitalize">{item.field_type.replace('_', ' ')}</span></span>
+                      <span>Type: <span className="font-medium text-gray-700 capitalize">{String(item.field_type).replace(/_/g, ' ')}</span></span>
                       {item.key && <span>• Key: <span className="font-mono text-xs text-gray-600 bg-gray-100 px-1 py-0.5 rounded">{item.key}</span></span>}
                     </div>
                   </div>
@@ -436,12 +480,9 @@ export default function FormFieldsPage() {
                 <Select value={formData.field_type} onValueChange={v => setFormData({...formData, field_type: v})}>
                   <SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="text">Text (Short/Long)</SelectItem>
-                    <SelectItem value="number">Number</SelectItem>
-                    <SelectItem value="select">Select (Dropdown)</SelectItem>
-                    <SelectItem value="multi_select">Multi Select</SelectItem>
-                    <SelectItem value="checkbox">Checkbox</SelectItem>
-                    <SelectItem value="file_upload">File Upload</SelectItem>
+                    {FIELD_TYPE_OPTIONS.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

@@ -95,6 +95,8 @@ export function SendPreviewDialog({
                 body={draft.body}
                 bodyFormat={draft.bodyFormat}
                 imageUrl={trayImage}
+                expandedImageUrl={draft.expandedImageUrl || undefined}
+                imageDisplay={draft.imageDisplay}
                 bgColor={draft.bgColor.trim() || undefined}
                 countdownEndsAt={draft.countdownEndsAt || undefined}
                 actions={draft.actions}

@@ -12,6 +12,7 @@ import { SortableGrid } from '@/components/common/sortable-list';
 import { AutoslideTimePicker } from '@/components/common/autoslide-time-picker';
 import { DbfPickDialog, type DbfPickOption } from '@/modules/dbf-featured/dbf-pick-dialog';
 import { useUrlFilters } from '@/hooks/use-url-filters';
+import { useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 import {
   HOME_PAGE_KINDS,
   developerHomeApiError,
@@ -117,6 +118,18 @@ function DeveloperHomeContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
+  const [dirtyKinds, setDirtyKinds] = useState<Partial<Record<HomeSectionKind, boolean>>>({});
+  const anyDirty = Object.values(dirtyKinds).some(Boolean);
+  const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({ dirty: anyDirty });
+  const onDirtyChange = useCallback((kind: HomeSectionKind, dirty: boolean) => {
+    setDirtyKinds((prev) => (!!prev[kind] === dirty ? prev : { ...prev, [kind]: dirty }));
+  }, []);
+
+  const changeLocation = async (patch: { stateId?: string; cityId: string }) => {
+    if (!(await confirmLeave())) return;
+    setDirtyKinds({});
+    setFilters(patch);
+  };
 
   useEffect(() => {
     developerHomeService.states().then(setStates).catch(() => setStates([]));
@@ -167,7 +180,7 @@ function DeveloperHomeContent() {
           <select
             className={selectCls}
             value={stateId}
-            onChange={(e) => setFilters({ stateId: e.target.value, cityId: '' })}
+            onChange={(e) => void changeLocation({ stateId: e.target.value, cityId: '' })}
           >
             <option value="">Select state</option>
             {states.map((s) => (
@@ -180,7 +193,7 @@ function DeveloperHomeContent() {
             className={selectCls}
             value={cityId}
             disabled={!stateId}
-            onChange={(e) => setFilters({ cityId: e.target.value })}
+            onChange={(e) => void changeLocation({ cityId: e.target.value })}
           >
             <option value="">Select city</option>
             {stateCities.map((c) => (
@@ -212,11 +225,16 @@ function DeveloperHomeContent() {
               cityId={cityId}
               stateCities={stateCities}
               canUpdate={canUpdate}
-              onSaved={() => setReloadKey((k) => k + 1)}
+              onDirtyChange={onDirtyChange}
+              onSaved={() => {
+                setDirtyKinds((prev) => ({ ...prev, [kind]: false }));
+                setReloadKey((k) => k + 1);
+              }}
             />
           ))
         )}
       </div>
+      {unsavedDialog}
     </PermissionGuard>
   );
 }
@@ -229,6 +247,7 @@ function SectionCard({
   cityId,
   stateCities,
   canUpdate,
+  onDirtyChange,
   onSaved,
 }: {
   kind: HomeSectionKind;
@@ -238,6 +257,7 @@ function SectionCard({
   cityId: string;
   stateCities: NamedRow[];
   canUpdate: boolean;
+  onDirtyChange: (kind: HomeSectionKind, dirty: boolean) => void;
   onSaved: () => void;
 }) {
   const meta = kindMeta(kind);
@@ -260,6 +280,33 @@ function SectionCard({
     Math.min(MAX_POSTS, Math.max(1, ...items.map((i) => i.post))),
   );
   const [pickPost, setPickPost] = useState(1);
+
+  const snapshot = JSON.stringify({
+    title,
+    autoslide,
+    scrollMode,
+    isActive,
+    extraCityIds,
+    items: items.map((i) => ({
+      id: i.id,
+      post: i.post,
+      title: i.title,
+      teamGroups: i.teamGroups.map((g) => ({
+        locationId: g.locationId,
+        microMarketId: g.microMarketId,
+        memberIds: g.memberIds,
+        display: g.display,
+      })),
+    })),
+  });
+  const [baseline] = useState(snapshot);
+  const dirty = snapshot !== baseline;
+
+  useEffect(() => {
+    onDirtyChange(kind, dirty);
+  }, [kind, dirty, onDirtyChange]);
+
+  useEffect(() => () => onDirtyChange(kind, false), [kind, onDirtyChange]);
 
   useEffect(() => {
     cityDevelopers.forEach((d) => devCache.current.set(d.id, d));

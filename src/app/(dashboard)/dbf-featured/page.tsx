@@ -24,6 +24,8 @@ import { DbfPickDialog, type DbfPickOption } from '@/modules/dbf-featured/dbf-pi
 import { locationService } from '@/services/location.service';
 import { withCount } from '@/lib/filter-label';
 import { useUrlFilters } from '@/hooks/use-url-filters';
+import { useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
+import { MaskedContact } from '@/components/contact/masked-contact';
 import {
   dbfFeaturedApiError,
   dbfFeaturedService,
@@ -59,6 +61,19 @@ export default function DbfFeaturedPage() {
 function DbfFeaturedPageInner() {
   const { filters, setFilters } = useUrlFilters({ tab: 'sections', stateId: '', cityId: '' });
   const tab = filters.tab === 'builders' ? 'builders' : 'sections';
+  const [dirtyIds, setDirtyIds] = useState<Record<string, boolean>>({});
+  const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({
+    dirty: Object.values(dirtyIds).some(Boolean),
+  });
+  const onDirtyChange = useCallback((id: string, dirty: boolean) => {
+    setDirtyIds((prev) => (!!prev[id] === dirty ? prev : { ...prev, [id]: dirty }));
+  }, []);
+  const guardedFilters = async (next: { tab?: string; stateId?: string; cityId?: string }) => {
+    if (!(await confirmLeave())) return false;
+    setDirtyIds({});
+    setFilters(next);
+    return true;
+  };
 
   return (
     <PermissionGuard
@@ -81,7 +96,7 @@ function DbfFeaturedPageInner() {
           </p>
         </div>
 
-        <Tabs value={tab} onValueChange={(v) => setFilters({ tab: String(v) })}>
+        <Tabs value={tab} onValueChange={(v) => void guardedFilters({ tab: String(v) })}>
           <TabsList>
             <TabsTrigger value="sections">Auto-scroll sections</TabsTrigger>
             <TabsTrigger value="builders">Top Builders</TabsTrigger>
@@ -90,7 +105,8 @@ function DbfFeaturedPageInner() {
             <SectionsTab
               stateId={filters.stateId}
               cityId={filters.cityId}
-              onFiltersChange={(next) => setFilters(next)}
+              onFiltersChange={guardedFilters}
+              onDirtyChange={onDirtyChange}
             />
           </TabsContent>
           <TabsContent value="builders" className="pt-4">
@@ -98,6 +114,7 @@ function DbfFeaturedPageInner() {
           </TabsContent>
         </Tabs>
       </div>
+      {unsavedDialog}
     </PermissionGuard>
   );
 }
@@ -106,10 +123,12 @@ function SectionsTab({
   stateId,
   cityId,
   onFiltersChange,
+  onDirtyChange,
 }: {
   stateId: string;
   cityId: string;
-  onFiltersChange: (next: { stateId?: string; cityId?: string }) => void;
+  onFiltersChange: (next: { stateId?: string; cityId?: string }) => Promise<boolean>;
+  onDirtyChange: (id: string, dirty: boolean) => void;
 }) {
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const canCreate = hasPermission('dbf_featured', 'create');
@@ -289,9 +308,8 @@ function SectionsTab({
         <div className="flex flex-wrap items-center gap-3">
           <Select
             value={stateId}
-            onValueChange={(v) => {
-              onFiltersChange({ stateId: v ?? '', cityId: '' });
-              setSections([]);
+            onValueChange={async (v) => {
+              if (await onFiltersChange({ stateId: v ?? '', cityId: '' })) setSections([]);
             }}
           >
             <SelectTrigger className="w-52 bg-white">
@@ -309,7 +327,7 @@ function SectionsTab({
           </Select>
           <Select
             value={cityId}
-            onValueChange={(v) => onFiltersChange({ cityId: v ?? '' })}
+            onValueChange={(v) => void onFiltersChange({ cityId: v ?? '' })}
             disabled={!stateId}
           >
             <SelectTrigger className="w-48 bg-white">
@@ -334,9 +352,8 @@ function SectionsTab({
           onRefresh={() => void fetchSections()}
           refreshBusy={loading}
           refreshDisabled={!ready}
-          onReset={() => {
-            onFiltersChange({ stateId: '', cityId: '' });
-            setSections([]);
+          onReset={async () => {
+            if (await onFiltersChange({ stateId: '', cityId: '' })) setSections([]);
           }}
         >
           {canCreate && ready ? (
@@ -387,6 +404,7 @@ function SectionsTab({
               }
               canUpdate={canUpdate}
               canDelete={canDelete}
+              onDirtyChange={onDirtyChange}
               onChanged={replaceSection}
               onError={setError}
               onDelete={() => void handleDeleteSection(section)}
@@ -463,6 +481,7 @@ function SectionCard({
   onToggleExpanded,
   canUpdate,
   canDelete,
+  onDirtyChange,
   onChanged,
   onError,
   onDelete,
@@ -474,6 +493,7 @@ function SectionCard({
   onToggleExpanded: () => void;
   canUpdate: boolean;
   canDelete: boolean;
+  onDirtyChange: (id: string, dirty: boolean) => void;
   onChanged: (next: DbfSection | null) => void;
   onError: (message: string) => void;
   onDelete: () => void;
@@ -491,6 +511,12 @@ function SectionCard({
   }, [section.name, section.autoslide]);
 
   const dirty = name.trim() !== section.name || autoslide !== section.autoslide;
+
+  useEffect(() => {
+    onDirtyChange(section.id, dirty);
+  }, [section.id, dirty, onDirtyChange]);
+
+  useEffect(() => () => onDirtyChange(section.id, false), [section.id, onDirtyChange]);
 
   const save = async () => {
     if (!name.trim()) {
@@ -759,7 +785,7 @@ function TopBuildersTab() {
         .filter((b) => !existing.has(b.id))
         .map((b) => ({
           value: b.id,
-          label: [b.companyName || b.name, b.contact].filter(Boolean).join(' — '),
+          label: [b.companyName, b.name].filter(Boolean).join(' — ') || b.id,
         }));
     },
     [rows],
@@ -889,7 +915,9 @@ function TopBuildersTab() {
                       </div>
                     </div>
                   </td>
-                  <td className="px-5 py-3 text-gray-700">{row.builder?.contact || '—'}</td>
+                  <td className="px-5 py-3 text-gray-700">
+                    <MaskedContact value={row.builder?.contact} revealKey={`dbf-top-builders:${row.builderUserId}:contact`} />
+                  </td>
                   <td className="px-5 py-3">{dragHandle}</td>
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2">

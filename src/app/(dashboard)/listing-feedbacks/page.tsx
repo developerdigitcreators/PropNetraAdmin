@@ -26,12 +26,15 @@ import {
 } from '@/services/listing-feedbacks.service';
 import { AlertTriangle, Eye, Loader2, Search, Trash2 } from 'lucide-react';
 import { formatDisplayDateTime } from '@/lib/format-date';
+import { MaskedContact } from '@/components/contact/masked-contact';
 
-function PersonCell({ person }: { person: ListingFeedbackItem['agent'] }) {
+function PersonCell({ person, revealKey }: { person: ListingFeedbackItem['agent']; revealKey: string }) {
   return (
     <div>
       <p className="font-medium text-gray-900">{person.name || '—'}</p>
-      <p className="text-xs text-gray-500 break-all">{person.contact || '—'}</p>
+      <p className="text-xs text-gray-500 break-all">
+        <MaskedContact value={person.contact} revealKey={revealKey} />
+      </p>
     </div>
   );
 }
@@ -220,10 +223,10 @@ function ListingFeedbacksPageInner() {
                     </div>
                   </td>
                   <td className="px-5 py-4">
-                    <PersonCell person={row.owner} />
+                    <PersonCell person={row.owner} revealKey={`listing-feedbacks:${row.id}:owner`} />
                   </td>
                   <td className="px-5 py-4">
-                    <PersonCell person={row.agent} />
+                    <PersonCell person={row.agent} revealKey={`listing-feedbacks:${row.id}:agent`} />
                   </td>
                   <td className="max-w-[260px] px-5 py-4">
                     <IssueBadges row={row} />
@@ -279,11 +282,11 @@ function ListingFeedbacksPageInner() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Owner</p>
-                  <PersonCell person={detail.owner} />
+                  <PersonCell person={detail.owner} revealKey={`listing-feedbacks-detail:${detail.id}:owner`} />
                 </div>
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Agent</p>
-                  <PersonCell person={detail.agent} />
+                  <PersonCell person={detail.agent} revealKey={`listing-feedbacks-detail:${detail.id}:agent`} />
                 </div>
               </div>
               <div className="space-y-1.5">

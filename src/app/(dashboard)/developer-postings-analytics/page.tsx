@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { AdminDataTable } from '@/components/common/admin-data-table';
+import { MaskedContact } from '@/components/contact/masked-contact';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -36,8 +37,10 @@ function PeopleTable({
   rows,
   empty,
   extra,
+  revealPrefix,
 }: {
   rows: PostingPerson[];
+  revealPrefix: string;
   empty: string;
   extra?: { label: string; value: (r: PostingPerson) => string | null | undefined };
 }) {
@@ -57,7 +60,9 @@ function PeopleTable({
           {rows.map((r) => (
             <tr key={r.id}>
               <td className="py-2 pr-3 font-medium text-gray-900">{r.name || '—'}</td>
-              <td className="py-2 pr-3 text-gray-600">{r.contact || '—'}</td>
+              <td className="py-2 pr-3 text-gray-600">
+                <MaskedContact value={r.contact} revealKey={`${revealPrefix}:${r.id}`} />
+              </td>
               {extra ? <td className="py-2 pr-3 text-gray-600">{extra.value(r) || '—'}</td> : null}
               <td className="py-2 text-gray-600">{fmtDate(r.at)}</td>
             </tr>
@@ -120,7 +125,12 @@ function DetailDrawer({ listingId, onClose }: { listingId: string; onClose: () =
           <>
             <div className="mt-5 grid grid-cols-2 gap-3 rounded-xl border bg-gray-50 p-4 text-sm sm:grid-cols-3">
               <Info label="Developer" value={p.developer.name} />
-              <Info label="Developer contact" value={p.developer.contact} />
+              <div className="min-w-0">
+                <p className="text-xs text-gray-500">Developer contact</p>
+                <p className="font-medium text-gray-900">
+                  <MaskedContact value={p.developer.contact} revealKey={`dev-postings:${listingId}:developer`} />
+                </p>
+              </div>
               <Info label="Status" value={p.status} />
               <Info label="Price" value={p.price} />
               <Info label="Building type" value={p.buildingType} />
@@ -139,6 +149,7 @@ function DetailDrawer({ listingId, onClose }: { listingId: string; onClose: () =
               <TabsContent value="shares" className="mt-3">
                 <PeopleTable
                   rows={detail.shares}
+                  revealPrefix={`dev-postings:${listingId}:shares`}
                   empty="No shares yet."
                   extra={{ label: 'Channel', value: (r) => r.channel }}
                 />
@@ -146,6 +157,7 @@ function DetailDrawer({ listingId, onClose }: { listingId: string; onClose: () =
               <TabsContent value="views" className="mt-3">
                 <PeopleTable
                   rows={detail.views}
+                  revealPrefix={`dev-postings:${listingId}:views`}
                   empty="No views yet."
                   extra={{ label: 'First viewed', value: (r) => fmtDate(r.firstViewedAt) }}
                 />
@@ -153,6 +165,7 @@ function DetailDrawer({ listingId, onClose }: { listingId: string; onClose: () =
               <TabsContent value="brochure" className="mt-3">
                 <PeopleTable
                   rows={detail.brochures}
+                  revealPrefix={`dev-postings:${listingId}:brochures`}
                   empty="No brochure downloads yet."
                   extra={{ label: 'Day', value: (r) => r.day }}
                 />
@@ -160,6 +173,7 @@ function DetailDrawer({ listingId, onClose }: { listingId: string; onClose: () =
               <TabsContent value="contacts" className="mt-3">
                 <PeopleTable
                   rows={detail.contacts}
+                  revealPrefix={`dev-postings:${listingId}:contacts`}
                   empty="No contacts yet."
                   extra={{
                     label: 'Source',

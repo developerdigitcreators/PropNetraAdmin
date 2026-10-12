@@ -2,6 +2,8 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { MarkdownText } from "./markdown-text";
+import { PushTemplatePreview } from "./push-template-preview";
+import { isPushTemplate, type PushImageDisplay } from "./push-templates";
 import type {
   PushActionDraft,
   PushLayoutType,
@@ -23,6 +25,8 @@ type PushTrayPreviewProps = {
   progress?: number;
   progressIndeterminate?: boolean;
   linkCta?: string | null;
+  expandedImageUrl?: string;
+  imageDisplay?: PushImageDisplay;
 };
 
 function LinkCta({ label }: { label?: string | null }) {
@@ -128,7 +132,22 @@ export function PushTrayPreview({
   progress = 0,
   progressIndeterminate,
   linkCta,
+  expandedImageUrl,
+  imageDisplay,
 }: PushTrayPreviewProps) {
+  if (isPushTemplate(layoutType)) {
+    return (
+      <PushTemplatePreview
+        layoutType={layoutType}
+        title={title}
+        body={body}
+        bodyFormat={bodyFormat}
+        imageUrl={imageUrl}
+        expandedImageUrl={expandedImageUrl}
+        imageDisplay={imageDisplay}
+      />
+    );
+  }
   const colorProps = {
     title,
     body,

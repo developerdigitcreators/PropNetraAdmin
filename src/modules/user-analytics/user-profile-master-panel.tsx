@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { MaskedContact } from '@/components/contact/masked-contact';
 import Link from 'next/link';
 import { formatDisplayDateTime } from '@/lib/format-date';
 import { PermissionGuard } from '@/components/common/permission-guard';
@@ -44,6 +45,7 @@ import {
   ExternalLink,
   Loader2,
   Search,
+  X,
   XCircle,
 } from 'lucide-react';
 import { UserFormModal } from '@/modules/rbac/user-form-modal';
@@ -59,6 +61,42 @@ type LocItem = {
 };
 
 type FilterCategory = AppUserFilterType | '';
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Date-only values are shown as-is; timestamps are shown as their IST calendar date. */
+function formatShortDate(value: string, withYear = false) {
+  let ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!ymd) {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }));
+    if (!ymd) return value;
+  }
+  const label = `${ymd[3]} ${MONTHS[Number(ymd[2]) - 1]}`;
+  return withYear ? `${label} ${ymd[1]}` : label;
+}
+
+function expiredPlanOf(row: any): { name: string; expiredAt: string } | null {
+  const name =
+    row?.expiredPlanLabel ??
+    row?.expiredPlan?.name ??
+    row?.expiredPlanName ??
+    (row?.expiredPlanCode ? resolvePlanChip(null, row.expiredPlanCode)?.label || row.expiredPlanCode : null);
+  const expiredAt = row?.planExpiredAt ?? row?.expiredPlan?.expiredAt ?? row?.expiredPlanAt ?? null;
+  return name && expiredAt ? { name: String(name), expiredAt: String(expiredAt) } : null;
+}
+
+function ExpiredPlanCell({ user }: { user: any }) {
+  const plan = expiredPlanOf(user);
+  if (!plan) return <span className="text-xs text-gray-400">—</span>;
+  return (
+    <div>
+      <p className="text-sm font-medium text-gray-900">{plan.name}</p>
+      <p className="text-xs text-gray-400">{formatShortDate(plan.expiredAt, true)}</p>
+    </div>
+  );
+}
 
 const ROLE_OPTIONS = [
   { value: 'agent', label: 'Agent' },
@@ -234,6 +272,8 @@ const PROFILE_FILTER_DEFAULTS = {
   cityId: '',
   createdFrom: '',
   createdTo: '',
+  expiredFrom: '',
+  expiredTo: '',
   role: '',
   filterType: '',
   filterValue: '',
@@ -254,6 +294,8 @@ export function UserProfileMasterPanel() {
     cityId,
     createdFrom,
     createdTo,
+    expiredFrom,
+    expiredTo,
     role: roleFilter,
     filterType: filterTypeRaw,
     filterValue,
@@ -311,6 +353,8 @@ export function UserProfileMasterPanel() {
         cityId: cityId || undefined,
         createdFrom: createdFrom || undefined,
         createdTo: createdTo || undefined,
+        expiredFrom: expiredFrom || undefined,
+        expiredTo: expiredTo || undefined,
         role:
           roleFilter ||
           (filterType === 'role' ? filterValue : '') ||
@@ -329,7 +373,18 @@ export function UserProfileMasterPanel() {
     } finally {
       setIsLoading(false);
     }
-  }, [appliedQ, stateId, cityId, createdFrom, createdTo, roleFilter, filterType, filterValue]);
+  }, [
+    appliedQ,
+    stateId,
+    cityId,
+    createdFrom,
+    createdTo,
+    expiredFrom,
+    expiredTo,
+    roleFilter,
+    filterType,
+    filterValue,
+  ]);
 
   useEffect(() => {
     void fetchUsers();
@@ -614,6 +669,40 @@ export function UserProfileMasterPanel() {
             />
           </div>
 
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Plan expired</label>
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="date"
+                value={expiredFrom}
+                max={expiredTo || undefined}
+                onChange={(e) => setFilters({ expiredFrom: e.target.value })}
+                className="w-40 bg-white"
+                aria-label="Plan expired from"
+              />
+              <span className="text-xs text-gray-400">to</span>
+              <Input
+                type="date"
+                value={expiredTo}
+                min={expiredFrom || undefined}
+                onChange={(e) => setFilters({ expiredTo: e.target.value })}
+                className="w-40 bg-white"
+                aria-label="Plan expired to"
+              />
+              {expiredFrom || expiredTo ? (
+                <button
+                  type="button"
+                  onClick={() => setFilters({ expiredFrom: '', expiredTo: '' })}
+                  className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                  aria-label="Clear plan expired filter"
+                  title="Clear"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
+          </div>
+
           <div className="w-48">
             <label className="mb-1 block text-xs font-medium text-gray-500">
               User Role
@@ -687,6 +776,23 @@ export function UserProfileMasterPanel() {
           </Button>
         </div>
 
+        {expiredFrom || expiredTo ? (
+          <div className="flex flex-wrap gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary-light/50 px-3 py-1 text-xs font-medium text-primary">
+              Expired: {expiredFrom ? formatShortDate(expiredFrom) : 'Any'} –{' '}
+              {expiredTo ? formatShortDate(expiredTo) : 'Any'}
+              <button
+                type="button"
+                onClick={() => setFilters({ expiredFrom: '', expiredTo: '' })}
+                className="rounded-full p-0.5 hover:bg-primary/10"
+                aria-label="Clear plan expired filter"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          </div>
+        ) : null}
+
         <AdminDataTable
           page={page}
           limit={limit}
@@ -706,6 +812,7 @@ export function UserProfileMasterPanel() {
                 <th className="px-5 py-4 font-semibold text-gray-700">Role</th>
                 <th className="px-5 py-4 font-semibold text-gray-700">Active</th>
                 <th className="px-5 py-4 font-semibold text-gray-700">Subscription</th>
+                <th className="px-5 py-4 font-semibold text-gray-700">Expired plan</th>
                 <th className="px-5 py-4 font-semibold text-gray-700">Documents</th>
                 <th className="px-5 py-4 font-semibold text-gray-700">Last Login</th>
                 <th className="px-5 py-4 font-semibold text-gray-700">Created</th>
@@ -744,7 +851,9 @@ export function UserProfileMasterPanel() {
                               </span>
                             </p>
                             <p className="text-xs text-gray-500">{user.email || '—'}</p>
-                            <p className="text-xs text-gray-400">{user.contact || '—'}</p>
+                            <p className="text-xs text-gray-400">
+                              <MaskedContact value={user.contact} revealKey={`user-profile:${user.id}:contact`} />
+                            </p>
                             {withoutReferral ? (
                               <span className="mt-1.5 inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
                                 Without referral
@@ -796,6 +905,9 @@ export function UserProfileMasterPanel() {
                             label={user.subscriptionStatus || user.subscription}
                             planCode={user.planCode || user.plan_code}
                           />
+                        </td>
+                        <td className="whitespace-nowrap px-5 py-4">
+                          <ExpiredPlanCell user={user} />
                         </td>
                         <td className="px-5 py-4">
                           <DocumentsStatusBadge

@@ -5,8 +5,10 @@ import { Sidebar } from '@/components/common/sidebar';
 import { Navbar } from '@/components/common/navbar';
 import { AdminPageBack } from '@/components/common/admin-page-back';
 import { AuthSessionGuard } from '@/components/common/auth-session-guard';
+import { useHideContactsOnRouteChange } from '@/components/contact/contact-reveal-store';
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
+  useHideContactsOnRouteChange();
   return (
     <div className="h-screen flex overflow-hidden bg-gray-50">
       <AuthSessionGuard />

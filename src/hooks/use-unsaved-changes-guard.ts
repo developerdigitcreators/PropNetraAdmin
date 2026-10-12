@@ -19,10 +19,15 @@ type UseUnsavedChangesGuardOptions = {
 export function useUnsavedChangesGuard({
   dirty,
   onSave,
-}: UseUnsavedChangesGuardOptions): { dialog: ReactNode } {
+}: UseUnsavedChangesGuardOptions): {
+  dialog: ReactNode;
+  /** For in-page switches (tabs, filters): resolves true when it is safe to drop the draft. */
+  confirmLeave: () => Promise<boolean>;
+} {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const pendingHref = useRef<string | null>(null);
+  const pendingResolve = useRef<((ok: boolean) => void) | null>(null);
   const allowLeave = useRef(false);
   const router = useRouter();
   const pathname = usePathname();
@@ -75,8 +80,20 @@ export function useUnsavedChangesGuard({
     return () => document.removeEventListener('click', onClick, true);
   }, [dirty, pathname]);
 
+  const confirmLeave = useCallback((): Promise<boolean> => {
+    if (!dirty || allowLeave.current) return Promise.resolve(true);
+    pendingResolve.current?.(false);
+    pendingHref.current = null;
+    setOpen(true);
+    return new Promise<boolean>((resolve) => {
+      pendingResolve.current = resolve;
+    });
+  }, [dirty]);
+
   const cancel = useCallback(() => {
     pendingHref.current = null;
+    pendingResolve.current?.(false);
+    pendingResolve.current = null;
     setOpen(false);
   }, []);
 
@@ -85,6 +102,8 @@ export function useUnsavedChangesGuard({
     setOpen(false);
     const href = pendingHref.current;
     pendingHref.current = null;
+    pendingResolve.current?.(true);
+    pendingResolve.current = null;
     if (href) router.push(href);
     // Reset allow flag shortly so future edits still guard.
     window.setTimeout(() => {
@@ -120,7 +139,7 @@ export function useUnsavedChangesGuard({
     saving,
   });
 
-  return { dialog };
+  return { dialog, confirmLeave };
 }
 
 /**

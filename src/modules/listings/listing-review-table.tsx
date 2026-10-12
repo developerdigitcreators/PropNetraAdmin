@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { MaskedContact } from "@/components/contact/masked-contact";
 import { formatDisplayDateTime } from "@/lib/format-date";
 import { locationService } from "@/services/location.service";
 import { listingConfigService } from "@/services/listing-config.service";
@@ -1986,9 +1987,15 @@ export function ListingReviewTable({
                             {item.leadContactName ? (
                               <p className="text-xs text-gray-500 mt-0.5">
                                 {item.leadContactName}
-                                {item.leadContactPhone
-                                  ? ` · ${item.leadContactPhone}`
-                                  : ""}
+                                {item.leadContactPhone ? (
+                                  <>
+                                    {" · "}
+                                    <MaskedContact
+                                      value={item.leadContactPhone}
+                                      revealKey={`listing-review:${item.id}:owner`}
+                                    />
+                                  </>
+                                ) : null}
                               </p>
                             ) : null}
                             {(item.created_at || item.createdAt) && (
@@ -2266,12 +2273,16 @@ export function ListingReviewTable({
                                       Owner:{" "}
                                     </span>
                                     <span className="text-gray-800 wrap-break-word">
-                                      {[
-                                        item.leadContactName,
-                                        item.leadContactPhone,
-                                      ]
-                                        .filter(Boolean)
-                                        .join(" · ")}
+                                      {item.leadContactName}
+                                      {item.leadContactPhone ? (
+                                        <>
+                                          {" · "}
+                                          <MaskedContact
+                                            value={item.leadContactPhone}
+                                            revealKey={`listing-review-detail:${item.id}:owner`}
+                                          />
+                                        </>
+                                      ) : null}
                                     </span>
                                   </div>
                                 ) : null}

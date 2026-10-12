@@ -1,6 +1,7 @@
 'use client';
 
 import { Badge } from '@/components/ui/badge';
+import { MaskedContact } from '@/components/contact/masked-contact';
 import {
   Dialog,
   DialogContent,
@@ -145,7 +146,9 @@ export function RegisteredUserViewModal({
               <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
                 Contact
               </p>
-              <p className="mt-0.5 text-gray-800">{user.contact || '—'}</p>
+              <p className="mt-0.5 text-gray-800">
+                <MaskedContact value={user.contact} revealKey={`registered-user-view:${user.id}:contact`} />
+              </p>
             </div>
             {(user.addedByName || user.createdByAdmin) && (
               <div>

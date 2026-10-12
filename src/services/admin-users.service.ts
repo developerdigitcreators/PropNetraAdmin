@@ -20,6 +20,8 @@ export type GetUsersParams = {
   cityId?: string;
   createdFrom?: string;
   createdTo?: string;
+  expiredFrom?: string;
+  expiredTo?: string;
   filterType?: AppUserFilterType;
   filterValue?: string;
   role?: string;
@@ -120,6 +122,8 @@ function buildListParams(audienceOrParams?: AppUserAudience | GetUsersParams) {
   if (audienceOrParams.cityId) params.cityId = audienceOrParams.cityId;
   if (audienceOrParams.createdFrom) params.createdFrom = audienceOrParams.createdFrom;
   if (audienceOrParams.createdTo) params.createdTo = audienceOrParams.createdTo;
+  if (audienceOrParams.expiredFrom) params.expiredFrom = audienceOrParams.expiredFrom;
+  if (audienceOrParams.expiredTo) params.expiredTo = audienceOrParams.expiredTo;
   if (audienceOrParams.filterType) params.filterType = audienceOrParams.filterType;
   if (audienceOrParams.filterValue) params.filterValue = audienceOrParams.filterValue;
   if (audienceOrParams.role) params.role = audienceOrParams.role;

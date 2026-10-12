@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { ImageUrlOrUpload } from '@/components/image-url-or-upload';
+import { useDialogUnsavedGuard, useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 import {
   subscriptionApiError,
   subscriptionsService,
@@ -29,9 +30,19 @@ export function PlanPopupBannerDialog({
   canUpdate,
 }: Props) {
   const [imageUrl, setImageUrl] = useState('');
+  const [savedUrl, setSavedUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const dirty = open && !loading && imageUrl.trim() !== savedUrl;
+  const { requestClose, dialog } = useDialogUnsavedGuard(dirty);
+  const { dialog: leaveDialog } = useUnsavedChangesGuard({ dirty });
+
+  const handleOpenChange = async (next: boolean) => {
+    if (saving) return;
+    if (next) return onOpenChange(true);
+    if (await requestClose()) onOpenChange(false);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -41,7 +52,9 @@ export function PlanPopupBannerDialog({
     subscriptionsService
       .getPlanPopupBanner()
       .then((data) => {
-        if (!cancelled) setImageUrl(data.imageUrl || '');
+        if (cancelled) return;
+        setImageUrl(data.imageUrl || '');
+        setSavedUrl(data.imageUrl || '');
       })
       .catch((err) => {
         if (!cancelled) {
@@ -67,6 +80,7 @@ export function PlanPopupBannerDialog({
         imageUrl.trim() || null,
       );
       setImageUrl(next.imageUrl || '');
+      setSavedUrl(next.imageUrl || '');
       onOpenChange(false);
     } catch (err) {
       setError(subscriptionApiError(err, 'Failed to save banner image.'));
@@ -82,6 +96,7 @@ export function PlanPopupBannerDialog({
     try {
       await subscriptionsService.setPlanPopupBanner(null);
       setImageUrl('');
+      setSavedUrl('');
       onOpenChange(false);
     } catch (err) {
       setError(subscriptionApiError(err, 'Failed to clear banner image.'));
@@ -91,10 +106,11 @@ export function PlanPopupBannerDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open} onOpenChange={(next) => void handleOpenChange(next)}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Upgrade / Unlock plan banner</DialogTitle>
+          <DialogTitle>Subscription banner (shown to all users)</DialogTitle>
           <DialogDescription>
             One image for all users on the unlock and upgrade plan popup in the
             app (fixed height ~160px). Leave empty to hide the banner.
@@ -135,7 +151,7 @@ export function PlanPopupBannerDialog({
           <Button
             type="button"
             variant="outline"
-            onClick={() => onOpenChange(false)}
+            onClick={() => void handleOpenChange(false)}
             disabled={saving}
           >
             Cancel
@@ -155,5 +171,8 @@ export function PlanPopupBannerDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    {dialog}
+    {leaveDialog}
+    </>
   );
 }

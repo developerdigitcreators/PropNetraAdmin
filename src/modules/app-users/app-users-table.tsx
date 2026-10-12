@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, Fragment } from "react";
 import { formatDisplayDateTime } from "@/lib/format-date";
+import { MaskedContact } from "@/components/contact/masked-contact";
 import { UserFormModal } from "@/modules/rbac/user-form-modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -390,10 +391,12 @@ function IdentityCell({
   onToggle,
   nested,
   isNew,
+  revealKey,
 }: {
   name?: string | null;
   email?: string | null;
   contact?: string | null;
+  revealKey: string;
   changedFields?: SignupAttemptChangedField[];
   expandable?: boolean;
   expanded?: boolean;
@@ -458,7 +461,7 @@ function IdentityCell({
             "text-xs text-gray-400",
           )}
         >
-          {contact || "—"}
+          <MaskedContact value={contact} revealKey={revealKey} />
         </p>
       </div>
     </div>
@@ -574,7 +577,9 @@ function ViewOnlyModal({
               <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
                 Contact
               </p>
-              <p className="mt-0.5 text-gray-800">{user.contact || "—"}</p>
+              <p className="mt-0.5 text-gray-800">
+                <MaskedContact value={user.contact} revealKey={`app-users-detail:${user.id}:contact`} />
+              </p>
             </div>
             {isRegistered && (user.addedByName || user.createdByAdmin) && (
               <div>
@@ -959,7 +964,9 @@ function RemarksModal({
             <p className="text-xs text-gray-500 break-all">
               {user.email || "—"}
             </p>
-            <p className="text-xs text-gray-400">{user.contact || "—"}</p>
+            <p className="text-xs text-gray-400">
+              <MaskedContact value={user.contact} revealKey={`app-users-remarks:${user.id}:contact`} />
+            </p>
             {user.addedByName && (
               <p className="text-[10px] text-gray-500 mt-1">
                 Added by {user.addedByName}
@@ -1594,6 +1601,7 @@ export function AppUsersTable({ tab }: Props) {
                             (tab === "otp_verified" ? "—" : "")
                           }
                           contact={user.contact}
+                          revealKey={`app-users:${user.id}:contact`}
                           expandable={expandable}
                           expanded={expanded}
                           isNew={!!user.isNew}
@@ -1890,6 +1898,7 @@ export function AppUsersTable({ tab }: Props) {
                               name={attempt.name}
                               email={attempt.email}
                               contact={attempt.contact}
+                              revealKey={`app-users:${user.id}:attempt-${index}`}
                               changedFields={attempt.changedFields}
                               nested
                             />

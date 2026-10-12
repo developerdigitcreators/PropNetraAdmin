@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { MaskedContact } from "@/components/contact/masked-contact";
 import { useRouter, useSearchParams } from "next/navigation";
 import { formatDisplayDate, formatDisplayDateTime } from "@/lib/format-date";
 import { PermissionGuard } from "@/components/common/permission-guard";
@@ -146,7 +147,7 @@ function formatDateTime(value?: string | null) {
 }
 
 function userLabel(user: Pick<AnalyticsUser, "name" | "contact" | "email">) {
-  return [user.name || "Unnamed user", user.contact || user.email]
+  return [user.name || "Unnamed user", user.email]
     .filter(Boolean)
     .join(" · ");
 }
@@ -329,7 +330,7 @@ function PeopleTable({
                   {showChannels ? (
                     <ChannelLogos channels={row.channels} />
                   ) : null}
-                  <span>{dash(row.contact)}</span>
+                  <MaskedContact value={row.contact} revealKey={`user-analytics:${row.id}:contact`} />
                 </span>
               </td>
               <td className="px-4 py-3 text-gray-900">{dash(row.project)}</td>
@@ -1237,7 +1238,14 @@ export function UserAnalyticsPanel() {
                               {cell.label}
                             </p>
                             <p className="break-words text-sm text-gray-700">
-                              {cell.value}
+                              {cell.key === "phone" ? (
+                                <MaskedContact
+                                  value={cell.value}
+                                  revealKey="user-analytics-profile:phone"
+                                />
+                              ) : (
+                                cell.value
+                              )}
                             </p>
                           </div>
                         </div>
@@ -1410,6 +1418,11 @@ export function UserAnalyticsPanel() {
                         <span className="ml-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
                           {listingViewersCount}
                         </span>
+                        {detail ? (
+                          <span className="rounded-full bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700">
+                            Fake views: {detail.listingViewersFake.fakeViews}
+                          </span>
+                        ) : null}
                       </TabsTrigger>
                     </TabsList>
 
@@ -1466,6 +1479,23 @@ export function UserAnalyticsPanel() {
                       />
                     </TabsContent>
                     <TabsContent value="listingViewers">
+                      {detail?.listingViewersFake.listings.length ? (
+                        <div className="mb-3 rounded-xl border border-orange-100 bg-orange-50/50 px-4 py-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">
+                            Fake views by project
+                          </p>
+                          <ul className="mt-2 flex flex-wrap gap-2">
+                            {detail.listingViewersFake.listings.map((l, i) => (
+                              <li
+                                key={l.listingId || i}
+                                className="rounded-md bg-white px-2.5 py-1 text-xs text-gray-700 shadow-sm"
+                              >
+                                {l.name}: <span className="font-semibold text-orange-700">{l.fakeViews}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                       <CollapsibleTimeline
                         tab={
                           detail?.listingViewers || {

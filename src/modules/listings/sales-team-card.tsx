@@ -21,9 +21,11 @@ function staffLabel(s: StaffAssignee) {
 export function SalesTeamCard({
   onSaved,
   onToast,
+  onDirtyChange,
 }: {
   onSaved: (members: StaffAssignee[]) => void;
   onToast: ShowToast;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [options, setOptions] = useState<StaffAssignee[]>([]);
   const [savedIds, setSavedIds] = useState<string[]>([]);
@@ -61,6 +63,10 @@ export function SalesTeamCard({
     const saved = new Set(savedIds);
     return selected.some((id) => !saved.has(id));
   }, [selected, savedIds]);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   const save = async () => {
     setSaving(true);

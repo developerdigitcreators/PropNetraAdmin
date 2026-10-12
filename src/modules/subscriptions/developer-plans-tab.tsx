@@ -111,6 +111,14 @@ function DeveloperPlanCard({
               {plan.promoWindowDays != null ? ` for first ${plan.promoWindowDays} days` : ''}
             </p>
           ) : null}
+          <p className="mt-1 text-sm text-gray-500">
+            Dummy price:{' '}
+            {plan.dummyPricePaise != null ? (
+              <span className="line-through">{formatInrFromPaise(plan.dummyPricePaise)}</span>
+            ) : (
+              '—'
+            )}
+          </p>
         </div>
       ) : (
         <p className="mt-3 text-sm text-gray-500">
@@ -172,7 +180,13 @@ function DeveloperPlanCard({
   );
 }
 
-function CityAddonPricingCard({ canUpdate }: { canUpdate: boolean }) {
+function CityAddonPricingCard({
+  canUpdate,
+  onDirtyChange,
+}: {
+  canUpdate: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const PERIODS = [
     { key: 'monthly' as const, label: 'Monthly' },
     { key: 'quarterly' as const, label: 'Quarterly' },
@@ -239,6 +253,17 @@ function CityAddonPricingCard({ canUpdate }: { canUpdate: boolean }) {
       setSaving(false);
     }
   };
+
+  const dirty =
+    !!pricing &&
+    (Object.values(cityDraft).some((prices) => Object.values(prices).some((v) => v.trim() !== '')) ||
+      PERIODS.some(
+        (p) => (defaults[p.key] || '') !== paiseToRupeesInput(pricing.defaults[p.key]),
+      ));
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   const catalog = (pricing?.citiesCatalog || []).filter((c) => {
     const hay = `${c.cityName} ${c.stateName}`.toLowerCase();
@@ -354,11 +379,13 @@ export function DeveloperPlansTab({
   loading,
   canUpdate,
   onEdit,
+  onDirtyChange,
 }: {
   plans: SubscriptionPlanItem[];
   loading: boolean;
   canUpdate: boolean;
   onEdit: (plan: SubscriptionPlanItem) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const free = plans.filter((p) => p.code === 'DEVELOPER_FREE');
   const paid = plans
@@ -396,7 +423,7 @@ export function DeveloperPlansTab({
           ) : null}
         </div>
       )}
-      <CityAddonPricingCard canUpdate={canUpdate} />
+      <CityAddonPricingCard canUpdate={canUpdate} onDirtyChange={onDirtyChange} />
     </div>
   );
 }

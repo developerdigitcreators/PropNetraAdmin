@@ -9,6 +9,10 @@ export type FeatureControls = {
   reels_share_enabled: boolean;
   reels_views_enabled: boolean;
   developer_compare_agents_enabled: boolean;
+  /** OFF: chats/message icon hidden, sidebar Push Notification page, lead pushes open My Leads. */
+  netra_connect_enabled: boolean;
+  /** Push 24 hours before a user's plan ends. */
+  autopay_renewal_reminder_enabled: boolean;
   /** When each listing-viewers switch was last turned ON (ISO). null = shows all past viewers. */
   enabledSince?: Partial<Record<ListingViewersKey, string | null>>;
 };

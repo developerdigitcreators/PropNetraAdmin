@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
+import { useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,16 @@ const SECTIONS: Array<{
   title: string;
   items: Array<{ key: FeatureControlKey; label: string; hint: string }>;
 }> = [
+  {
+    title: 'Netra Connect',
+    items: [
+      {
+        key: 'netra_connect_enabled',
+        label: 'Netra Connect',
+        hint: 'ON: Chats and message icon visible, app icon count shown. OFF: Chats count and message icon hidden, sidebar Push Notification tab shown, lead pushes open My Leads.',
+      },
+    ],
+  },
   {
     title: 'Listing viewers',
     items: [
@@ -86,6 +97,16 @@ const SECTIONS: Array<{
         key: 'reels_views_enabled',
         label: 'Views count',
         hint: 'Show the views count on reels.',
+      },
+    ],
+  },
+  {
+    title: 'Autopay reminder',
+    items: [
+      {
+        key: 'autopay_renewal_reminder_enabled',
+        label: 'Autopay reminder',
+        hint: 'Send push 24 hours before a user’s plan ends.',
       },
     ],
   },
@@ -165,6 +186,7 @@ export default function FeatureControlsPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [confirmKey, setConfirmKey] = useState<ListingViewersKey | null>(null);
+  const [confirmNetraOff, setConfirmNetraOff] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -225,9 +247,13 @@ export default function FeatureControlsPage() {
     Number.isInteger(retentionValue) &&
     retentionValue >= DEVELOPER_GROUP_RETENTION_MIN &&
     retentionValue <= DEVELOPER_GROUP_RETENTION_MAX;
+  const { dialog: unsavedDialog } = useUnsavedChangesGuard({
+    dirty: groupSettings != null && retentionDraft.trim() !== String(groupSettings.retentionDays),
+  });
 
   return (
     <PermissionGuard permission="feature_controls:read">
+      {unsavedDialog}
       <div className="space-y-6">
         <Breadcrumb items={[{ label: 'Dashboard', href: '/' }, { label: 'Feature Controls' }]} />
 
@@ -283,6 +309,7 @@ export default function FeatureControlsPage() {
                       saving={savingKey === item.key}
                       onChange={(v) => {
                         if (v && isListingViewersKey(item.key)) setConfirmKey(item.key);
+                        else if (!v && item.key === 'netra_connect_enabled') setConfirmNetraOff(true);
                         else void saveControl(item.key, v);
                       }}
                     />
@@ -381,6 +408,33 @@ export default function FeatureControlsPage() {
                 }}
               >
                 Turn on
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={confirmNetraOff} onOpenChange={(open) => !open && setConfirmNetraOff(false)}>
+          <DialogContent className="sm:max-w-[420px]">
+            <DialogHeader>
+              <DialogTitle>Turn off Netra Connect?</DialogTitle>
+              <DialogDescription>
+                For all app users: the message icon and counts are hidden, a Push Notification tab
+                appears in the sidebar, and lead notifications open My Activity &gt; My Leads.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setConfirmNetraOff(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  setConfirmNetraOff(false);
+                  void saveControl('netra_connect_enabled', false);
+                }}
+              >
+                Turn off
               </Button>
             </DialogFooter>
           </DialogContent>

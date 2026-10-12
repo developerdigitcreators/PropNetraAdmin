@@ -26,7 +26,7 @@ import { TableHScroll } from '@/components/ui/table-h-scroll';
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 
 function userLabel(user: ReferralUserSummary) {
-  return user.name?.trim() || user.contact?.trim() || user.email?.trim() || 'Unknown user';
+  return user.name?.trim() || user.email?.trim() || 'Unknown user';
 }
 
 function planShort(code?: string | null) {
@@ -133,14 +133,14 @@ function ReferralOverviewPageInner() {
             <Breadcrumb
               items={[
                 { label: 'Dashboard', href: '/' },
-                { label: 'Refer & Earn Overview' },
+                { label: 'Client Referral Overview' },
               ]}
             />
             <h1 className="mt-2 text-2xl font-semibold text-gray-900">
-              Refer & Earn Overview
+              Client Referral Overview
             </h1>
             <p className="mt-1 text-sm text-gray-500">
-              Users who referred at least one onboarded invitee, rewards given,
+              Users (excluding admin team) who referred at least one onboarded invitee, rewards given,
               and whether each referrer joined with or without a referral.{' '}
               <Link
                 href="/referral-benefits"

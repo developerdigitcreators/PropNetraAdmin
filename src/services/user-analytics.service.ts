@@ -75,6 +75,18 @@ export type UserAnalyticsDetail = {
   contacted: GroupedTab<PersonRow>;
   interested: GroupedTab<PersonRow>;
   listingViewers: GroupedTab<PersonRow>;
+  listingViewersFake: ListingViewersFake;
+};
+
+export type FakeListingViews = {
+  listingId: string;
+  name: string;
+  fakeViews: number;
+};
+
+export type ListingViewersFake = {
+  fakeViews: number;
+  listings: FakeListingViews[];
 };
 
 export type UserAnalyticsTab = 'views' | 'contacted' | 'interested';
@@ -361,6 +373,31 @@ function normalizeGroupedTab(raw: unknown): GroupedTab<PersonRow> {
   };
 }
 
+function normalizeListingViewersFake(tab: unknown, payload: Record<string, unknown>): ListingViewersFake {
+  const row = asRecord(tab) || {};
+  const rawListings = Array.isArray(row.fakeListings)
+    ? row.fakeListings
+    : Array.isArray(payload.fakeListings)
+      ? payload.fakeListings
+      : [];
+  const listings = rawListings
+    .map((raw): FakeListingViews | null => {
+      const item = asRecord(raw);
+      if (!item) return null;
+      return {
+        listingId: pickString(item.listingId, item.id),
+        name: pickString(item.projectName, item.title, item.name) || 'Listing',
+        fakeViews: pickNumber(item.fakeViews, item.count),
+      };
+    })
+    .filter((item): item is FakeListingViews => !!item);
+  return {
+    fakeViews:
+      pickNumber(row.fakeViews, row.fake_views) || listings.reduce((sum, l) => sum + l.fakeViews, 0),
+    listings,
+  };
+}
+
 function resolveGroupBy(raw: unknown, from: string, to: string): 'day' | 'month' {
   const row = asRecord(raw);
   const value = pickString(row?.groupBy, row?.group_by).toLowerCase();
@@ -400,6 +437,10 @@ function normalizeDetail(raw: unknown, fallbackUser?: AnalyticsUser | null): Use
     ),
     listingViewers: normalizeGroupedTab(
       tabs.listingViewers ?? tabs.listing_viewers ?? tabs.viewers,
+    ),
+    listingViewersFake: normalizeListingViewersFake(
+      tabs.listingViewers ?? tabs.listing_viewers ?? tabs.viewers,
+      payload,
     ),
   };
 }
@@ -487,6 +528,7 @@ export const userAnalyticsService = {
         contacted: emptyTab(),
         interested: emptyTab(),
         listingViewers: emptyTab(),
+        listingViewersFake: { fakeViews: 0, listings: [] },
       };
     }
     if (!detail.range.from) detail.range.from = params.from;

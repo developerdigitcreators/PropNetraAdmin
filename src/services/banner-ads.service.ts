@@ -119,7 +119,6 @@ export const DEFAULT_PLACEMENTS: AdPlacementOption[] = [
   { key: 'popup', label: 'Home page popup' },
   { key: 'search', label: 'Search results' },
   { key: 'listing_detail', label: 'Listing detail' },
-  { key: 'refer_and_earn', label: 'Refer & Earn' },
   { key: 'chat_notification', label: 'Chat notification page' },
   { key: 'developer_chat', label: 'Developer chat page' },
   { key: 'developer_property', label: 'Developer Property Page' },

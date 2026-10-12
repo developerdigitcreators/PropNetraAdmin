@@ -32,7 +32,7 @@ const PAGES = [
 ] as const;
 
 function developerLabel(d: HomeDeveloperPreview) {
-  return [d.companyName || d.name, d.companyName && d.name ? d.name : null, d.contact].filter(Boolean).join(' · ');
+  return [d.companyName || d.name, d.companyName && d.name ? d.name : null].filter(Boolean).join(' · ');
 }
 
 export default function DeveloperTeamPage() {

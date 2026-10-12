@@ -33,6 +33,7 @@ type Props = {
   canUpdate: boolean;
   canDelete: boolean;
   onToast: (message: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 const ALL_CITIES = "__all__";
@@ -85,7 +86,14 @@ function AttachmentChip({ a }: { a: DeveloperGroupMessage["attachments"][number]
   );
 }
 
-export function DeveloperGroupsPanel({ cities, citiesLoading, canUpdate, canDelete, onToast }: Props) {
+export function DeveloperGroupsPanel({
+  cities,
+  citiesLoading,
+  canUpdate,
+  canDelete,
+  onToast,
+  onDirtyChange,
+}: Props) {
   const [settings, setSettings] = useState<DeveloperGroupSettings | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [retentionDraft, setRetentionDraft] = useState(String(DEVELOPER_GROUP_RETENTION_MIN));
@@ -95,6 +103,14 @@ export function DeveloperGroupsPanel({ cities, citiesLoading, canUpdate, canDele
     Number.isInteger(retentionValue) &&
     retentionValue >= DEVELOPER_GROUP_RETENTION_MIN &&
     retentionValue <= DEVELOPER_GROUP_RETENTION_MAX;
+  const retentionDirty = settings != null && retentionDraft.trim() !== String(settings.retentionDays);
+
+  useEffect(() => {
+    onDirtyChange?.(retentionDirty);
+  }, [retentionDirty, onDirtyChange]);
+
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
+
   const [cityFilter, setCityFilter] = useState<string>(ALL_CITIES);
   const [groups, setGroups] = useState<DeveloperGroupRow[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);

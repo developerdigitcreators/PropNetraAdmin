@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
+import { MaskedContact } from '@/components/contact/masked-contact';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { AdminDataTable } from '@/components/common/admin-data-table';
@@ -290,7 +291,9 @@ function FeedbacksPageInner() {
                       <div>
                         <p className="font-medium text-gray-900">{row.user.name || '—'}</p>
                         <p className="text-xs text-gray-500 break-all">{row.user.email || '—'}</p>
-                        <p className="text-xs text-gray-400">{row.user.contact || '—'}</p>
+                        <p className="text-xs text-gray-400">
+                          <MaskedContact value={row.user.contact} revealKey={`feedbacks:${row.id}:user`} />
+                        </p>
                       </div>
                     </div>
                   </td>
@@ -372,7 +375,9 @@ function FeedbacksPageInner() {
               <div className="rounded-xl border border-gray-100 bg-gray-50/80 px-3 py-2.5 text-sm">
                 <p className="font-medium text-gray-900">{detail.user.name || '—'}</p>
                 <p className="break-all text-xs text-gray-500">{detail.user.email || '—'}</p>
-                <p className="text-xs text-gray-400">{detail.user.contact || '—'}</p>
+                <p className="text-xs text-gray-400">
+                  <MaskedContact value={detail.user.contact} revealKey={`feedbacks-detail:${detail.id}:user`} />
+                </p>
                 <p className="mt-1 text-[10px] text-gray-400">
                   Submitted {formatDateTime(detail.createdAt)}
                 </p>

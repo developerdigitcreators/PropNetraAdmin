@@ -156,6 +156,7 @@ export function PlanFormDialog({
   const [priceRupees, setPriceRupees] = useState('');
   const [promoPriceRupees, setPromoPriceRupees] = useState('');
   const [promoWindowDays, setPromoWindowDays] = useState('');
+  const [dummyPriceRupees, setDummyPriceRupees] = useState('');
   const [addonsEnabled, setAddonsEnabled] = useState(false);
   const [listingBoostEnabled, setListingBoostEnabled] = useState(false);
   const [listingPriorityEnabled, setListingPriorityEnabled] = useState(false);
@@ -189,6 +190,7 @@ export function PlanFormDialog({
         priceRupees,
         promoPriceRupees,
         promoWindowDays,
+        dummyPriceRupees,
         addonsEnabled,
         listingBoostEnabled,
         listingPriorityEnabled,
@@ -198,6 +200,7 @@ export function PlanFormDialog({
         verifiedLimits,
       }),
     [
+      dummyPriceRupees,
       displayName,
       sortOrder,
       isActive,
@@ -229,6 +232,7 @@ export function PlanFormDialog({
     setPromoWindowDays(
       plan.promoWindowDays != null ? String(plan.promoWindowDays) : '',
     );
+    setDummyPriceRupees(paiseToRupeesInput(plan.dummyPricePaise));
     setAddonsEnabled(plan.flags.addonsEnabled);
     setListingBoostEnabled(plan.flags.listingBoostEnabled);
     setListingPriorityEnabled(plan.flags.listingPriorityEnabled);
@@ -253,6 +257,7 @@ export function PlanFormDialog({
       promoPriceRupees: paiseToRupeesInput(plan.promoPricePaise),
       promoWindowDays:
         plan.promoWindowDays != null ? String(plan.promoWindowDays) : '',
+      dummyPriceRupees: paiseToRupeesInput(plan.dummyPricePaise),
       addonsEnabled: plan.flags.addonsEnabled,
       listingBoostEnabled: plan.flags.listingBoostEnabled,
       listingPriorityEnabled: plan.flags.listingPriorityEnabled,
@@ -339,6 +344,8 @@ export function PlanFormDialog({
       return;
     }
     setLocalError('');
+    const dummyPricePaise =
+      showPricing && dummyPriceRupees.trim() !== '' ? rupeesInputToPaise(dummyPriceRupees) : null;
     if (isDeveloper) {
       onSubmit({
         displayName: displayName.trim(),
@@ -348,6 +355,7 @@ export function PlanFormDialog({
         pricePaise: showPricing ? rupeesInputToPaise(priceRupees) : null,
         promoPricePaise: showPricing ? rupeesInputToPaise(promoPriceRupees) : null,
         promoWindowDays: showPricing && promoWindowDays !== '' ? Number(promoWindowDays) : null,
+        dummyPricePaise,
         entitlements: {
           developerPostsDaily: limits.developerPostsDaily,
           developerPostsMonthly: limits.developerPostsMonthly,
@@ -396,6 +404,7 @@ export function PlanFormDialog({
         pricePaise: showPricing ? rupeesInputToPaise(priceRupees) : null,
         promoPricePaise: showPricing ? rupeesInputToPaise(promoPriceRupees) : null,
         promoWindowDays: showPricing && promoWindowDays !== '' ? Number(promoWindowDays) : null,
+        dummyPricePaise,
         entitlements,
       });
       return;
@@ -410,6 +419,7 @@ export function PlanFormDialog({
       pricePaise: showPricing ? rupeesInputToPaise(priceRupees) : null,
       promoPricePaise: showPricing ? rupeesInputToPaise(promoPriceRupees) : null,
       promoWindowDays: promoWindowDays === '' ? null : Number(promoWindowDays),
+      dummyPricePaise,
       addonsEnabled,
       listingBoostEnabled,
       listingPriorityEnabled,
@@ -505,7 +515,7 @@ export function PlanFormDialog({
               title={`Pricing (₹ per ${periodUnit}, exclusive of GST)`}
               description={`Enter GST-exclusive prices. Customers pay base + GST (default 18%) and autopay renews every ${periodUnit}. After changing prices, resync Razorpay plans so autopay includes GST.`}
             >
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <NumField
                   label={`${periodName} price (₹, exclusive of GST)`}
                   value={priceRupees}
@@ -520,6 +530,30 @@ export function PlanFormDialog({
                   placeholder="899"
                   prefix="₹"
                 />
+                <div className="space-y-1">
+                  <NumField
+                    label="Dummy price (₹)"
+                    value={dummyPriceRupees}
+                    onChange={setDummyPriceRupees}
+                    placeholder="Not set"
+                    prefix="₹"
+                  />
+                  <p className="text-xs text-gray-500">
+                    Shown struck through after the intro offer ends. Never charged.
+                  </p>
+                  {(() => {
+                    const dummy = Number(dummyPriceRupees);
+                    const price = Number(priceRupees);
+                    if (dummyPriceRupees.trim() === '' || !Number.isFinite(dummy)) return null;
+                    if (!Number.isFinite(price) || priceRupees.trim() === '' || dummy > price) return null;
+                    return (
+                      <p className="text-xs font-medium text-amber-700">
+                        Dummy price should be higher than the {periodName.toLowerCase()} price (₹
+                        {price.toLocaleString('en-IN')}).
+                      </p>
+                    );
+                  })()}
+                </div>
                 <NumField
                   label="Intro offer window (days)"
                   value={promoWindowDays}

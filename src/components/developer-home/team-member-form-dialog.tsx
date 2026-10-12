@@ -11,6 +11,7 @@ import {
   developerHomeService,
   type AdminTeamMember,
 } from '@/services/developer-home.service';
+import { useDialogUnsavedGuard, useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 import { Loader2, UserPlus } from 'lucide-react';
 
 const TEAM_NAME_MAX = 60;
@@ -66,6 +67,14 @@ export function TeamMemberFormDialog({
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const fileRef = useRef<HTMLInputElement>(null);
   const maxBytes = useAdminImageMaxBytes();
+  const dirty = open && !!(name.trim() || phone.trim() || designation.trim() || photoUrl);
+  const { requestClose, dialog } = useDialogUnsavedGuard(dirty);
+  const { dialog: leaveDialog } = useUnsavedChangesGuard({ dirty });
+
+  const close = async () => {
+    if (saving) return;
+    if (await requestClose()) onClose();
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -123,7 +132,8 @@ export function TeamMemberFormDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && !saving && onClose()}>
+    <>
+    <Dialog open={open} onOpenChange={(v) => !v && void close()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Add team member</DialogTitle>
@@ -205,7 +215,7 @@ export function TeamMemberFormDialog({
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose} disabled={saving}>
+          <Button variant="outline" onClick={() => void close()} disabled={saving}>
             Cancel
           </Button>
           <Button onClick={() => void save()} disabled={saving || uploading}>
@@ -215,6 +225,9 @@ export function TeamMemberFormDialog({
         </div>
       </DialogContent>
     </Dialog>
+    {dialog}
+    {leaveDialog}
+    </>
   );
 }
 

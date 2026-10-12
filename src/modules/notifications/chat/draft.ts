@@ -21,6 +21,12 @@ import {
   primaryFromLinks,
   type LinkCtaRow,
 } from "./multi-link-cta-editor";
+import {
+  isPushTemplate,
+  normalizeImageDisplay,
+  PUSH_TEMPLATE_META,
+  type PushImageDisplay,
+} from "./push-templates";
 
 /** Matches the backend's MaxLength on title and cardTitle. */
 const TITLE_MAX = 200;
@@ -41,6 +47,8 @@ export type BroadcastDraft = {
   progressMax: number;
   progress: number;
   progressIndeterminate: boolean;
+  expandedImageUrl: string;
+  imageDisplay: PushImageDisplay;
 };
 
 export function emptyDraft(cityIds: string[] = []): BroadcastDraft {
@@ -58,6 +66,8 @@ export function emptyDraft(cityIds: string[] = []): BroadcastDraft {
     progressMax: 100,
     progress: 0,
     progressIndeterminate: false,
+    expandedImageUrl: "",
+    imageDisplay: "both",
   };
 }
 
@@ -79,6 +89,10 @@ export function draftPushLayout(draft: BroadcastDraft): PushLayoutDraft {
     progressMax: draft.progressMax,
     progress: draft.progress,
     progressIndeterminate: draft.progressIndeterminate,
+    ...(draft.expandedImageUrl
+      ? { expandedImageUrl: draft.expandedImageUrl }
+      : {}),
+    imageDisplay: draft.imageDisplay,
   };
 }
 
@@ -136,6 +150,14 @@ export function draftErrors(draft: BroadcastDraft): string[] {
   const layout = resolvedPushLayout(draft);
   if (layout === "IMAGE" && !draftImageUrl(draft)) {
     errors.push("Attach an image for Image push type.");
+  }
+  if (isPushTemplate(layout)) {
+    if (!draftImageUrl(draft)) {
+      errors.push(`Attach an image for the ${PUSH_TEMPLATE_META[layout].label} template.`);
+    }
+    if (draft.expandedImageUrl.trim() && !isHttpsUrl(draft.expandedImageUrl.trim())) {
+      errors.push("Expanded image must be a valid HTTPS link.");
+    }
   }
   if (layout === "COUNTDOWN") {
     if (!draft.countdownEndsAt) {
@@ -233,6 +255,7 @@ export function draftToUpdatePayload(
     ...(primary.linkType === "page" && primary.pageKey
       ? { pageKey: primary.pageKey }
       : {}),
+    expandedImageUrl: null,
     ...toBroadcastPushFields(draftPushLayout(draft), draft.pushType, {
       titleHtml: draft.title,
       bodyHtml: draft.body,
@@ -269,9 +292,12 @@ export function campaignToDraft(
     pushType:
       campaign.layoutType === "COUNTDOWN" ||
       campaign.layoutType === "MULTI_ACTION" ||
-      campaign.layoutType === "PROGRESS"
+      campaign.layoutType === "PROGRESS" ||
+      isPushTemplate(campaign.layoutType)
         ? (campaign.layoutType as PushLayoutType)
         : "AUTO",
+    expandedImageUrl: campaign.expandedImageUrl || "",
+    imageDisplay: normalizeImageDisplay(campaign.imageDisplay),
     bgColor: campaign.bgColor || "",
     countdownEndsAt: toDatetimeLocal(campaign.countdownEndsAt),
     actions: (campaign.actions || []).map((row) => ({

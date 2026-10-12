@@ -49,6 +49,25 @@ import {
 } from "@/services/admin-users.service";
 import { newFirstCellClass, NewTag } from "@/components/common/new-row-marker";
 import { useUrlFilters } from "@/hooks/use-url-filters";
+import { MaskedContact } from "@/components/contact/masked-contact";
+
+function ContactCell({
+  contact,
+  email,
+  revealKey,
+}: {
+  contact?: string | null;
+  email?: string | null;
+  revealKey: string;
+}) {
+  if (!contact && !email) return <>—</>;
+  return (
+    <div className="space-y-0.5">
+      {contact ? <MaskedContact value={contact} revealKey={revealKey} /> : null}
+      {email ? <p className="break-all text-xs text-gray-500">{email}</p> : null}
+    </div>
+  );
+}
 
 type MainTab =
   "users" | "change-plan" | "payments" | "converted" | "upcoming-renewals";
@@ -1381,7 +1400,7 @@ function SubscriptionTrackingPageInner() {
               <AppliedForUnderName af={row.appliedFor} />
             </td>
             <td className="px-4 py-3 text-gray-700">
-              {row.contact || row.email || "—"}
+              <ContactCell contact={row.contact} email={row.email} revealKey={`subscribe-now:users:${row.userId}`} />
             </td>
             <td className="px-4 py-3 text-gray-700">
               {labelize(row.currentPlan || row.planCode)}
@@ -1597,7 +1616,7 @@ function SubscriptionTrackingPageInner() {
                 ) : null}
               </td>
               <td className="px-4 py-4 text-gray-700">
-                {row.contact || row.email || "—"}
+                <ContactCell contact={row.contact} email={row.email} revealKey={`subscribe-now:requests:${row.ref}`} />
               </td>
               <td className="px-4 py-4 font-medium text-gray-900">
                 {formatAppliedFor(row.appliedFor)}
@@ -1808,7 +1827,7 @@ function SubscriptionTrackingPageInner() {
                 ) : null}
               </td>
               <td className="px-4 py-4 text-gray-700">
-                {row.contact || row.email || "—"}
+                <ContactCell contact={row.contact} email={row.email} revealKey={`subscribe-now:payments:${row.ref}`} />
               </td>
               <td className="px-4 py-4 text-gray-700">
                 {labelize(row.planCode)}

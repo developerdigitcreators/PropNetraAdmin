@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { MaskedContact } from "@/components/contact/masked-contact";
 import { useAuthStore } from "@/store/use-auth-store";
 import {
   getListingDetailRows,
@@ -47,7 +48,7 @@ const LISTING_TABS: Array<{ id: ListingTabKey; label: string }> = [
   { id: "expired", label: "Expired" },
 ];
 
-function DetailField({ label, value }: { label: string; value?: string | null }) {
+function DetailField({ label, value }: { label: string; value?: ReactNode }) {
   return (
     <div>
       <p className="text-xs uppercase tracking-wide text-gray-400">{label}</p>
@@ -415,7 +416,14 @@ export function UserListingsTab({ userId }: UserListingsTabProps) {
                 />
                 <DetailField
                   label="Owner phone"
-                  value={listingDetail.ownerUser?.contact}
+                  value={
+                    listingDetail.ownerUser?.contact ? (
+                      <MaskedContact
+                        value={listingDetail.ownerUser.contact}
+                        revealKey={`user-listings-detail:${listingDetail.id}:owner`}
+                      />
+                    ) : null
+                  }
                 />
               </div>
               {detailRows.length > 0 ? (

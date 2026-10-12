@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/common/searchable-select';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
+import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
 import {
   notificationsService,
   notificationApiError,
@@ -90,7 +91,13 @@ type PopupsPanelProps = {
   canDelete: boolean;
   popupsTick?: number;
   onToast: (message: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 };
+
+/** stateId is inferred from the city after load, so it is not a user edit on its own. */
+function popupDraftKey(d: PopupDraft) {
+  return JSON.stringify({ ...d, stateId: '' });
+}
 
 function statusTone(status: InAppPopup['status']) {
   switch (status) {
@@ -113,6 +120,7 @@ export function PopupsPanel({
   canDelete,
   popupsTick = 0,
   onToast,
+  onDirtyChange,
 }: PopupsPanelProps) {
   const [popups, setPopups] = useState<InAppPopup[]>([]);
   const [listLoading, setListLoading] = useState(true);
@@ -126,6 +134,15 @@ export function PopupsPanel({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<'create' | 'edit' | 'resend'>('create');
+  const [draftBaseline, setDraftBaseline] = useState(() => popupDraftKey(emptyPopupDraft()));
+  const dirty = popupDraftKey(draft) !== draftBaseline;
+  const { requestClose: confirmDiscard, dialog: discardDialog } = useDialogUnsavedGuard(dirty);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
   const [previewOpen, setPreviewOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -205,7 +222,9 @@ export function PopupsPanel({
   const patch = (changes: Partial<PopupDraft>) => setDraft((d) => ({ ...d, ...changes }));
 
   const resetForm = () => {
-    setDraft(emptyPopupDraft());
+    const next = emptyPopupDraft();
+    setDraft(next);
+    setDraftBaseline(popupDraftKey(next));
     setEditingId(null);
     setSelectedId(null);
     setFormMode('create');
@@ -213,8 +232,15 @@ export function PopupsPanel({
     setSubmitError('');
   };
 
-  const startEdit = (popup: InAppPopup) => {
-    setDraft(popupToDraft(popup, allCities));
+  const discardAndReset = async () => {
+    if (await confirmDiscard()) resetForm();
+  };
+
+  const startEdit = async (popup: InAppPopup) => {
+    if (!(await confirmDiscard())) return;
+    const next = popupToDraft(popup, allCities);
+    setDraft(next);
+    setDraftBaseline(popupDraftKey(next));
     setEditingId(popup.id);
     setSelectedId(popup.id);
     setFormMode('edit');
@@ -222,9 +248,12 @@ export function PopupsPanel({
     setSubmitError('');
   };
 
-  const startResend = (popup: InAppPopup) => {
+  const startResend = async (popup: InAppPopup) => {
     if (!canWrite) return;
-    setDraft(popupToDraft(popup, allCities));
+    if (!(await confirmDiscard())) return;
+    const next = popupToDraft(popup, allCities);
+    setDraft(next);
+    setDraftBaseline(popupDraftKey(next));
     setEditingId(null);
     setSelectedId(popup.id);
     setFormMode('resend');
@@ -338,7 +367,7 @@ export function PopupsPanel({
               <p className="text-[11px] text-gray-500">Once per user, in-app only</p>
             </div>
             {canWrite && (
-              <Button variant="ghost" size="icon-sm" onClick={resetForm} aria-label="New popup">
+              <Button variant="ghost" size="icon-sm" onClick={() => void discardAndReset()} aria-label="New popup">
                 <Plus className="w-4 h-4" />
               </Button>
             )}
@@ -614,7 +643,7 @@ export function PopupsPanel({
                 {!readOnly && (
                   <div className="flex flex-wrap items-center gap-2 pt-2">
                     {editingId && (
-                      <Button type="button" variant="outline" onClick={resetForm}>
+                      <Button type="button" variant="outline" onClick={() => void discardAndReset()}>
                         Cancel edit
                       </Button>
                     )}
@@ -744,6 +773,7 @@ export function PopupsPanel({
         error={deleteError}
         onConfirm={handleDelete}
       />
+      {discardDialog}
     </>
   );
 }

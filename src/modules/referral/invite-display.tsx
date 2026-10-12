@@ -13,6 +13,7 @@ export type InviteDisplayInput = {
   pendingExpiresAt?: string | null;
   planActivatedAt?: string | null;
   rewardExpiresAt?: string | null;
+  rewardKind?: string | null;
 };
 
 function statusOf(item: InviteDisplayInput) {
@@ -43,6 +44,17 @@ export function InviteRewardCell({
   /** When reward string already includes orphan grant extras. */
   primaryOverride?: string;
 }) {
+  if (item.rewardKind === 'free_extension') {
+    const months = Number(item.monthsGranted || 0);
+    return (
+      <div className="flex flex-wrap items-center gap-1.5 text-gray-700">
+        <span>{months > 1 ? `+${months} months` : '+1 month'}</span>
+        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+          No expiry
+        </span>
+      </div>
+    );
+  }
   const primary = primaryOverride ?? inviteRewardPrimary(item);
   const credited =
     Number(item.coinsCredited || 0) > 0 || Number(item.monthsGranted || 0) > 0;

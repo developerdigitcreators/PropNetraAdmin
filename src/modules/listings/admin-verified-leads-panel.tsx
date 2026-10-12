@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, Fragment } from 'react';
+import { useCallback, useEffect, useMemo, useState, Fragment, type ReactNode } from 'react';
+import { MaskedContact } from '@/components/contact/masked-contact';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { AdminDataTable } from '@/components/common/admin-data-table';
@@ -80,7 +81,7 @@ function DetailField({
   value,
 }: {
   label: string;
-  value?: string | null;
+  value?: ReactNode;
 }) {
   return (
     <div>
@@ -729,11 +730,15 @@ export function AdminVerifiedLeadsPanel() {
                           </span>
                         </button>
                       </td>
-                      <td className="px-4 py-3">{row.contact || '—'}</td>
+                      <td className="px-4 py-3">
+                        <MaskedContact value={row.contact} revealKey={`verified-leads:${row.id}:contact`} />
+                      </td>
                       <td className="px-4 py-3">{row.projectName || '—'}</td>
                       <td className="px-4 py-3">{row.leadUnitNo || '—'}</td>
                       <td className="px-4 py-3">{row.leadContactName || '—'}</td>
-                      <td className="px-4 py-3">{row.leadContactPhone || '—'}</td>
+                      <td className="px-4 py-3">
+                        <MaskedContact value={row.leadContactPhone} revealKey={`verified-leads:${row.id}:seller`} />
+                      </td>
                       <td className="px-4 py-3">{row.bhk || '—'}</td>
                       <td className="px-4 py-3">{row.city || '—'}</td>
                       <td className="px-4 py-3">{row.location || '—'}</td>
@@ -936,7 +941,14 @@ export function AdminVerifiedLeadsPanel() {
                   />
                   <DetailField
                     label="Seller phone"
-                    value={listingDetail.leadContactPhone}
+                    value={
+                      listingDetail.leadContactPhone ? (
+                        <MaskedContact
+                          value={listingDetail.leadContactPhone}
+                          revealKey={`verified-leads-detail:${listingDetail.id}:seller`}
+                        />
+                      ) : null
+                    }
                   />
                   <DetailField
                     label="Connected staff"
@@ -954,14 +966,17 @@ export function AdminVerifiedLeadsPanel() {
                   <DetailField
                     label="Owner"
                     value={
-                      listingDetail.ownerUser
-                        ? [
-                            listingDetail.ownerUser.name,
-                            listingDetail.ownerUser.contact,
-                          ]
-                            .filter(Boolean)
-                            .join(' · ')
-                        : null
+                      listingDetail.ownerUser ? (
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                          {listingDetail.ownerUser.name || null}
+                          {listingDetail.ownerUser.name && listingDetail.ownerUser.contact ? ' · ' : null}
+                          <MaskedContact
+                            value={listingDetail.ownerUser.contact}
+                            revealKey={`verified-leads-detail:${listingDetail.id}:owner`}
+                            empty=""
+                          />
+                        </span>
+                      ) : null
                     }
                   />
                 </div>

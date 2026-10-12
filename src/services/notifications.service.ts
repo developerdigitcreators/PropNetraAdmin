@@ -97,6 +97,8 @@ export type BroadcastPayload = {
   bodyFormat?: BroadcastBodyFormat;
   format: BroadcastFormat;
   imageUrl?: string;
+  expandedImageUrl?: string;
+  imageDisplay?: string;
   media?: BroadcastMedia[];
   ctas?: BroadcastCta[];
   linkType?: BroadcastLinkType;
@@ -158,6 +160,8 @@ export type NotificationCampaign = {
   pushSuccessCount: number;
   errorMessage?: string | null;
   imageUrl?: string | null;
+  expandedImageUrl?: string | null;
+  imageDisplay?: string | null;
   cardTitle?: string | null;
   cardBody?: string | null;
   bodyFormat?: string | null;
@@ -194,6 +198,8 @@ export type UpdateCampaignPayload = {
   bodyFormat?: BroadcastBodyFormat;
   format?: BroadcastFormat;
   imageUrl?: string;
+  expandedImageUrl?: string | null;
+  imageDisplay?: string | null;
   media?: BroadcastMedia[];
   ctas?: BroadcastCta[];
   linkType?: BroadcastLinkType;
@@ -457,6 +463,9 @@ export const DEFAULT_PUSH_LAYOUT_TYPES: BroadcastKeyLabel[] = [
   { key: 'COUNTDOWN', label: 'Countdown' },
   { key: 'MULTI_ACTION', label: 'Multi-action' },
   { key: 'PROGRESS', label: 'Progress' },
+  { key: 'BANNER_ONLY', label: 'Banner only' },
+  { key: 'EXPANDABLE_IMAGE', label: 'Expandable image' },
+  { key: 'RIGHT_THUMBNAIL', label: 'Right thumbnail' },
 ];
 
 function str(value: unknown): string {
@@ -763,7 +772,14 @@ export function normalizeBroadcastOptions(raw: unknown): BroadcastOptions {
       label: item.label,
     }))
     .filter((item) =>
-      ['COUNTDOWN', 'MULTI_ACTION', 'PROGRESS'].includes(item.key),
+      [
+        'COUNTDOWN',
+        'MULTI_ACTION',
+        'PROGRESS',
+        'BANNER_ONLY',
+        'EXPANDABLE_IMAGE',
+        'RIGHT_THUMBNAIL',
+      ].includes(item.key),
     );
   const channels = adminBroadcastChannels(asChannels(nested.channels || nested.channel));
   return {
@@ -879,6 +895,8 @@ export function normalizeCampaign(raw: unknown): NotificationCampaign {
       ) || 0,
     errorMessage: str(n.errorMessage || n.error_message) || null,
     imageUrl: str(n.imageUrl || n.image_url) || null,
+    expandedImageUrl: str(n.expandedImageUrl || n.expanded_image_url) || null,
+    imageDisplay: str(n.imageDisplay || n.image_display) || null,
     cardTitle: str(n.cardTitle || n.card_title) || null,
     cardBody: str(n.cardBody || n.card_body) || null,
     bodyFormat: str(n.bodyFormat || n.body_format) || null,
@@ -1642,6 +1660,8 @@ export const notificationsService = {
     title: string;
     body?: string;
     imageUrl?: string;
+    expandedImageUrl?: string;
+    imageDisplay?: string;
     layoutType?: string;
     linkType?: BroadcastLinkType;
     listingId?: string;

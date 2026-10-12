@@ -17,7 +17,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { BroadcastKeyLabel } from "@/services/notifications.service";
+import { ImageUrlOrUpload } from "@/components/image-url-or-upload";
 import { LinkPickerDialog, LinkTypeToggle, type LinkSelection } from "./link-picker";
+import {
+  isPushTemplate,
+  normalizeImageDisplay,
+  PUSH_IMAGE_DISPLAY_OPTIONS,
+  PUSH_TEMPLATE_LAYOUTS,
+  PUSH_TEMPLATE_META,
+  templateSupportsExpanded,
+  type PushImageDisplay,
+  type PushTemplateLayout,
+} from "./push-templates";
 import { X } from "lucide-react";
 
 export type PushLayoutType =
@@ -27,6 +38,7 @@ export type PushLayoutType =
   | "COUNTDOWN"
   | "MULTI_ACTION"
   | "PROGRESS"
+  | PushTemplateLayout
   | "AUTO";
 
 export type PushActionDraft = {
@@ -44,6 +56,10 @@ export type PushLayoutDraft = {
   progressMax?: number;
   progress?: number;
   progressIndeterminate?: boolean;
+  /** BANNER_ONLY / EXPANDABLE_IMAGE expanded view; falls back to the attached image. */
+  expandedImageUrl?: string;
+  /** EXPANDABLE_IMAGE: where the image shows. */
+  imageDisplay?: PushImageDisplay;
 };
 
 type LayoutOption = { key: string; label: string };
@@ -63,9 +79,18 @@ const DEFAULT_OPTIONS: LayoutOption[] = [
   { key: "COUNTDOWN", label: "Countdown" },
   { key: "MULTI_ACTION", label: "Multi-action" },
   { key: "PROGRESS", label: "Progress" },
+  ...PUSH_TEMPLATE_LAYOUTS.map((key) => ({
+    key,
+    label: PUSH_TEMPLATE_META[key].label,
+  })),
 ];
 
-const SPECIAL_LAYOUTS = new Set(["COUNTDOWN", "MULTI_ACTION", "PROGRESS"]);
+const SPECIAL_LAYOUTS = new Set<string>([
+  "COUNTDOWN",
+  "MULTI_ACTION",
+  "PROGRESS",
+  ...PUSH_TEMPLATE_LAYOUTS,
+]);
 
 // Color layout hidden from admin for now.
 // function hasColorMarkup(value?: string) {
@@ -138,6 +163,15 @@ export function toBroadcastPushFields(
       payload.progress = draft.progress ?? 0;
     }
   }
+  const imageDisplay = normalizeImageDisplay(draft.imageDisplay);
+  if (
+    templateSupportsExpanded(layoutType) &&
+    draft.expandedImageUrl?.trim() &&
+    !(layoutType === "EXPANDABLE_IMAGE" && imageDisplay === "collapsed")
+  ) {
+    payload.expandedImageUrl = draft.expandedImageUrl.trim();
+  }
+  if (layoutType === "EXPANDABLE_IMAGE") payload.imageDisplay = imageDisplay;
   return payload;
 }
 
@@ -360,9 +394,60 @@ export function PushLayoutComposer({
         </div>
       )}
 
+      {isPushTemplate(resolved) && (
+        <div className="space-y-2 rounded-lg border border-gray-100 bg-gray-50/60 p-2.5">
+          <p className="text-[11px] text-gray-600">
+            {PUSH_TEMPLATE_META[resolved].description}
+          </p>
+          <p
+            className={
+              imageUrl ? "text-[11px] text-gray-500" : "text-[11px] text-red-600"
+            }
+          >
+            {imageUrl
+              ? `Tray image: the attached image (recommended ${PUSH_TEMPLATE_META[resolved].recommendedSize}).`
+              : `Attach an image with the Image button below (recommended ${PUSH_TEMPLATE_META[resolved].recommendedSize}).`}
+          </p>
+          {resolved === "EXPANDABLE_IMAGE" && (
+            <label className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+              Where to show the image
+              <select
+                className="h-8 rounded-lg border border-input bg-white px-2 py-1 text-sm text-gray-800"
+                value={normalizeImageDisplay(value.imageDisplay)}
+                onChange={(e) =>
+                  set({ imageDisplay: normalizeImageDisplay(e.target.value) })
+                }
+              >
+                {PUSH_IMAGE_DISPLAY_OPTIONS.map((o) => (
+                  <option key={o.key} value={o.key}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {PUSH_TEMPLATE_META[resolved].supportsExpanded &&
+            !(
+              resolved === "EXPANDABLE_IMAGE" &&
+              normalizeImageDisplay(value.imageDisplay) === "collapsed"
+            ) && (
+            <ImageUrlOrUpload
+              label="Expanded image (optional)"
+              value={value.expandedImageUrl || ""}
+              onChange={(url) => set({ expandedImageUrl: url })}
+              kind="popup"
+              recommendedSize="1024×512"
+              placeholder="https://cdn.example.com/expanded.jpg"
+              hint="Shown when the notification is expanded. Empty = same as the tray image."
+              previewClassName="mt-2 max-h-24 rounded-xl object-cover"
+            />
+          )}
+        </div>
+      )}
+
       <p className="text-[11px] text-gray-400">
         Image / PDF / Video buttons stay at the bottom of this composer.
-        Countdown, multi-action, and progress add extra fields here.
+        Countdown, multi-action, progress and image templates add extra fields here.
       </p>
     </div>
   );

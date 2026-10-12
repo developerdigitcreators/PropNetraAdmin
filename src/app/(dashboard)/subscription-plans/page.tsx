@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
+import { useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { Button } from '@/components/ui/button';
@@ -53,6 +54,15 @@ function FeatureChip({ enabled, label }: { enabled: boolean; label: string }) {
       {enabled ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
       {label}
     </span>
+  );
+}
+
+function DummyPriceLine({ paise }: { paise: number | null }) {
+  return (
+    <p className="mt-1 text-sm text-gray-500">
+      Dummy price:{' '}
+      {paise != null ? <span className="line-through">{formatInrFromPaise(paise)}</span> : '—'}
+    </p>
   );
 }
 
@@ -117,6 +127,7 @@ function PlanCard({
             )}
           </p>
         ) : null}
+        <DummyPriceLine paise={plan.dummyPricePaise} />
         {plan.trialDays != null ? (
           <p className="mt-1 text-sm text-gray-600">Trial: {plan.trialDays} days</p>
         ) : null}
@@ -268,6 +279,7 @@ function DbfPlanCard({
               )}
             </p>
           ) : null}
+          <DummyPriceLine paise={plan.dummyPricePaise} />
         </div>
       ) : null}
 
@@ -337,6 +349,8 @@ export default function SubscriptionPlansPage() {
   const [formError, setFormError] = useState('');
   const [resyncing, setResyncing] = useState(false);
   const [tab, setTab] = useState<'agent' | 'dbf' | 'developer'>('agent');
+  const [cityAddonDirty, setCityAddonDirty] = useState(false);
+  const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({ dirty: cityAddonDirty });
   const viewerSwitches = useViewerSwitches();
   const agentPlans = plans.filter((p) => p.audience === 'agent');
   const dbfPlans = plans.filter((p) => p.audience === 'dbf');
@@ -433,7 +447,7 @@ export default function SubscriptionPlansPage() {
                 onClick={() => setBannerOpen(true)}
               >
                 <ImageIcon className="mr-1.5 size-3.5" />
-                Set upgrade / unlock banner
+                + Add banner
               </Button>
             ) : null}
             {canUpdate ? (
@@ -473,7 +487,12 @@ export default function SubscriptionPlansPage() {
 
         <Tabs
           value={tab}
-          onValueChange={(v) => setTab(v === 'dbf' || v === 'developer' ? v : 'agent')}
+          onValueChange={async (v) => {
+            const next = v === 'dbf' || v === 'developer' ? v : 'agent';
+            if (next === tab || !(await confirmLeave())) return;
+            setCityAddonDirty(false);
+            setTab(next);
+          }}
         >
           <TabsList>
             <TabsTrigger value="agent">Agent subscription</TabsTrigger>
@@ -538,6 +557,7 @@ export default function SubscriptionPlansPage() {
               loading={loading}
               canUpdate={canUpdate}
               onEdit={openEdit}
+              onDirtyChange={setCityAddonDirty}
             />
           </TabsContent>
         </Tabs>
@@ -556,6 +576,7 @@ export default function SubscriptionPlansPage() {
           canUpdate={canUpdate}
         />
       </div>
+      {unsavedDialog}
     </PermissionGuard>
   );
 }

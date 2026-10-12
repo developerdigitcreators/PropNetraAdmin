@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { MaskedContact } from '@/components/contact/masked-contact';
 import { SearchableSelect } from '@/components/common/searchable-select';
 import { Button } from '@/components/ui/button';
 import {
@@ -30,8 +31,8 @@ type GeneralInboxPanelProps = {
   onWatchUser: (userId: string) => void;
 };
 
-function userLabel(user: Pick<InboxUser, 'name' | 'contact' | 'email'>) {
-  return [user.name, user.contact || user.email].filter(Boolean).join(' · ');
+function userLabel(user: Pick<InboxUser, 'name' | 'email'>) {
+  return [user.name, user.email].filter(Boolean).join(' · ');
 }
 
 function sameLead(a: InboxMessage, b: InboxMessage) {
@@ -302,10 +303,27 @@ export function GeneralInboxPanel({
               <p className="truncate text-sm font-semibold text-gray-900">
                 {userId ? threadTitle : 'Select a user'}
               </p>
-              <p className="truncate text-[11px] text-gray-500">
-                {selectedUser
-                  ? `${selectedUser.name} · ${selectedUser.contact || selectedUser.email} · live`
-                  : 'Pick a user above to load their inbox'}
+              <p className="flex min-w-0 items-center gap-1 truncate text-[11px] text-gray-500">
+                {selectedUser ? (
+                  <>
+                    <span className="truncate">{selectedUser.name}</span>
+                    {selectedUser.contact ? (
+                      <>
+                        <span>·</span>
+                        <MaskedContact
+                          value={selectedUser.contact}
+                          revealKey={`general-inbox:${selectedUser.id}:contact`}
+                          empty=""
+                        />
+                      </>
+                    ) : selectedUser.email ? (
+                      <span className="truncate">· {selectedUser.email}</span>
+                    ) : null}
+                    <span>· live</span>
+                  </>
+                ) : (
+                  'Pick a user above to load their inbox'
+                )}
               </p>
             </div>
           </div>

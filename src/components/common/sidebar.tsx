@@ -29,6 +29,7 @@ import {
   ClipboardList,
   ToggleRight,
   KeyRound,
+  TrendingUp,
 } from "lucide-react";
 import { useIsSuperAdmin } from "@/hooks/use-is-super-admin";
 import { PermissionGuard } from "@/components/common/permission-guard";
@@ -222,7 +223,7 @@ const MENU_ITEMS: MenuItem[] = [
     permission: "subscriptions:read",
   },
   {
-    name: "Referral Overview",
+    name: "Client Referral Overview",
     path: "/referral-overview",
     icon: Gift,
     permission: "subscriptions:read",
@@ -232,6 +233,12 @@ const MENU_ITEMS: MenuItem[] = [
     path: "/referral-sale",
     icon: Gift,
     permission: "referral_sale:read",
+  },
+  {
+    name: "Sales Team Performance",
+    path: "/sales-team-performance",
+    icon: TrendingUp,
+    permission: "sales_team_performance:read",
   },
   {
     name: "Feedback",

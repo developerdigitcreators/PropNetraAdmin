@@ -11,6 +11,16 @@ import {
 import { SearchableSelect } from "@/components/common/searchable-select";
 import { ImageUrlOrUpload } from "@/components/image-url-or-upload";
 import { FormattedTextField } from "@/modules/notifications/chat/formatted-text-field";
+import { PushTemplatePreview } from "@/modules/notifications/chat/push-template-preview";
+import {
+  isPushTemplate,
+  normalizeImageDisplay,
+  PUSH_IMAGE_DISPLAY_OPTIONS,
+  PUSH_TEMPLATE_META,
+  templateSupportsExpanded,
+  type PushImageDisplay,
+  type PushTemplateLayout,
+} from "@/modules/notifications/chat/push-templates";
 import {
   linksAreValid,
   linksToBroadcastCtas,
@@ -54,12 +64,22 @@ function parseNamedPlaces(data: unknown): NamedPlace[] {
     .filter(Boolean) as NamedPlace[];
 }
 
-type PushStyle = "default" | "lead_interest";
+type PushStyle = "default" | "lead_interest" | PushTemplateLayout;
+
+const STYLE_LABELS: Record<PushStyle, string> = {
+  default: "Default",
+  lead_interest: "Lead interest (inquiry)",
+  BANNER_ONLY: PUSH_TEMPLATE_META.BANNER_ONLY.label,
+  EXPANDABLE_IMAGE: PUSH_TEMPLATE_META.EXPANDABLE_IMAGE.label,
+  RIGHT_THUMBNAIL: PUSH_TEMPLATE_META.RIGHT_THUMBNAIL.label,
+};
 
 type PushDraft = {
   title: string;
   body: string;
   imageUrl: string;
+  expandedImageUrl: string;
+  imageDisplay: PushImageDisplay;
   links: LinkCtaRow[];
   targetMode: "global" | "city";
   stateId: string;
@@ -72,6 +92,8 @@ const emptyDraft = (): PushDraft => ({
   title: "",
   body: "",
   imageUrl: "",
+  expandedImageUrl: "",
+  imageDisplay: "both",
   links: [],
   targetMode: "global",
   stateId: "",
@@ -84,10 +106,20 @@ type PushPanelProps = {
   pages: BroadcastKeyLabel[];
   canWrite: boolean;
   onToast: (message: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
-export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
+const EMPTY_DRAFT_KEY = JSON.stringify(emptyDraft());
+
+export function PushPanel({ pages, canWrite, onToast, onDirtyChange }: PushPanelProps) {
   const [draft, setDraft] = useState<PushDraft>(emptyDraft);
+  const dirty = JSON.stringify(draft) !== EMPTY_DRAFT_KEY;
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   const [states, setStates] = useState<NamedPlace[]>([]);
   const [cities, setCities] = useState<NamedPlace[]>([]);
   const [audiences, setAudiences] = useState<BroadcastKeyLabel[]>([]);
@@ -184,6 +216,9 @@ export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
   const errors = (() => {
     const list: string[] = [];
     if (!draft.title.trim()) list.push("Title is required.");
+    if (isPushTemplate(draft.style) && !draft.imageUrl.trim()) {
+      list.push(`Add an image for the ${STYLE_LABELS[draft.style]} template.`);
+    }
     if (!linksAreValid(draft.links)) {
       list.push("Each link needs a listing (post) or page selected.");
     }
@@ -205,11 +240,20 @@ export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
       const primary = primaryFromLinks(draft.links);
       const ctas = linksToBroadcastCtas(draft.links);
       const isLead = draft.style === "lead_interest";
+      const template = isPushTemplate(draft.style) ? draft.style : null;
       const result = await notificationsService.sendPushOnly({
         title: draft.title.trim(),
         ...(draft.body.trim() ? { body: draft.body.trim() } : {}),
         ...(draft.imageUrl.trim() ? { imageUrl: draft.imageUrl.trim() } : {}),
         ...(isLead ? { layoutType: "LEAD_INTEREST" } : {}),
+        ...(template ? { layoutType: template } : {}),
+        ...(template &&
+        templateSupportsExpanded(template) &&
+        draft.expandedImageUrl.trim() &&
+        !(template === "EXPANDABLE_IMAGE" && draft.imageDisplay === "collapsed")
+          ? { expandedImageUrl: draft.expandedImageUrl.trim() }
+          : {}),
+        ...(template === "EXPANDABLE_IMAGE" ? { imageDisplay: draft.imageDisplay } : {}),
         linkType: primary.linkType,
         ...(primary.linkType === "post" && primary.listingId
           ? { listingId: primary.listingId }
@@ -266,25 +310,32 @@ export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
           <Select
             value={draft.style}
             onValueChange={(v) =>
-              patch({ style: v === "lead_interest" ? "lead_interest" : "default" })
+              patch({
+                style:
+                  v && v in STYLE_LABELS ? (v as PushStyle) : "default",
+              })
             }
           >
             <SelectTrigger className="w-full">
-              {draft.style === "lead_interest"
-                ? "Lead interest (inquiry)"
-                : "Default"}
+              {STYLE_LABELS[draft.style]}
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="default">Default</SelectItem>
-              <SelectItem value="lead_interest">
-                Lead interest (inquiry)
-              </SelectItem>
+              {(Object.keys(STYLE_LABELS) as PushStyle[]).map((key) => (
+                <SelectItem key={key} value={key}>
+                  {STYLE_LABELS[key]}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           {draft.style === "lead_interest" ? (
             <p className="text-[11px] text-gray-500">
               Tray shows circular profile photo + app badge. Title = name,
               message = listing line, image = photo.
+            </p>
+          ) : isPushTemplate(draft.style) ? (
+            <p className="text-[11px] text-gray-500">
+              {PUSH_TEMPLATE_META[draft.style].description} Android only; iOS
+              shows title, message and the image.
             </p>
           ) : null}
         </div>
@@ -320,12 +371,25 @@ export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
             label={
               draft.style === "lead_interest"
                 ? "Profile photo"
-                : "Image (optional)"
+                : isPushTemplate(draft.style)
+                  ? draft.style === "BANNER_ONLY"
+                    ? "Banner image"
+                    : draft.style === "RIGHT_THUMBNAIL"
+                      ? "Thumbnail image"
+                      : "Image"
+                  : "Image (optional)"
             }
             value={draft.imageUrl}
             onChange={(url) => patch({ imageUrl: url })}
             kind="popup"
-            recommendedSize={draft.style === "lead_interest" ? "400×400" : "1024×512"}
+            required={isPushTemplate(draft.style)}
+            recommendedSize={
+              draft.style === "lead_interest"
+                ? "400×400"
+                : isPushTemplate(draft.style)
+                  ? PUSH_TEMPLATE_META[draft.style].recommendedSize
+                  : "1024×512"
+            }
             placeholder="https://cdn.example.com/banner.jpg"
             hint={
               draft.style === "lead_interest"
@@ -335,6 +399,63 @@ export function PushPanel({ pages, canWrite, onToast }: PushPanelProps) {
             previewClassName="mt-2 max-h-32 rounded-2xl object-cover"
           />
         </div>
+
+        {draft.style === "EXPANDABLE_IMAGE" ? (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-gray-700">
+              Where to show the image
+            </label>
+            <Select
+              value={draft.imageDisplay}
+              onValueChange={(v) => patch({ imageDisplay: normalizeImageDisplay(v) })}
+              disabled={!canWrite}
+            >
+              <SelectTrigger className="w-full">
+                {
+                  PUSH_IMAGE_DISPLAY_OPTIONS.find((o) => o.key === draft.imageDisplay)
+                    ?.label
+                }
+              </SelectTrigger>
+              <SelectContent>
+                {PUSH_IMAGE_DISPLAY_OPTIONS.map((o) => (
+                  <SelectItem key={o.key} value={o.key}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
+
+        {templateSupportsExpanded(draft.style) &&
+        !(draft.style === "EXPANDABLE_IMAGE" && draft.imageDisplay === "collapsed") ? (
+          <div className="space-y-1.5">
+            <ImageUrlOrUpload
+              label="Expanded image (optional)"
+              value={draft.expandedImageUrl}
+              onChange={(url) => patch({ expandedImageUrl: url })}
+              kind="popup"
+              recommendedSize="1024×512"
+              placeholder="https://cdn.example.com/expanded.jpg"
+              hint="Shown when the notification is expanded. Empty = same as the image above."
+              previewClassName="mt-2 max-h-32 rounded-2xl object-cover"
+            />
+          </div>
+        ) : null}
+
+        {isPushTemplate(draft.style) ? (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-gray-700">Preview</label>
+            <PushTemplatePreview
+              layoutType={draft.style}
+              title={draft.title}
+              body={draft.body}
+              imageUrl={draft.imageUrl.trim() || undefined}
+              expandedImageUrl={draft.expandedImageUrl.trim() || undefined}
+              imageDisplay={draft.imageDisplay}
+            />
+          </div>
+        ) : null}
 
         <MultiLinkCtaEditor
           links={draft.links}

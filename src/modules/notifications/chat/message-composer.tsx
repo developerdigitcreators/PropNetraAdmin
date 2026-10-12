@@ -251,6 +251,8 @@ export function MessageComposer({
                   progressMax: next.progressMax ?? 100,
                   progress: next.progress ?? 0,
                   progressIndeterminate: next.progressIndeterminate === true,
+                  expandedImageUrl: next.expandedImageUrl || "",
+                  imageDisplay: next.imageDisplay || "both",
                 })
               }
             />
@@ -306,6 +308,8 @@ export function MessageComposer({
                   progressMax: next.progressMax ?? 100,
                   progress: next.progress ?? 0,
                   progressIndeterminate: next.progressIndeterminate === true,
+                  expandedImageUrl: next.expandedImageUrl || "",
+                  imageDisplay: next.imageDisplay || "both",
                 })
               }
             />

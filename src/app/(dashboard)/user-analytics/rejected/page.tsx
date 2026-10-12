@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { MaskedContact } from '@/components/contact/masked-contact';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { AdminDataTable } from '@/components/common/admin-data-table';
@@ -154,7 +155,9 @@ export default function RejectedUsersPage() {
                     <td className="px-5 py-4">
                       <p className="font-medium text-gray-900">{user.name || '—'}</p>
                       <p className="text-xs text-gray-500">{user.email || '—'}</p>
-                      <p className="text-xs text-gray-400">{user.contact || '—'}</p>
+                      <p className="text-xs text-gray-400">
+                        <MaskedContact value={user.contact} revealKey={`user-rejected:${user.id}:contact`} />
+                      </p>
                     </td>
                     <td className="px-5 py-4">
                       {roleName ? (

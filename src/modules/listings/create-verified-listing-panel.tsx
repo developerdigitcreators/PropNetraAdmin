@@ -203,8 +203,12 @@ export function CreateVerifiedListingPanel() {
   }, [loadingCategories, formSnapshot, baseline]);
 
   const dirty = Boolean(baseline) && formSnapshot !== baseline;
+  const [salesTeamDirty, setSalesTeamDirty] = useState(false);
+  const [brandingDirty, setBrandingDirty] = useState(false);
 
-  const { dialog } = useUnsavedChangesGuard({ dirty });
+  const { dialog } = useUnsavedChangesGuard({
+    dirty: dirty || salesTeamDirty || brandingDirty,
+  });
 
   const applySalesTeam = useCallback(
     (members: StaffAssignee[]) => {
@@ -692,8 +696,16 @@ export function CreateVerifiedListingPanel() {
 
         {superAdmin ? (
           <>
-            <SalesTeamCard onSaved={applySalesTeam} onToast={showToast} />
-            <RealtyAvenueBrandingCard canEdit onToast={showToast} />
+            <SalesTeamCard
+              onSaved={applySalesTeam}
+              onToast={showToast}
+              onDirtyChange={setSalesTeamDirty}
+            />
+            <RealtyAvenueBrandingCard
+              canEdit
+              onToast={showToast}
+              onDirtyChange={setBrandingDirty}
+            />
           </>
         ) : null}
 

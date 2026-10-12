@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuthStore } from "@/store/use-auth-store";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import {
   notificationsService,
   notificationApiError,
@@ -72,6 +73,37 @@ export default function NotificationsPage() {
   const [toast, setToast] = useState("");
   const [loadError, setLoadError] = useState("");
   const [activeTab, setActiveTab] = useState("groups");
+  const [composerBaseline, setComposerBaseline] = useState(() =>
+    composerKey(emptyDraft(), false),
+  );
+  const [panelDirty, setPanelDirty] = useState<Record<string, boolean>>({});
+  const composerDirty = composerKey(draft, !!editingId) !== composerBaseline;
+  const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({
+    dirty: composerDirty || Object.values(panelDirty).some(Boolean),
+  });
+  const setPopupsDirty = useCallback(
+    (dirty: boolean) => setPanelDirty((p) => (p.popups === dirty ? p : { ...p, popups: dirty })),
+    [],
+  );
+  const setPushDirty = useCallback(
+    (dirty: boolean) => setPanelDirty((p) => (p.push === dirty ? p : { ...p, push: dirty })),
+    [],
+  );
+  const setDevGroupsDirty = useCallback(
+    (dirty: boolean) =>
+      setPanelDirty((p) => (p.devGroups === dirty ? p : { ...p, devGroups: dirty })),
+    [],
+  );
+  const switchTab = async (next: string) => {
+    if (next === activeTab) return;
+    const leavingDirty =
+      (activeTab === "groups" && composerDirty) ||
+      (activeTab === "popups" && panelDirty.popups) ||
+      (activeTab === "push" && panelDirty.push) ||
+      (activeTab === "developer-groups" && panelDirty.devGroups);
+    if (leavingDirty && !(await confirmLeave())) return;
+    setActiveTab(next);
+  };
   const [watchUserId, setWatchUserId] = useState("");
   const onWatchUser = useCallback((userId: string) => setWatchUserId(userId), []);
 
@@ -189,18 +221,26 @@ export default function NotificationsPage() {
   };
 
   const resetComposer = () => {
-    setDraft(emptyDraft(cityId ? [cityId] : []));
+    const next = emptyDraft(cityId ? [cityId] : []);
+    setDraft(next);
+    setComposerBaseline(composerKey(next, false));
     setEditingId(null);
   };
 
-  const startEdit = (campaign: NotificationCampaign) => {
-    setDraft(campaignToDraft(campaign));
+  const startEdit = async (campaign: NotificationCampaign) => {
+    if (composerDirty && !(await confirmLeave())) return;
+    const next = campaignToDraft(campaign);
+    setDraft(next);
+    setComposerBaseline(composerKey(next, true));
     setEditingId(campaign.id);
     setShowThreadOnMobile(true);
   };
 
-  const startResend = (campaign: NotificationCampaign) => {
-    setDraft(campaignToDraft(campaign));
+  const startResend = async (campaign: NotificationCampaign) => {
+    if (composerDirty && !(await confirmLeave())) return;
+    const next = campaignToDraft(campaign);
+    setDraft(next);
+    setComposerBaseline(composerKey(next, false));
     setEditingId(null);
     setSubmitError("");
     setPreviewOpen(true);
@@ -288,7 +328,7 @@ export default function NotificationsPage() {
           </div>
         )}
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={(v) => void switchTab(String(v))}>
           <TabsList className="h-auto border bg-white p-1 shadow-sm">
             <TabsTrigger
               value="groups"
@@ -479,6 +519,7 @@ export default function NotificationsPage() {
               canDelete={canDelete}
               popupsTick={popupsTick}
               onToast={showToast}
+              onDirtyChange={setPopupsDirty}
             />
           </TabsContent>
 
@@ -487,6 +528,7 @@ export default function NotificationsPage() {
               pages={pages}
               canWrite={canWrite}
               onToast={showToast}
+              onDirtyChange={setPushDirty}
             />
           </TabsContent>
 
@@ -505,6 +547,7 @@ export default function NotificationsPage() {
               canUpdate={canUpdate}
               canDelete={canDelete}
               onToast={showToast}
+              onDirtyChange={setDevGroupsDirty}
             />
           </TabsContent>
         </Tabs>
@@ -521,6 +564,12 @@ export default function NotificationsPage() {
         onClose={() => setPreviewOpen(false)}
         onConfirm={confirmSubmit}
       />
+      {unsavedDialog}
     </PermissionGuard>
   );
+}
+
+/** cityIds are auto-filled from the selected city while composing, so ignore them unless editing. */
+function composerKey(draft: BroadcastDraft, editing: boolean) {
+  return JSON.stringify(editing ? draft : { ...draft, cityIds: [] });
 }

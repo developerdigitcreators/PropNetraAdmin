@@ -161,6 +161,7 @@ export type SubscriptionPlanItem = {
   billingPeriod: string | null;
   promoPricePaise: number | null;
   promoWindowDays: number | null;
+  dummyPricePaise: number | null;
   audience: PlanAudience;
   flags: PlanFlags;
   limits: PlanLimits | null;
@@ -266,6 +267,7 @@ export type UpdatePlanPayload = {
   billingPeriod?: string | null;
   promoPricePaise?: number | null;
   promoWindowDays?: number | null;
+  dummyPricePaise?: number | null;
   addonsEnabled?: boolean;
   listingPriorityEnabled?: boolean;
   listingBoostEnabled?: boolean;
@@ -500,6 +502,7 @@ export function normalizePlan(raw: unknown): SubscriptionPlanItem | null {
     billingPeriod: pickString(row.billingPeriod, row.billing_period) || null,
     promoPricePaise: asNumOrNull(row.promoPricePaise ?? row.promo_price_paise),
     promoWindowDays: asNumOrNull(row.promoWindowDays ?? row.promo_window_days),
+    dummyPricePaise: asNumOrNull(row.dummyPricePaise ?? row.dummy_price_paise),
     audience:
       pickString(row.audience) === 'dbf' || isDbfPlanCode(code)
         ? 'dbf'

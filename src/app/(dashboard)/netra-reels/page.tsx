@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
+import { useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { AdminDataTable } from '@/components/common/admin-data-table';
@@ -54,6 +55,11 @@ export default function NetraReelsPage() {
   const [settingsDraft, setSettingsDraft] = useState({ validityHours: '', maxActivePerDeveloper: '' });
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState('');
+  const settingsDirty =
+    !!launchSettings &&
+    (settingsDraft.validityHours !== String(launchSettings.validityHours) ||
+      settingsDraft.maxActivePerDeveloper !== String(launchSettings.maxActivePerDeveloper));
+  const { dialog: unsavedDialog } = useUnsavedChangesGuard({ dirty: settingsDirty });
 
   const loadLaunchSettings = useCallback(async () => {
     try {
@@ -446,6 +452,7 @@ export default function NetraReelsPage() {
         submitting={deleting}
         onConfirm={handleDelete}
       />
+      {unsavedDialog}
     </PermissionGuard>
   );
 }

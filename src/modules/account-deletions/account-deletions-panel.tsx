@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { MaskedContact } from '@/components/contact/masked-contact';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { AdminDataTable } from '@/components/common/admin-data-table';
@@ -286,7 +287,7 @@ export function AccountDeletionsPanel() {
                               {row.user?.email || '—'}
                             </p>
                             <p className="truncate text-xs text-gray-400">
-                              {row.user?.contact || '—'}
+                              <MaskedContact value={row.user?.contact} revealKey={`account-deletions:${row.id}:user`} />
                             </p>
                           </div>
                         </div>
@@ -344,7 +345,9 @@ export function AccountDeletionsPanel() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">User</p>
                 <p className="mt-1 font-medium text-gray-900">{detail.user?.name || 'Unknown'}</p>
                 <p className="text-sm text-gray-500">{detail.user?.email || '—'}</p>
-                <p className="text-sm text-gray-400">{detail.user?.contact || '—'}</p>
+                <p className="text-sm text-gray-400">
+                  <MaskedContact value={detail.user?.contact} revealKey={`account-deletions-detail:${detail.id}:user`} />
+                </p>
                 {detail.user?.status ? (
                   <p className="mt-2 text-xs text-gray-500">
                     Account status: <span className="font-medium">{detail.user.status}</span>

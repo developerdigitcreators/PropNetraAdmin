@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { MaskedContact } from '@/components/contact/masked-contact';
 import { useAuthStore } from '@/store/use-auth-store';
 import { formatDisplayDateTime } from '@/lib/format-date';
 import {
@@ -87,9 +88,14 @@ export function ListingFeedbackList({ listingId, ownerUserId, showListing, title
                       : ''}
                   </p>
                 )}
-                <p className="text-xs text-gray-500">
+                <p className="flex flex-wrap items-center gap-1 text-xs text-gray-500">
                   Agent: {row.agent.name || '—'}
-                  {row.agent.contact ? ` · ${row.agent.contact}` : ''}
+                  {row.agent.contact ? (
+                    <>
+                      {' · '}
+                      <MaskedContact value={row.agent.contact} revealKey={`listing-feedback-list:${row.id}:agent`} />
+                    </>
+                  ) : null}
                 </p>
                 {issues.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-1">

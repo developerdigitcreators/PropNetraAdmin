@@ -16,9 +16,11 @@ import {
 export function RealtyAvenueBrandingCard({
   canEdit,
   onToast,
+  onDirtyChange,
 }: {
   canEdit: boolean;
   onToast: ShowToast;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [branding, setBranding] = useState<RealtyAvenueBranding | null>(null);
   const [draft, setDraft] = useState("");
@@ -66,6 +68,10 @@ export function RealtyAvenueBrandingCard({
   const currentLogo = branding?.logoUrl || null;
   const trimmed = draft.trim();
   const dirty = trimmed !== (currentLogo || "");
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   return (
     <section className="space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">

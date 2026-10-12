@@ -116,6 +116,20 @@ export const developerSimilarProjectsService = {
       .filter((p): p is DevProjectPreview => !!p);
   },
 
+  /** Every published Developer project (backend caps each page at 50). */
+  listAllPosts: async (): Promise<DevProjectPreview[]> => {
+    const pageSize = 50;
+    const all: DevProjectPreview[] = [];
+    for (let page = 1; page <= 40; page += 1) {
+      const res = await axiosClient.get(`${BASE}/posts`, { params: { page, limit: pageSize } });
+      const rows = asArray(res.data);
+      const total = Number(asRecord(unwrap(res.data))?.total) || 0;
+      all.push(...rows.map(normalizeProject).filter((p): p is DevProjectPreview => !!p));
+      if (rows.length < pageSize || (total && all.length >= total)) break;
+    }
+    return all;
+  },
+
   getSet: async (listingId: string): Promise<DevSimilarSet> => {
     const res = await axiosClient.get(`${BASE}/${listingId}`);
     return normalizeSet(res.data);

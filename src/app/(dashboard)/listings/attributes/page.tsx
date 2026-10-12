@@ -15,6 +15,7 @@ import { SortableTableBody } from '@/components/common/sortable-list';
 import { withCount } from '@/lib/filter-label';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
 import { ImageUrlOrUpload } from '@/components/image-url-or-upload';
+import { useDialogUnsavedGuard, useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 
 type AttributeRef = {
   id: string;
@@ -217,6 +218,13 @@ export default function AttributesPage() {
   const [isMultiSelectOpen, setIsMultiSelectOpen] = useState(false);
 
   const [formData, setFormData] = useState<AttributeFormData>(EMPTY_FORM);
+  const [formBaseline, setFormBaseline] = useState('');
+  const formDirty = isModalOpen && formBaseline !== '' && JSON.stringify(formData) !== formBaseline;
+  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(formDirty);
+  const { dialog: leaveDialog } = useUnsavedChangesGuard({ dirty: formDirty });
+  const closeModal = async () => {
+    if (await requestClose()) setIsModalOpen(false);
+  };
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -271,13 +279,18 @@ export default function AttributesPage() {
     init();
   }, []);
 
+  const openForm = (next: AttributeFormData) => {
+    setFormData(next);
+    setFormBaseline(JSON.stringify(next));
+  };
+
   const handleOpenModal = (item: ListingAttribute | null = null) => {
     setEditingItem(item);
     setSaveError('');
     if (item) {
       const categoryId = item.category_id || item.category?.id || '';
       const buildingTypeId = item.building_type_id || item.building_type?.id || '';
-      setFormData({ 
+      openForm({
         name: item.name, 
         sort_order: item.sort_order || item.phase || 1, 
         is_active: item.is_active ?? true,
@@ -301,7 +314,7 @@ export default function AttributesPage() {
       else if (activeTab === 'building_types') maxPhase = Math.max(0, ...buildingTypes.map(b => b.phase || b.sort_order || 0));
       else if (activeTab === 'property_types') maxPhase = Math.max(0, ...propertyTypes.map(p => p.phase || p.sort_order || 0));
       
-      setFormData({ ...EMPTY_FORM, sort_order: maxPhase + 1 });
+      openForm({ ...EMPTY_FORM, sort_order: maxPhase + 1 });
     }
     setIsMultiSelectOpen(false);
     setIsModalOpen(true);
@@ -801,7 +814,10 @@ export default function AttributesPage() {
       </Tabs>
 
       {/* Create/Edit Modal */}
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+      <Dialog
+        open={isModalOpen}
+        onOpenChange={(next) => (next ? setIsModalOpen(true) : void closeModal())}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{editingItem ? 'Edit' : 'Add'} {activeTab.replace('_', ' ')}</DialogTitle>
@@ -964,7 +980,7 @@ export default function AttributesPage() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => void closeModal()}>Cancel</Button>
             <Button
               onClick={handleSave}
               disabled={
@@ -987,6 +1003,8 @@ export default function AttributesPage() {
         submitting={isSubmitting}
         onConfirm={handleDelete}
       />
+      {unsavedDialog}
+      {leaveDialog}
     </div>
   );
 }

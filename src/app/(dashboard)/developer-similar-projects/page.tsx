@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
+import { useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { Button } from '@/components/ui/button';
@@ -10,7 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { SortableGrid } from '@/components/common/sortable-list';
 import { AutoslideTimePicker } from '@/components/common/autoslide-time-picker';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
-import { DbfPickDialog, type DbfPickOption } from '@/modules/dbf-featured/dbf-pick-dialog';
+import { DeveloperProjectPickDialog } from '@/modules/developer-similar-projects/developer-project-pick-dialog';
 import {
   developerSimilarProjectsService,
   devSimilarApiError,
@@ -18,10 +19,6 @@ import {
   type DevSimilarSetSummary,
 } from '@/services/developer-similar-projects.service';
 import { ArrowLeft, Building2, Loader2, Plus, Save, Trash2 } from 'lucide-react';
-
-function projectLabel(p: DevProjectPreview): string {
-  return [p.title, p.location, p.developerName].filter(Boolean).join(' · ');
-}
 
 function ProjectThumb({ project }: { project: DevProjectPreview | null }) {
   if (project?.imageUrl) {
@@ -64,15 +61,6 @@ export default function DeveloperSimilarProjectsPage() {
     void loadSets();
   }, [loadSets]);
 
-  const searchProjects = useCallback(
-    async (q: string): Promise<DbfPickOption[]> =>
-      (await developerSimilarProjectsService.searchPosts(q)).map((p) => ({
-        value: p.id,
-        label: projectLabel(p) + (p.hasSimilarSet ? ' (configured)' : ''),
-      })),
-    [],
-  );
-
   const handleDelete = async () => {
     if (!toDelete) return;
     try {
@@ -90,7 +78,6 @@ export default function DeveloperSimilarProjectsPage() {
         <SimilarSetEditor
           listingId={editingId}
           canUpdate={canUpdate}
-          searchProjects={searchProjects}
           onBack={() => {
             setEditingId(null);
             void loadSets();
@@ -163,22 +150,16 @@ export default function DeveloperSimilarProjectsPage() {
           </div>
         )}
 
-        <DbfPickDialog
+        <DeveloperProjectPickDialog
           open={pickPageOpen}
           title="Select property page"
           description="Choose the Developer project whose detail page will show the similar projects."
-          fieldLabel="Property page"
-          placeholder="Select a project"
-          searchPlaceholder="Search by project, location or developer"
-          emptyText="No published Developer projects found."
           submitLabel="Continue"
-          submitting={false}
-          error=""
-          search={searchProjects}
+          markConfigured
           onOpenChange={setPickPageOpen}
-          onSubmit={(id) => {
+          onSubmit={(project) => {
             setPickPageOpen(false);
-            setEditingId(id);
+            setEditingId(project.id);
           }}
         />
 
@@ -197,12 +178,10 @@ export default function DeveloperSimilarProjectsPage() {
 function SimilarSetEditor({
   listingId,
   canUpdate,
-  searchProjects,
   onBack,
 }: {
   listingId: string;
   canUpdate: boolean;
-  searchProjects: (q: string) => Promise<DbfPickOption[]>;
   onBack: () => void;
 }) {
   const [page, setPage] = useState<DevProjectPreview | null>(null);
@@ -214,6 +193,11 @@ function SimilarSetEditor({
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState('');
   const [pickOpen, setPickOpen] = useState(false);
+  const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({ dirty });
+
+  const goBack = async () => {
+    if (await confirmLeave()) onBack();
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -234,23 +218,9 @@ function SimilarSetEditor({
     };
   }, [listingId]);
 
-  const searchExcludingSelected = useCallback(
-    async (q: string) => {
-      const rows = await searchProjects(q);
-      const taken = new Set([listingId, ...items.map((i) => i.id)]);
-      return rows.filter((r) => !taken.has(r.value));
-    },
-    [searchProjects, listingId, items],
-  );
-
-  const addProject = async (id: string) => {
+  const addProject = (project: DevProjectPreview) => {
     setPickOpen(false);
-    const found = (await developerSimilarProjectsService.searchPosts(id)).find((p) => p.id === id);
-    if (!found) {
-      setError('Could not load that project.');
-      return;
-    }
-    setItems((prev) => (prev.some((p) => p.id === id) ? prev : [...prev, found]));
+    setItems((prev) => (prev.some((p) => p.id === project.id) ? prev : [...prev, project]));
     setDirty(true);
   };
 
@@ -277,7 +247,7 @@ function SimilarSetEditor({
       <Breadcrumb items={[{ label: 'Developer Similar Projects', href: '/developer-similar-projects' }, { label: page?.title || 'Page' }]} />
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
-          <Button variant="ghost" size="sm" onClick={onBack}>
+          <Button variant="ghost" size="sm" onClick={() => void goBack()}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <ProjectThumb project={page} />
@@ -378,21 +348,16 @@ function SimilarSetEditor({
         )}
       </div>
 
-      <DbfPickDialog
+      <DeveloperProjectPickDialog
         open={pickOpen}
         title="Add similar project"
         description="Only published Developer projects can be selected."
-        fieldLabel="Project"
-        placeholder="Select a project"
-        searchPlaceholder="Search by project, location or developer"
-        emptyText="No matching projects."
         submitLabel="Add"
-        submitting={false}
-        error=""
-        search={searchExcludingSelected}
+        excludeIds={[listingId, ...items.map((i) => i.id)]}
         onOpenChange={setPickOpen}
-        onSubmit={(id) => void addProject(id)}
+        onSubmit={addProject}
       />
+      {unsavedDialog}
     </div>
   );
 }

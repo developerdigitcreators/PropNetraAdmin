@@ -37,6 +37,7 @@ import { isSuperAdmin } from "@/lib/super-admin";
 import { planLabelFromCode, resolvePlanChip } from "@/lib/plan-labels";
 import { useUrlFilters } from "@/hooks/use-url-filters";
 import { useDialogUnsavedGuard } from "@/hooks/use-unsaved-changes-guard";
+import { MaskedContact } from "@/components/contact/masked-contact";
 import {
   Loader2,
   MessageSquare,
@@ -110,12 +111,12 @@ function DetailField({
   value,
 }: {
   label: string;
-  value?: string | null;
+  value?: React.ReactNode;
 }) {
   return (
     <div>
       <p className="text-xs uppercase tracking-wide text-gray-400">{label}</p>
-      <p className="text-sm font-medium text-gray-900">{value || "—"}</p>
+      <div className="text-sm font-medium text-gray-900">{value || "—"}</div>
     </div>
   );
 }
@@ -863,9 +864,12 @@ export function MyListingsPanel() {
                                 <>
                                   {item.leadContactName || "—"}
                                   <br />
-                                  <span className="text-xs">
-                                    {item.leadContactPhone || ""}
-                                  </span>
+                                  <MaskedContact
+                                    value={item.leadContactPhone}
+                                    revealKey={`my-listings:${item.id}:owner`}
+                                    className="text-xs"
+                                    empty=""
+                                  />
                                 </>
                               ) : (
                                 <>
@@ -1087,12 +1091,21 @@ export function MyListingsPanel() {
                         <DetailField
                           label="Owner detail"
                           value={
-                            [
-                              listingDetail.leadContactName,
-                              listingDetail.leadContactPhone,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ") || null
+                            listingDetail.leadContactName ||
+                            listingDetail.leadContactPhone ? (
+                              <span className="inline-flex flex-wrap items-center gap-1.5">
+                                {listingDetail.leadContactName || null}
+                                {listingDetail.leadContactName &&
+                                listingDetail.leadContactPhone
+                                  ? " · "
+                                  : null}
+                                <MaskedContact
+                                  value={listingDetail.leadContactPhone}
+                                  revealKey={`my-listings-detail:${listingDetail.id}:owner`}
+                                  empty=""
+                                />
+                              </span>
+                            ) : null
                           }
                         />
                         <DetailField
@@ -1120,7 +1133,14 @@ export function MyListingsPanel() {
                         />
                         <DetailField
                           label="Owner phone"
-                          value={listingDetail.ownerUser?.contact}
+                          value={
+                            listingDetail.ownerUser?.contact ? (
+                              <MaskedContact
+                                value={listingDetail.ownerUser.contact}
+                                revealKey={`my-listings-detail:${listingDetail.id}:owner-user`}
+                              />
+                            ) : null
+                          }
                         />
                       </>
                     )}
@@ -1243,7 +1263,10 @@ export function MyListingsPanel() {
                                 </div>
                                 {user.contact ? (
                                   <p className="text-sm text-gray-600">
-                                    {user.contact}
+                                    <MaskedContact
+                                      value={user.contact}
+                                      revealKey={`my-listings-interest:${user.id}:viewer`}
+                                    />
                                   </p>
                                 ) : null}
                                 {user.email ? (
@@ -1300,9 +1323,13 @@ export function MyListingsPanel() {
                               Phone
                             </p>
                             <p className="text-sm font-medium text-gray-900">
-                              {interestDetails.lead.phone ||
-                                interestListing?.leadContactPhone ||
-                                "—"}
+                              <MaskedContact
+                                value={
+                                  interestDetails.lead.phone ||
+                                  interestListing?.leadContactPhone
+                                }
+                                revealKey={`my-listings-interest:${interestListing?.id}:seller`}
+                              />
                             </p>
                           </div>
                           <div>
@@ -1352,7 +1379,10 @@ export function MyListingsPanel() {
                               Phone
                             </p>
                             <p className="text-sm font-medium text-gray-900">
-                              {interestListing?.ownerUser?.contact || "—"}
+                              <MaskedContact
+                                value={interestListing?.ownerUser?.contact}
+                                revealKey={`my-listings-interest:${interestListing?.id}:owner`}
+                              />
                             </p>
                           </div>
                         </>

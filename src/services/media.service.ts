@@ -7,7 +7,8 @@ export type AdminMediaKind =
   | 'banner'
   | 'popup'
   | 'icon'
-  | 'team_member';
+  | 'team_member'
+  | 'company_logo';
 
 export type MediaLimits = {
   imageMaxBytes: number;
@@ -49,6 +50,7 @@ export const RECOMMENDED_SIZE: Record<AdminMediaKind, string> = {
   property_name: '1200×630',
   share_og: '1200×630',
   team_member: '400×400',
+  company_logo: '600×360',
 };
 
 export async function uploadAdminMedia(

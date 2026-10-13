@@ -23,6 +23,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2 } from 'lucide-react';
+import {
+  CompanyLogoField,
+  PROJECT_PREFIX_HINT,
+} from '@/modules/app-users/company-logo-field';
 
 const INDIAN_MOBILE = /^[6-9]\d{9}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -46,6 +50,9 @@ const schema = z.object({
     .trim()
     .regex(INDIAN_MOBILE, 'Enter a valid 10-digit Indian mobile number'),
   email: optionalEmail,
+  companyName: z.string().trim().max(200, 'Company name is too long'),
+  projectPrefix: z.string().trim().max(60, 'Project prefix is too long'),
+  companyLogoUrl: z.string(),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -128,6 +135,9 @@ function asFormField(value: unknown): keyof FormData | null {
   }
   if (key === 'name' || key === 'full_name') return 'name';
   if (key === 'role_id' || key === 'role') return 'role_id';
+  if (key === 'companyname' || key === 'company_name') return 'companyName';
+  if (key === 'projectprefix' || key === 'project_prefix') return 'projectPrefix';
+  if (key === 'companylogourl' || key === 'company_logo_url') return 'companyLogoUrl';
   return null;
 }
 
@@ -342,6 +352,16 @@ function apiFieldErrors(
   return { issues, message: fallback };
 }
 
+const EMPTY_FORM: FormData = {
+  role_id: '',
+  name: '',
+  contact: '',
+  email: '',
+  companyName: '',
+  projectPrefix: '',
+  companyLogoUrl: '',
+};
+
 function digitsOnly(value: string, max = 10) {
   return value.replace(/\D/g, '').slice(0, max);
 }
@@ -355,9 +375,10 @@ export function OtpVerifiedAddUserModal({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   roles?: AppRole[];
-  onSuccess: () => void;
+  onSuccess: (message: string) => void;
 }) {
   const [formError, setFormError] = useState('');
+  const [logoUploading, setLogoUploading] = useState(false);
   const [fetchedRoles, setFetchedRoles] = useState<AppRole[]>([]);
 
   const addRoles = useMemo(() => {
@@ -385,15 +406,12 @@ export function OtpVerifiedAddUserModal({
     resolver: zodResolver(schema),
     mode: 'onBlur',
     reValidateMode: 'onChange',
-    defaultValues: {
-      role_id: '',
-      name: '',
-      contact: '',
-      email: '',
-    },
+    defaultValues: EMPTY_FORM,
   });
 
   const selectedRoleId = watch('role_id');
+  const companyLogoUrl = watch('companyLogoUrl');
+  const isDeveloper = addRoles.find((r) => r.id === selectedRoleId)?.name === 'developer';
   const contactReg = register('contact');
   const nameReg = register('name');
   const emailReg = register('email');
@@ -401,12 +419,7 @@ export function OtpVerifiedAddUserModal({
   useEffect(() => {
     if (!open) return;
     setFormError('');
-    reset({
-      role_id: '',
-      name: '',
-      contact: '',
-      email: '',
-    });
+    reset(EMPTY_FORM);
     // Prefer dedicated OTP Verified options (agent / floor / developer)
     rbacService
       .getOtpVerifiedRoleOptions()
@@ -418,6 +431,18 @@ export function OtpVerifiedAddUserModal({
   const onSubmit = async (data: FormData) => {
     setFormError('');
     clearErrors();
+    if (isDeveloper) {
+      let missing = false;
+      if (!data.companyName.trim()) {
+        setError('companyName', { type: 'manual', message: 'Company name is required' });
+        missing = true;
+      }
+      if (!data.projectPrefix.trim()) {
+        setError('projectPrefix', { type: 'manual', message: 'Project prefix is required' });
+        missing = true;
+      }
+      if (missing) return;
+    }
     const emailProvided = Boolean(data.email?.trim());
     try {
       await adminUsersService.createOtpVerifiedUser({
@@ -425,8 +450,15 @@ export function OtpVerifiedAddUserModal({
         contact: data.contact.trim(),
         role_id: data.role_id,
         email: data.email?.trim() || undefined,
+        ...(isDeveloper
+          ? {
+              companyName: data.companyName.trim(),
+              projectPrefix: data.projectPrefix.trim(),
+              companyLogoUrl: data.companyLogoUrl || undefined,
+            }
+          : {}),
       });
-      onSuccess();
+      onSuccess('User created. Temporary password: 123456');
       onOpenChange(false);
     } catch (err) {
       const { issues, message } = apiFieldErrors(err, { emailProvided });
@@ -435,9 +467,7 @@ export function OtpVerifiedAddUserModal({
           setError(issue.field, { type: 'server', message: issue.message });
         }
         // Keep a banner only when neither contact nor email got a field error
-        const hasIdentityFieldError = issues.some(
-          (issue) => issue.field === 'contact' || issue.field === 'email',
-        );
+        const hasIdentityFieldError = issues.some((issue) => issue.field !== 'name' && issue.field !== 'role_id');
         if (!hasIdentityFieldError) setFormError(message);
       } else {
         setFormError(message);
@@ -447,11 +477,11 @@ export function OtpVerifiedAddUserModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-visible">
+      <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add User</DialogTitle>
           <DialogDescription>
-            Adds the user to OTP Verified. No password is set — they complete signup themselves.
+            User will log in with mobile + temporary password 123456 and complete setup on first login.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-2" noValidate>
@@ -507,7 +537,7 @@ export function OtpVerifiedAddUserModal({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Contact no *</label>
+            <label className="text-sm font-medium text-gray-700">Mobile (login mobile) *</label>
             <Input
               placeholder="9876543210"
               inputMode="numeric"
@@ -526,7 +556,7 @@ export function OtpVerifiedAddUserModal({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Email id (optional)</label>
+            <label className="text-sm font-medium text-gray-700">Email (optional)</label>
             <Input
               type="email"
               placeholder="name@example.com"
@@ -538,8 +568,51 @@ export function OtpVerifiedAddUserModal({
               }}
               className={errors.email ? 'border-red-500' : ''}
             />
+            <p className="text-xs text-gray-500">
+              If entered, this becomes the login email and the user can&apos;t change it.
+            </p>
             {errors.email && <p className="text-red-500 text-xs">{errors.email.message}</p>}
           </div>
+
+          {isDeveloper ? (
+            <>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Company name *</label>
+                <Input
+                  placeholder="Company name"
+                  {...register('companyName')}
+                  className={errors.companyName ? 'border-red-500' : ''}
+                />
+                {errors.companyName && (
+                  <p className="text-red-500 text-xs">{errors.companyName.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Project prefix *</label>
+                <Input
+                  placeholder="e.g. Suncity"
+                  {...register('projectPrefix')}
+                  className={errors.projectPrefix ? 'border-red-500' : ''}
+                />
+                <p className="text-xs text-gray-500">{PROJECT_PREFIX_HINT}</p>
+                {errors.projectPrefix && (
+                  <p className="text-red-500 text-xs">{errors.projectPrefix.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Company image</label>
+                <CompanyLogoField
+                  value={companyLogoUrl}
+                  onChange={(url) => {
+                    clearErrors('companyLogoUrl');
+                    setValue('companyLogoUrl', url, { shouldDirty: true });
+                  }}
+                  onUploadingChange={setLogoUploading}
+                  error={errors.companyLogoUrl?.message}
+                />
+              </div>
+            </>
+          ) : null}
 
           {formError && <p className="text-red-500 text-xs">{formError}</p>}
 
@@ -549,7 +622,7 @@ export function OtpVerifiedAddUserModal({
             </Button>
             <Button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || logoUploading}
               className="bg-primary text-white hover:bg-primary/90"
             >
               {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}

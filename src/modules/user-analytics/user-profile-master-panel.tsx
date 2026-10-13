@@ -50,6 +50,7 @@ import {
 } from 'lucide-react';
 import { UserFormModal } from '@/modules/rbac/user-form-modal';
 import { RegisteredUserViewModal } from '@/modules/app-users/registered-user-view-modal';
+import { SetupPendingBadge } from '@/modules/app-users/company-logo-field';
 import { rbacService } from '@/services/rbac.service';
 import { resolvePlanChip } from '@/lib/plan-labels';
 
@@ -854,10 +855,17 @@ export function UserProfileMasterPanel() {
                             <p className="text-xs text-gray-400">
                               <MaskedContact value={user.contact} revealKey={`user-profile:${user.id}:contact`} />
                             </p>
-                            {withoutReferral ? (
-                              <span className="mt-1.5 inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
-                                Without referral
-                              </span>
+                            {withoutReferral || user.setupRequired === true ? (
+                              <div className="mt-1.5 flex flex-wrap gap-1">
+                                {user.setupRequired === true ? (
+                                  <SetupPendingBadge label={user.signupStepLabel} />
+                                ) : null}
+                                {withoutReferral ? (
+                                  <span className="inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                                    Without referral
+                                  </span>
+                                ) : null}
+                              </div>
                             ) : null}
                           </div>
                         </td>

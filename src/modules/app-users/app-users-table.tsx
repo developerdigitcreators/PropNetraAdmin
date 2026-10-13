@@ -59,6 +59,8 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { OtpVerifiedAddUserModal } from "@/modules/app-users/otp-verified-add-user-modal";
+import { SetupPendingBadge } from "@/modules/app-users/company-logo-field";
+import { useFloatingToast } from "@/components/common/floating-toast";
 import { VerificationDocsSection } from "@/modules/user-analytics/verification-docs-section";
 import { DeviceLockSection } from "@/modules/user-analytics/device-lock-section";
 
@@ -392,11 +394,15 @@ function IdentityCell({
   nested,
   isNew,
   revealKey,
+  setupPending,
+  setupLabel,
 }: {
   name?: string | null;
   email?: string | null;
   contact?: string | null;
   revealKey: string;
+  setupPending?: boolean;
+  setupLabel?: string | null;
   changedFields?: SignupAttemptChangedField[];
   expandable?: boolean;
   expanded?: boolean;
@@ -463,6 +469,11 @@ function IdentityCell({
         >
           <MaskedContact value={contact} revealKey={revealKey} />
         </p>
+        {setupPending ? (
+          <div className="mt-1">
+            <SetupPendingBadge label={setupLabel} />
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -1085,6 +1096,7 @@ export function AppUsersTable({ tab }: Props) {
   const [remarksOpen, setRemarksOpen] = useState(false);
   const [remarksViewOnly, setRemarksViewOnly] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
+  const { show: showToast, node: toastNode } = useFloatingToast();
 
   const fetchUsers = useCallback(async () => {
     setIsLoading(true);
@@ -1602,6 +1614,8 @@ export function AppUsersTable({ tab }: Props) {
                           }
                           contact={user.contact}
                           revealKey={`app-users:${user.id}:contact`}
+                          setupPending={user.setupRequired === true}
+                          setupLabel={user.signupStepLabel}
                           expandable={expandable}
                           expanded={expanded}
                           isNew={!!user.isNew}
@@ -1963,9 +1977,13 @@ export function AppUsersTable({ tab }: Props) {
           open={formOpen}
           onOpenChange={setFormOpen}
           roles={roles}
-          onSuccess={fetchUsers}
+          onSuccess={(message) => {
+            showToast(message);
+            void fetchUsers();
+          }}
         />
       )}
+      {toastNode}
 
       {tab === "master" && canUpdate && (
         <UserFormModal

@@ -13,6 +13,7 @@ import { formatDisplayDateTime } from '@/lib/format-date';
 import { VerificationDocsSection } from '@/modules/user-analytics/verification-docs-section';
 import { DeviceLockSection } from '@/modules/user-analytics/device-lock-section';
 import { Check, X } from 'lucide-react';
+import { isDeveloperUser, LOCKED_EMAIL_NOTE } from '@/modules/app-users/company-logo-field';
 
 const STEP_CHIP: Record<string, { label: string; className: string }> = {
   basic: {
@@ -30,6 +31,10 @@ const STEP_CHIP: Record<string, { label: string; className: string }> = {
   password: {
     label: 'Password pending',
     className: 'bg-violet-50 text-violet-700 border-violet-200',
+  },
+  setup_pending: {
+    label: 'Setup pending',
+    className: 'bg-amber-50 text-amber-800 border-amber-200',
   },
   logged_in: {
     label: 'Logged In',
@@ -141,6 +146,9 @@ export function RegisteredUserViewModal({
                 Email
               </p>
               <p className="mt-0.5 text-gray-800 break-all">{user.email || '—'}</p>
+              {user.emailLocked && user.email ? (
+                <p className="mt-0.5 text-[11px] text-gray-500">{LOCKED_EMAIL_NOTE}</p>
+              ) : null}
             </div>
             <div>
               <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
@@ -192,6 +200,37 @@ export function RegisteredUserViewModal({
                 <p className="mt-0.5 text-gray-800">{user.city || '—'}</p>
               </div>
             </div>
+            {isDeveloperUser(user) ? (
+              <div className="grid grid-cols-1 gap-3 border-t border-gray-100 pt-3 sm:grid-cols-2">
+                <div>
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                    Company name
+                  </p>
+                  <p className="mt-0.5 text-gray-800">{user.companyName || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                    Project prefix
+                  </p>
+                  <p className="mt-0.5 text-gray-800">{user.projectPrefix || '—'}</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                    Company image
+                  </p>
+                  {user.companyLogoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={user.companyLogoUrl}
+                      alt="Company"
+                      className="mt-1 h-[72px] w-[120px] rounded-md border object-cover"
+                    />
+                  ) : (
+                    <p className="mt-0.5 text-gray-800">—</p>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div>

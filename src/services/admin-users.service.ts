@@ -155,6 +155,8 @@ export const adminUsersService = {
     name: string;
     contact: string;
     role_id: string;
+    projectPrefix?: string;
+    companyLogoUrl?: string;
     email?: string;
     companyName?: string;
     companyContact?: string;

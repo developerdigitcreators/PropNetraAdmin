@@ -27,6 +27,11 @@ import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
 import { useIsSuperAdmin } from '@/hooks/use-is-super-admin';
 import { humanizeRoleName } from '@/lib/role-label';
 import { KeyRound, Loader2 } from 'lucide-react';
+import {
+  CompanyLogoField,
+  LOCKED_EMAIL_NOTE,
+  PROJECT_PREFIX_HINT,
+} from '@/modules/app-users/company-logo-field';
 
 interface UserFormModalProps {
   open: boolean;
@@ -42,6 +47,10 @@ interface UserFormModalProps {
 }
 
 type RoleOption = { value: string; label: string };
+
+type DeveloperFields = { companyName: string; projectPrefix: string; companyLogoUrl: string };
+
+const EMPTY_DEV: DeveloperFields = { companyName: '', projectPrefix: '', companyLogoUrl: '' };
 
 type UserRoleShape = {
   role_id?: string;
@@ -104,6 +113,10 @@ export function UserFormModal({
   }, [roles, isEdit, user]);
 
   const [formError, setFormError] = useState('');
+  const [dev, setDev] = useState<DeveloperFields>(EMPTY_DEV);
+  const [devBaseline, setDevBaseline] = useState<DeveloperFields>(EMPTY_DEV);
+  const [devErrors, setDevErrors] = useState<Partial<Record<keyof DeveloperFields, string>>>({});
+  const [logoUploading, setLogoUploading] = useState(false);
   const {
     register,
     handleSubmit,
@@ -125,8 +138,24 @@ export function UserFormModal({
     },
   });
 
+  const selectedRoleIdForDev = watch('role_id');
+  const showDeveloperFields =
+    isEdit &&
+    showEditLogs &&
+    (() => {
+      const cur = currentRole(user);
+      const picked = (roles || []).find((r) => String(r?.id) === selectedRoleIdForDev);
+      const name = picked?.name || (selectedRoleIdForDev === cur.id ? cur.name : '');
+      return String(name).trim().toLowerCase() === 'developer';
+    })();
+  const devDirty =
+    showDeveloperFields &&
+    (dev.companyName !== devBaseline.companyName ||
+      dev.projectPrefix !== devBaseline.projectPrefix ||
+      dev.companyLogoUrl !== devBaseline.companyLogoUrl);
+
   const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(
-    open && isDirty,
+    open && (isDirty || devDirty),
   );
 
   const handleOpenChange = async (next: boolean) => {
@@ -147,6 +176,17 @@ export function UserFormModal({
   useEffect(() => {
     if (open) {
       setFormError('');
+      setDevErrors({});
+      const nextDev: DeveloperFields =
+        isEdit && user
+          ? {
+              companyName: user.companyName || '',
+              projectPrefix: user.projectPrefix || '',
+              companyLogoUrl: user.companyLogoUrl || '',
+            }
+          : EMPTY_DEV;
+      setDev(nextDev);
+      setDevBaseline(nextDev);
       if (isEdit && user) {
         reset({
           name: user.name || '',
@@ -169,6 +209,11 @@ export function UserFormModal({
 
   const onSubmit = async (data: AdminUserFormData) => {
     setFormError('');
+    setDevErrors({});
+    if (showDeveloperFields && !dev.projectPrefix.trim()) {
+      setDevErrors({ projectPrefix: 'Project prefix is required' });
+      return;
+    }
     try {
       if (isEdit) {
         const updateData = { ...data };
@@ -178,6 +223,13 @@ export function UserFormModal({
           name: data.name.trim(),
           email: data.email.trim().toLowerCase(),
           contact: data.contact.trim(),
+          ...(showDeveloperFields
+            ? {
+                companyName: dev.companyName.trim(),
+                projectPrefix: dev.projectPrefix.trim(),
+                companyLogoUrl: dev.companyLogoUrl,
+              }
+            : {}),
         });
       } else {
         await adminUsersService.createUser({
@@ -193,6 +245,12 @@ export function UserFormModal({
       const { field, message } = apiFieldError(error);
       if (field === 'email' || field === 'contact' || field === 'name' || field === 'role_id') {
         setError(field, { message });
+      } else if (
+        field === 'companyName' ||
+        field === 'projectPrefix' ||
+        field === 'companyLogoUrl'
+      ) {
+        setDevErrors({ [field]: message });
       } else {
         setFormError(message);
       }
@@ -248,6 +306,9 @@ export function UserFormModal({
               }}
               className={errors.email ? 'border-red-500' : ''}
             />
+            {isEdit && showEditLogs && user?.emailLocked ? (
+              <p className="text-xs text-gray-500">{LOCKED_EMAIL_NOTE}</p>
+            ) : null}
             {errors.email && <p className="text-red-500 text-xs">{errors.email.message}</p>}
           </div>
 
@@ -319,6 +380,51 @@ export function UserFormModal({
             </div>
           ) : null}
 
+          {showDeveloperFields ? (
+            <>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Company name</label>
+                <Input
+                  placeholder="Company name"
+                  value={dev.companyName}
+                  onChange={(e) => setDev((d) => ({ ...d, companyName: e.target.value }))}
+                  className={devErrors.companyName ? 'border-red-500' : ''}
+                />
+                {devErrors.companyName && (
+                  <p className="text-red-500 text-xs">{devErrors.companyName}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Project prefix *</label>
+                <Input
+                  placeholder="e.g. Suncity"
+                  value={dev.projectPrefix}
+                  onChange={(e) => {
+                    setDev((d) => ({ ...d, projectPrefix: e.target.value }));
+                    setDevErrors((prev) => ({ ...prev, projectPrefix: undefined }));
+                  }}
+                  className={devErrors.projectPrefix ? 'border-red-500' : ''}
+                />
+                <p className="text-xs text-gray-500">{PROJECT_PREFIX_HINT}</p>
+                {devErrors.projectPrefix && (
+                  <p className="text-red-500 text-xs">{devErrors.projectPrefix}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Company image</label>
+                <CompanyLogoField
+                  value={dev.companyLogoUrl}
+                  onChange={(url) => {
+                    setDev((d) => ({ ...d, companyLogoUrl: url }));
+                    setDevErrors((prev) => ({ ...prev, companyLogoUrl: undefined }));
+                  }}
+                  onUploadingChange={setLogoUploading}
+                  error={devErrors.companyLogoUrl}
+                />
+              </div>
+            </>
+          ) : null}
+
           {isEdit && adminPanel && superAdmin && user?.id && (
             <Link
               href={`/reset-password?userId=${encodeURIComponent(String(user.id))}`}
@@ -335,7 +441,11 @@ export function UserFormModal({
             <Button variant="outline" type="button" onClick={() => void handleOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting} className="bg-primary hover:bg-primary/90 text-white">
+            <Button
+              type="submit"
+              disabled={isSubmitting || logoUploading}
+              className="bg-primary hover:bg-primary/90 text-white"
+            >
               {isSubmitting ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
               ) : null}

@@ -27,6 +27,7 @@ import {
   type CreateFormSchema,
   type StaffAssignee,
 } from "@/services/listings.service";
+import { BannerSlotCarousel } from "@/modules/listings/banner-slot-carousel";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import { Loader2 } from "lucide-react";
 import { useAuthStore } from "@/store/use-auth-store";
@@ -91,7 +92,10 @@ function isNumberType(type: string) {
 
 function filterRenderableFields(fields: CreateFormField[]) {
   return fields.filter(
-    (field) => !SKIP_DETAIL_KEYS.has(normalizeKey(field.key)),
+    (field) =>
+      field.slot === "banner" ||
+      field.type === "banner" ||
+      !SKIP_DETAIL_KEYS.has(normalizeKey(field.key)),
   );
 }
 
@@ -534,6 +538,19 @@ export function CreateVerifiedListingPanel() {
   };
 
   const renderField = (field: CreateFormField) => {
+    if (field.slot === "banner" || field.type === "banner") {
+      return (
+        <div key={field.key} className="space-y-2 sm:col-span-2">
+          {field.label ? (
+            <h3 className="text-sm font-medium text-gray-700">{field.label}</h3>
+          ) : null}
+          <BannerSlotCarousel
+            bannerPlacement={field.bannerPlacement}
+            cityId={cityId || undefined}
+          />
+        </div>
+      );
+    }
     const value = details[field.key] ?? "";
     if (isBooleanType(field.type)) {
       return (
@@ -612,6 +629,8 @@ export function CreateVerifiedListingPanel() {
       const detailsPayload: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(details)) {
         if (value === "" || value == null) continue;
+        const field = schema?.fields.find((item) => item.key === key);
+        if (field?.slot === "banner" || field?.type === "banner") continue;
         if (value === "true") detailsPayload[key] = true;
         else if (value === "false") detailsPayload[key] = false;
         else if (/^-?\d+(\.\d+)?$/.test(value))

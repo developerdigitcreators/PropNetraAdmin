@@ -147,16 +147,16 @@ function SwitchRow({
   hint,
   note,
   checked,
+  changed,
   disabled,
-  saving,
   onChange,
 }: {
   label: string;
   hint: string;
   note?: string | null;
   checked: boolean;
+  changed?: boolean;
   disabled: boolean;
-  saving: boolean;
   onChange: (next: boolean) => void;
 }) {
   return (
@@ -167,12 +167,49 @@ function SwitchRow({
         {note ? <p className="mt-1 text-xs font-medium text-primary">{note}</p> : null}
       </div>
       <div className="flex items-center gap-2">
-        {saving ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : null}
+        {changed ? (
+          <span className="text-[10px] font-medium uppercase tracking-wide text-amber-600">
+            Unsaved
+          </span>
+        ) : null}
         <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} />
       </div>
     </div>
   );
 }
+
+function SectionSaveBar({
+  dirty,
+  saving,
+  disabled,
+  onSave,
+  onDiscard,
+}: {
+  dirty: boolean;
+  saving: boolean;
+  disabled?: boolean;
+  onSave: () => void;
+  onDiscard: () => void;
+}) {
+  return (
+    <div className="mt-3 flex items-center justify-end gap-2 border-t pt-3">
+      {dirty ? <span className="mr-auto text-xs text-amber-600">Unsaved changes</span> : null}
+      {dirty ? (
+        <Button size="sm" variant="ghost" disabled={saving} onClick={onDiscard}>
+          Discard
+        </Button>
+      ) : null}
+      <Button size="sm" disabled={!dirty || saving || disabled} onClick={onSave}>
+        {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+        Save
+      </Button>
+    </div>
+  );
+}
+
+type Section = (typeof SECTIONS)[number];
+type ControlDraft = Partial<Record<FeatureControlKey, boolean>>;
+type PendingConfirm = { kind: 'viewers' | 'netra_off'; section: Section } | null;
 
 export default function FeatureControlsPage() {
   const hasPermission = useAuthStore((s) => s.hasPermission);
@@ -185,8 +222,17 @@ export default function FeatureControlsPage() {
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [confirmKey, setConfirmKey] = useState<ListingViewersKey | null>(null);
-  const [confirmNetraOff, setConfirmNetraOff] = useState(false);
+  const [confirm, setConfirm] = useState<PendingConfirm>(null);
+  const [draft, setDraft] = useState<ControlDraft>({});
+  const [groupEnabledDraft, setGroupEnabledDraft] = useState(false);
+  const [groupSeenDraft, setGroupSeenDraft] = useState(false);
+
+  const resetGroupDrafts = (g: DeveloperGroupSettings | null) => {
+    if (!g) return;
+    setGroupEnabledDraft(g.enabled);
+    setGroupSeenDraft(g.seenByEnabled);
+    setRetentionDraft(String(g.retentionDays));
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -197,8 +243,13 @@ export default function FeatureControlsPage() {
         developerGroupsService.getSettings().catch(() => null),
       ]);
       setControls(c);
+      setDraft({});
       setGroupSettings(g);
-      if (g) setRetentionDraft(String(g.retentionDays));
+      if (g) {
+        setGroupEnabledDraft(g.enabled);
+        setGroupSeenDraft(g.seenByEnabled);
+        setRetentionDraft(String(g.retentionDays));
+      }
     } catch (err) {
       setError(subscriptionApiError(err, 'Failed to load feature controls.'));
     } finally {
@@ -210,32 +261,58 @@ export default function FeatureControlsPage() {
     void load();
   }, [load]);
 
-  const saveControl = async (key: FeatureControlKey, value: boolean) => {
-    setSavingKey(key);
-    setError('');
+  const savedValue = (key: FeatureControlKey) => !!controls?.[key];
+  const valueOf = (key: FeatureControlKey) => draft[key] ?? savedValue(key);
+  const isChanged = (key: FeatureControlKey) => key in draft && draft[key] !== savedValue(key);
+  const changedKeys = (section: Section) =>
+    section.items.map((item) => item.key).filter((key) => isChanged(key));
+
+  const setDraftValue = (key: FeatureControlKey, value: boolean) => {
     setNotice('');
-    try {
-      const next = await featureControlsService.update({ [key]: value });
-      setControls((prev) => ({ ...(prev || {}), ...next }) as FeatureControls);
-      setNotice('Saved.');
-    } catch (err) {
-      setError(subscriptionApiError(err, 'Failed to save.'));
-    } finally {
-      setSavingKey(null);
-    }
+    setDraft((prev) => {
+      const next = { ...prev };
+      if (value === savedValue(key)) delete next[key];
+      else next[key] = value;
+      return next;
+    });
   };
 
-  const saveGroup = async (key: string, patch: Partial<DeveloperGroupSettings>) => {
-    setSavingKey(key);
+  const discardSection = (section: Section) => {
+    setDraft((prev) => {
+      const next = { ...prev };
+      for (const item of section.items) delete next[item.key];
+      return next;
+    });
+  };
+
+  const saveSection = async (section: Section, confirmed = false) => {
+    const keys = changedKeys(section);
+    if (!keys.length) return;
+    const patch = Object.fromEntries(keys.map((key) => [key, draft[key] as boolean])) as ControlDraft;
+    if (!confirmed) {
+      if (keys.some((key) => isListingViewersKey(key) && patch[key] === true)) {
+        setConfirm({ kind: 'viewers', section });
+        return;
+      }
+      if (patch.netra_connect_enabled === false) {
+        setConfirm({ kind: 'netra_off', section });
+        return;
+      }
+    }
+    setSavingKey(section.title);
     setError('');
     setNotice('');
     try {
-      const next = await developerGroupsService.updateSettings(patch);
-      setGroupSettings(next);
-      setRetentionDraft(String(next.retentionDays));
-      setNotice('Saved.');
+      const next = await featureControlsService.update(patch);
+      setControls((prev) => ({ ...(prev || {}), ...next }) as FeatureControls);
+      setDraft((prev) => {
+        const rest = { ...prev };
+        for (const key of keys) delete rest[key];
+        return rest;
+      });
+      setNotice(`${section.title} saved.`);
     } catch (err) {
-      setError(subscriptionApiError(err, 'Failed to save group chat settings.'));
+      setError(subscriptionApiError(err, 'Failed to save.'));
     } finally {
       setSavingKey(null);
     }
@@ -247,9 +324,41 @@ export default function FeatureControlsPage() {
     Number.isInteger(retentionValue) &&
     retentionValue >= DEVELOPER_GROUP_RETENTION_MIN &&
     retentionValue <= DEVELOPER_GROUP_RETENTION_MAX;
-  const { dialog: unsavedDialog } = useUnsavedChangesGuard({
-    dirty: groupSettings != null && retentionDraft.trim() !== String(groupSettings.retentionDays),
+  const groupPatch: Partial<DeveloperGroupSettings> = {};
+  if (groupSettings) {
+    if (groupEnabledDraft !== groupSettings.enabled) groupPatch.enabled = groupEnabledDraft;
+    if (groupSeenDraft !== groupSettings.seenByEnabled) groupPatch.seenByEnabled = groupSeenDraft;
+    if (retentionDraft.trim() !== String(groupSettings.retentionDays)) {
+      groupPatch.retentionDays = retentionValue;
+    }
+  }
+  const groupDirty = Object.keys(groupPatch).length > 0;
+
+  const saveGroup = async () => {
+    if (!groupDirty || !retentionValid) return;
+    setSavingKey('group');
+    setError('');
+    setNotice('');
+    try {
+      const next = await developerGroupsService.updateSettings(groupPatch);
+      setGroupSettings(next);
+      resetGroupDrafts(next);
+      setNotice('Developer group chat saved.');
+    } catch (err) {
+      setError(subscriptionApiError(err, 'Failed to save group chat settings.'));
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const controlsDirty = SECTIONS.some((section) => changedKeys(section).length > 0);
+  const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({
+    dirty: controlsDirty || groupDirty,
   });
+
+  const refresh = async () => {
+    if (await confirmLeave()) void load();
+  };
 
   return (
     <PermissionGuard permission="feature_controls:read">
@@ -267,7 +376,7 @@ export default function FeatureControlsPage() {
               Turn app features on or off for everyone. Changes reach the app within a minute.
             </p>
           </div>
-          <Button variant="outline" className="gap-2" onClick={() => void load()} disabled={loading}>
+          <Button variant="outline" className="gap-2" onClick={() => void refresh()} disabled={loading}>
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
@@ -304,17 +413,21 @@ export default function FeatureControlsPage() {
                           ? viewersSinceNote(controls, item.key)
                           : null
                       }
-                      checked={!!controls?.[item.key]}
-                      disabled={!controls || !canUpdate || savingKey === item.key}
-                      saving={savingKey === item.key}
-                      onChange={(v) => {
-                        if (v && isListingViewersKey(item.key)) setConfirmKey(item.key);
-                        else if (!v && item.key === 'netra_connect_enabled') setConfirmNetraOff(true);
-                        else void saveControl(item.key, v);
-                      }}
+                      checked={valueOf(item.key)}
+                      changed={isChanged(item.key)}
+                      disabled={!controls || !canUpdate || savingKey === section.title}
+                      onChange={(v) => setDraftValue(item.key, v)}
                     />
                   ))}
                 </div>
+                {canUpdate ? (
+                  <SectionSaveBar
+                    dirty={changedKeys(section).length > 0}
+                    saving={savingKey === section.title}
+                    onSave={() => void saveSection(section)}
+                    onDiscard={() => discardSection(section)}
+                  />
+                ) : null}
               </div>
             ))}
 
@@ -325,18 +438,24 @@ export default function FeatureControlsPage() {
                   <SwitchRow
                     label="Group chat (Launch Update)"
                     hint="When off, the developer page shows only the Propnetra logo."
-                    checked={groupSettings.enabled}
-                    disabled={!canUpdate || savingKey === 'g-enabled'}
-                    saving={savingKey === 'g-enabled'}
-                    onChange={(v) => void saveGroup('g-enabled', { enabled: v })}
+                    checked={groupEnabledDraft}
+                    changed={groupEnabledDraft !== groupSettings.enabled}
+                    disabled={!canUpdate || savingKey === 'group'}
+                    onChange={(v) => {
+                      setNotice('');
+                      setGroupEnabledDraft(v);
+                    }}
                   />
                   <SwitchRow
                     label="Seen by"
                     hint="When off, no ticks or seen counts are shown."
-                    checked={groupSettings.seenByEnabled}
-                    disabled={!canUpdate || savingKey === 'g-seen'}
-                    saving={savingKey === 'g-seen'}
-                    onChange={(v) => void saveGroup('g-seen', { seenByEnabled: v })}
+                    checked={groupSeenDraft}
+                    changed={groupSeenDraft !== groupSettings.seenByEnabled}
+                    disabled={!canUpdate || savingKey === 'group'}
+                    onChange={(v) => {
+                      setNotice('');
+                      setGroupSeenDraft(v);
+                    }}
                   />
                   <div className="py-3">
                     <p className="text-sm font-medium text-gray-900">Delete messages after</p>
@@ -359,24 +478,16 @@ export default function FeatureControlsPage() {
                       Enter a value between {DEVELOPER_GROUP_RETENTION_MIN} and{' '}
                       {DEVELOPER_GROUP_RETENTION_MAX} days.
                     </p>
-                    <div className="mt-3 flex justify-end">
-                      <Button
-                        size="sm"
-                        disabled={
-                          !canUpdate ||
-                          !retentionValid ||
-                          savingKey === 'g-retention' ||
-                          retentionValue === groupSettings.retentionDays
-                        }
-                        onClick={() => void saveGroup('g-retention', { retentionDays: retentionValue })}
-                      >
-                        {savingKey === 'g-retention' ? (
-                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                        ) : null}
-                        Save
-                      </Button>
-                    </div>
                   </div>
+                  {canUpdate ? (
+                    <SectionSaveBar
+                      dirty={groupDirty}
+                      saving={savingKey === 'group'}
+                      disabled={!retentionValid}
+                      onSave={() => void saveGroup()}
+                      onDiscard={() => resetGroupDrafts(groupSettings)}
+                    />
+                  ) : null}
                 </div>
               ) : (
                 <p className="mt-2 text-sm text-gray-500">
@@ -387,7 +498,10 @@ export default function FeatureControlsPage() {
           </div>
         )}
 
-        <Dialog open={!!confirmKey} onOpenChange={(open) => !open && setConfirmKey(null)}>
+        <Dialog
+          open={confirm?.kind === 'viewers'}
+          onOpenChange={(open) => !open && setConfirm(null)}
+        >
           <DialogContent className="sm:max-w-[420px]">
             <DialogHeader>
               <DialogTitle>Turn on listing viewers?</DialogTitle>
@@ -396,24 +510,27 @@ export default function FeatureControlsPage() {
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setConfirmKey(null)}>
+              <Button type="button" variant="outline" onClick={() => setConfirm(null)}>
                 Cancel
               </Button>
               <Button
                 type="button"
                 onClick={() => {
-                  const key = confirmKey;
-                  setConfirmKey(null);
-                  if (key) void saveControl(key, true);
+                  const section = confirm?.section;
+                  setConfirm(null);
+                  if (section) void saveSection(section, true);
                 }}
               >
-                Turn on
+                Turn on &amp; save
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        <Dialog open={confirmNetraOff} onOpenChange={(open) => !open && setConfirmNetraOff(false)}>
+        <Dialog
+          open={confirm?.kind === 'netra_off'}
+          onOpenChange={(open) => !open && setConfirm(null)}
+        >
           <DialogContent className="sm:max-w-[420px]">
             <DialogHeader>
               <DialogTitle>Turn off Netra Connect?</DialogTitle>
@@ -423,18 +540,19 @@ export default function FeatureControlsPage() {
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setConfirmNetraOff(false)}>
+              <Button type="button" variant="outline" onClick={() => setConfirm(null)}>
                 Cancel
               </Button>
               <Button
                 type="button"
                 variant="destructive"
                 onClick={() => {
-                  setConfirmNetraOff(false);
-                  void saveControl('netra_connect_enabled', false);
+                  const section = confirm?.section;
+                  setConfirm(null);
+                  if (section) void saveSection(section, true);
                 }}
               >
-                Turn off
+                Turn off &amp; save
               </Button>
             </DialogFooter>
           </DialogContent>

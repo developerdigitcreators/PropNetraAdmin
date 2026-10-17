@@ -87,6 +87,16 @@ const MENU_ITEMS: MenuItem[] = [
     permission: "form_modules:read",
   },
   {
+    name: "Property name suggestions",
+    path: "/form-suggestions/property-names",
+    icon: Building2,
+  },
+  {
+    name: "Location suggestions",
+    path: "/form-suggestions/locations",
+    icon: MapPin,
+  },
+  {
     name: "Listings Config",
     path: "/listings/config",
     icon: Settings,

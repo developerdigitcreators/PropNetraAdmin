@@ -1,6 +1,21 @@
 import { axiosClient } from '@/lib/axios-client';
 import { deleteWithRemark } from '@/lib/delete-with-remark';
 
+/** Listing form slot that renders ads instead of inputs. */
+export function isBannerFormModule(mod: {
+  key?: string | null;
+  slot?: string | null;
+} | null | undefined) {
+  const key = String(mod?.key || '').trim().toLowerCase();
+  const slot = String(mod?.slot || '').trim().toLowerCase();
+  return (
+    key === 'banner' ||
+    key === 'banner_ads' ||
+    key === 'form_banner' ||
+    slot === 'banner'
+  );
+}
+
 export function listingConfigApiError(err: unknown, fallback: string): string {
   const e = err as {
     code?: string;
@@ -50,6 +65,51 @@ export const listingConfigService = {
     return response.data;
   },
 
+  getFormBanner: async (): Promise<{ imageUrl: string | null; link: string | null }> => {
+    const response = await axiosClient.get('/admin/listing-config/form-banner');
+    const data = response.data as { imageUrl?: string | null; link?: string | null } | string | null;
+    if (typeof data === 'string') return { imageUrl: data.trim() || null, link: null };
+    const url = data?.imageUrl;
+    const link = data?.link;
+    return {
+      imageUrl: typeof url === 'string' && url.trim() ? url.trim() : null,
+      link: typeof link === 'string' && link.trim() ? link.trim() : null,
+    };
+  },
+
+  uploadFormBanner: async (file: File): Promise<string> => {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await axiosClient.post('/admin/listing-config/form-banner', form, {
+      headers: { 'Content-Type': undefined as unknown as string },
+      transformRequest: [
+        (data, headers) => {
+          if (headers && typeof headers === 'object') {
+            delete (headers as Record<string, unknown>)['Content-Type'];
+          }
+          return data;
+        },
+      ],
+      timeout: 60000,
+    });
+    const data = response.data as { imageUrl?: string | null; link?: string | null } | string | null;
+    const url = typeof data === 'string' ? data : data?.imageUrl;
+    if (typeof url !== 'string' || !url.trim()) {
+      throw new Error('Upload did not return an image URL');
+    }
+    return url.trim();
+  },
+
+  updateFormBanner: async (payload: { imageUrl?: string | null; link?: string | null }) => {
+    const response = await axiosClient.put('/admin/listing-config/form-banner', payload);
+    return response.data;
+  },
+
+  clearFormBanner: async () => {
+    const response = await axiosClient.put('/admin/listing-config/form-banner', { imageUrl: null });
+    return response.data;
+  },
+
   getModuleConfigs: async (categoryId: string, buildingTypeId?: string, propertyTypeId?: string) => {
     let url = `/admin/module-configs?categoryId=${categoryId}`;
     if (buildingTypeId) url += `&buildingTypeId=${buildingTypeId}`;
@@ -59,8 +119,8 @@ export const listingConfigService = {
     return response.data;
   },
 
-  upsertModuleConfig: async (payload: any) => {
-    const response = await axiosClient.post('/admin/module-configs', payload);
+  upsertModuleConfig: async (rows: Array<Record<string, unknown>>) => {
+    const response = await axiosClient.post('/admin/module-configs', rows);
     return response.data;
   },
 

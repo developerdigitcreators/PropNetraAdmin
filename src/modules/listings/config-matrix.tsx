@@ -2,17 +2,34 @@
 
 import { useEffect, useState } from 'react';
 import { useMatrixStore } from '@/store/use-matrix-store';
-import { listingConfigService } from '@/services/listing-config.service';
+import { isBannerFormModule, listingConfigService } from '@/services/listing-config.service';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Loader2 } from 'lucide-react';
 
 export function ConfigMatrix() {
-  const { categoryId, buildingTypeId, propertyTypeId, configs, unsavedChanges, updateConfig, isFetching } = useMatrixStore();
+  const {
+    categoryId,
+    buildingTypeId,
+    propertyTypeId,
+    configs,
+    unsavedChanges,
+    updateConfig,
+    isFetching,
+  } = useMatrixStore();
   const [formModules, setFormModules] = useState<any[]>([]);
 
   useEffect(() => {
-    listingConfigService.getFormModules().then(setFormModules).catch(console.error);
+    listingConfigService.getFormModules().then((data) => {
+      const list = Array.isArray(data) ? data : [];
+      setFormModules(
+        [...list].filter((mod) => !isBannerFormModule(mod)).sort(
+          (a, b) =>
+            Number(a.sort_order ?? a.sortOrder ?? 0) -
+            Number(b.sort_order ?? b.sortOrder ?? 0),
+        ),
+      );
+    }).catch(console.error);
   }, []);
 
   if (!categoryId || !buildingTypeId || !propertyTypeId) {
@@ -34,10 +51,10 @@ export function ConfigMatrix() {
 
   // Merge server configs with unsaved changes for display
   const getDisplayConfig = (mod: any) => {
-    const serverConfig = configs.find(c => c.module_id === mod.id) || {};
+    const serverConfig = configs.find((c) => (c.module_id ?? c.moduleId) === mod.id) || {};
     const unsaved = unsavedChanges[mod.id] || {};
     return {
-      is_visible: serverConfig.is_visible ?? mod.is_common,
+      is_visible: serverConfig.is_visible ?? true,
       is_mandatory: serverConfig.is_mandatory ?? false,
       is_suggestable: serverConfig.is_suggestable ?? false,
       suggestable_message: serverConfig.suggestable_message ?? '',
@@ -45,6 +62,8 @@ export function ConfigMatrix() {
       ...unsaved
     };
   };
+
+  const fieldModules = formModules.filter((mod) => !isBannerFormModule(mod));
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -60,14 +79,14 @@ export function ConfigMatrix() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {formModules.length === 0 ? (
+            {fieldModules.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
                   No Form Modules found. Please run the backend seeder.
                 </td>
               </tr>
             ) : (
-              formModules.map((mod) => {
+              fieldModules.map((mod) => {
                 const conf = getDisplayConfig(mod);
                 return (
                   <tr key={mod.id} className="hover:bg-gray-50/50 transition-colors group">

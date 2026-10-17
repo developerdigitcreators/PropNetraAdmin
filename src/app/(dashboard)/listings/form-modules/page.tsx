@@ -3,19 +3,19 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { PermissionGuard } from '@/components/common/permission-guard';
-import { listingConfigService } from '@/services/listing-config.service';
+import { isBannerFormModule, listingConfigApiError, listingConfigService } from '@/services/listing-config.service';
+import { SortableTableBody } from '@/components/common/sortable-list';
 import { AdminDataTable } from '@/components/common/admin-data-table';
 import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Loader2, Plus, Edit2, Trash2, Layers } from 'lucide-react';
+import { Loader2, Plus, Edit2, Trash2, Layers, ImageIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useRouter } from 'next/navigation';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
-import { useClientPagedRows } from '@/hooks/use-client-paged-rows';
 import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
 
 export default function FormModulesPage() {
@@ -32,6 +32,10 @@ export default function FormModulesPage() {
 
   // Form State
   const [formData, setFormData] = useState<any>({ key: '', label: '', admin_name: '', is_common: false });
+  const [bannerUrl, setBannerUrl] = useState<string | null>(null);
+  const [bannerLink, setBannerLink] = useState('');
+  const [bannerBusy, setBannerBusy] = useState(false);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
   const baselineRef = useRef('');
   const formSnapshot = useMemo(() => JSON.stringify(formData), [formData]);
   const dirty =
@@ -50,21 +54,27 @@ export default function FormModulesPage() {
     setIsModalOpen(true);
   };
 
-  const {
-    page,
-    limit,
-    total,
-    totalPages,
-    pageRows,
-    onPageChange,
-    onPageSizeChange,
-  } = useClientPagedRows(modules);
+  const sortedModules = useMemo(
+    () =>
+      [...modules].sort(
+        (a, b) =>
+          Number(a.sort_order ?? a.sortOrder ?? 0) -
+          Number(b.sort_order ?? b.sortOrder ?? 0),
+      ),
+    [modules],
+  );
 
   const fetchModules = async () => {
     setIsLoading(true);
     try {
       const data = await listingConfigService.getFormModules();
-      setModules(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setModules(
+        list.map((item: any, index: number) => ({
+          ...item,
+          sort_order: Number(item.sort_order ?? item.sortOrder ?? index + 1),
+        })),
+      );
     } catch (err) {
       console.error('Failed to fetch modules', err);
     } finally {
@@ -74,6 +84,13 @@ export default function FormModulesPage() {
 
   useEffect(() => {
     fetchModules();
+    listingConfigService
+      .getFormBanner()
+      .then((banner) => {
+        setBannerUrl(banner.imageUrl);
+        setBannerLink(banner.link || '');
+      })
+      .catch((err) => console.error('Failed to load form banner', err));
   }, []);
 
   const handleOpenModal = (item: any = null) => {
@@ -96,16 +113,39 @@ export default function FormModulesPage() {
     setIsDeleteModalOpen(true);
   };
 
+  const handleReorder = async (ordered: Array<any & { sortOrder: number }>) => {
+    const previous = modules;
+    setModules(
+      ordered.map((item) => ({ ...item, sort_order: item.sortOrder })),
+    );
+    try {
+      await Promise.all(
+        ordered.map((item) =>
+          listingConfigService.updateFormModule(item.id, {
+            sort_order: item.sortOrder,
+            label: item.label,
+          }),
+        ),
+      );
+    } catch (err) {
+      console.error('Reorder failed', err);
+      setModules(previous);
+    }
+  };
+
   const handleSave = async () => {
-    if (!formData.key || !formData.label) return;
+    if (!formData.label || (!isBannerFormModule(editingItem) && !formData.key)) return;
     setIsSubmitting(true);
     try {
-      const payload: any = { 
-        key: formData.key, 
-        label: formData.label, 
-        admin_name: formData.admin_name,
-        is_common: formData.is_common 
-      };
+      const bannerModule = isBannerFormModule(editingItem);
+      const payload: any = bannerModule
+        ? { label: formData.label }
+        : {
+            key: formData.key,
+            label: formData.label,
+            admin_name: formData.admin_name,
+            is_common: formData.is_common,
+          };
 
       if (editingItem) {
         await listingConfigService.updateFormModule(editingItem.id, payload);
@@ -136,6 +176,46 @@ export default function FormModulesPage() {
     }
   };
 
+  const handlePickBanner = async (file: File | undefined) => {
+    if (!file) return;
+    setBannerBusy(true);
+    try {
+      const url = await listingConfigService.uploadFormBanner(file);
+      setBannerUrl(url);
+    } catch (err) {
+      console.error('Banner upload failed', err);
+      alert(listingConfigApiError(err, 'Failed to upload banner.'));
+    } finally {
+      setBannerBusy(false);
+      if (bannerInputRef.current) bannerInputRef.current.value = '';
+    }
+  };
+
+  const handleSaveBannerLink = async () => {
+    setBannerBusy(true);
+    try {
+      await listingConfigService.updateFormBanner({ link: bannerLink.trim() || null });
+    } catch (err) {
+      console.error('Banner link save failed', err);
+      alert(listingConfigApiError(err, 'Failed to save banner link.'));
+    } finally {
+      setBannerBusy(false);
+    }
+  };
+
+  const handleClearBanner = async () => {
+    setBannerBusy(true);
+    try {
+      await listingConfigService.clearFormBanner();
+      setBannerUrl(null);
+    } catch (err) {
+      console.error('Banner clear failed', err);
+      alert(listingConfigApiError(err, 'Failed to remove banner.'));
+    } finally {
+      setBannerBusy(false);
+    }
+  };
+
   const canCreate = permissions.has('form_modules:create');
   const canUpdate = permissions.has('form_modules:update');
   const canDelete = permissions.has('form_modules:delete');
@@ -150,7 +230,13 @@ export default function FormModulesPage() {
             <p className="text-gray-500 mt-1">Manage sections (e.g., Area Details, Amenities) which group multiple form fields.</p>
           </div>
           <AdminListToolbar
-            onRefresh={() => void fetchModules()}
+            onRefresh={() => {
+              void fetchModules();
+              void listingConfigService.getFormBanner().then((banner) => {
+                setBannerUrl(banner.imageUrl);
+                setBannerLink(banner.link || '');
+              }).catch(console.error);
+            }}
             refreshDisabled={isLoading}
           >
             {canCreate ? (
@@ -161,55 +247,141 @@ export default function FormModulesPage() {
           </AdminListToolbar>
         </div>
 
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white px-4 py-3">
+          <div className="flex min-w-0 items-center gap-4">
+            {bannerUrl ? (
+              <img src={bannerUrl} alt="Form banner" className="h-16 w-40 rounded-md border bg-gray-50 object-cover" />
+            ) : (
+              <div className="flex h-16 w-40 items-center justify-center rounded-md border border-dashed bg-gray-50 text-xs text-gray-400">
+                No image
+              </div>
+            )}
+            <div className="min-w-0 flex-1 space-y-2">
+              <div>
+                <p className="font-medium text-gray-900">Banner</p>
+                <p className="text-xs text-gray-500">One image for every listing form. Link is the tap target, not the image file.</p>
+              </div>
+              <div className="flex max-w-md items-center gap-2">
+                <Input
+                  value={bannerLink}
+                  onChange={(e) => setBannerLink(e.target.value)}
+                  placeholder="https://example.com (optional tap link)"
+                  disabled={!canUpdate || bannerBusy}
+                  className="h-9"
+                />
+                {canUpdate ? (
+                  <>
+                    <Button variant="outline" size="sm" disabled={bannerBusy} onClick={() => void handleSaveBannerLink()}>
+                      Save link
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={bannerBusy || !bannerLink}
+                      onClick={() => {
+                        setBannerBusy(true);
+                        listingConfigService
+                          .updateFormBanner({ link: null })
+                          .then(() => setBannerLink(''))
+                          .catch((err) => {
+                            console.error('Banner link clear failed', err);
+                            alert(listingConfigApiError(err, 'Failed to clear banner link.'));
+                          })
+                          .finally(() => setBannerBusy(false));
+                      }}
+                    >
+                      Clear link
+                    </Button>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <input
+              ref={bannerInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => void handlePickBanner(e.target.files?.[0])}
+            />
+            {canUpdate ? (
+              <Button variant="outline" disabled={bannerBusy} onClick={() => bannerInputRef.current?.click()}>
+                {bannerBusy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ImageIcon className="w-4 h-4 mr-2" />}
+                Add Banner
+              </Button>
+            ) : null}
+            {canUpdate && bannerUrl ? (
+              <Button variant="outline" disabled={bannerBusy} onClick={() => void handleClearBanner()} className="text-red-600 hover:text-red-700">
+                Remove
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
         <AdminDataTable
-          page={page}
-          limit={limit}
-          total={total}
-          totalPages={totalPages}
-          onPageChange={onPageChange}
-          onPageSizeChange={onPageSizeChange}
+          page={1}
+          limit={Math.max(sortedModules.length, 1)}
+          total={sortedModules.length}
+          totalPages={1}
+          onPageChange={() => undefined}
+          onPageSizeChange={() => undefined}
           loading={isLoading}
-          isEmpty={!pageRows.length}
+          isEmpty={!sortedModules.length}
           emptyMessage="No sections found."
-          syncKey={pageRows.length}
+          syncKey={sortedModules.length}
         >
           <table className="w-full text-sm text-left">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="px-6 py-4 font-semibold text-gray-700">Display Name</th>
+                <th className="px-6 py-4 font-semibold text-gray-700">Sort order</th>
                 <th className="px-6 py-4 font-semibold text-gray-700">Admin Name</th>
                 <th className="px-6 py-4 font-semibold text-gray-700">Common</th>
                 <th className="px-6 py-4 font-semibold text-gray-700 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
-              {pageRows.map(item => (
-                <tr key={item.id} className="hover:bg-gray-50/50">
-                  <td className="px-6 py-4 font-medium text-gray-900">{item.label}</td>
-                  <td className="px-6 py-4 text-gray-500">{item.admin_name || '—'}</td>
-                  <td className="px-6 py-4">
-                    {item.is_common ? <Badge variant="secondary" className="bg-blue-50 text-blue-700">Common</Badge> : <Badge variant="outline" className="text-gray-500">Specific</Badge>}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <Button variant="ghost" size="sm" onClick={() => router.push(`/listings/form-modules/${item.id}/fields`)} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Manage Fields">
-                        <Layers className="w-4 h-4 mr-1" /> Manage Fields
-                      </Button>
-                      {canUpdate && (
-                        <Button variant="ghost" size="sm" onClick={() => handleOpenModal(item)} className="text-gray-500 hover:text-gray-700">
-                          <Edit2 className="w-4 h-4" />
-                        </Button>
-                      )}
-                      {canDelete && (
-                        <Button variant="ghost" size="sm" onClick={() => handleOpenDelete(item)} className="text-red-500 hover:text-red-600 hover:bg-red-50">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
+            {sortedModules.length ? (
+              <SortableTableBody
+                items={sortedModules}
+                disabled={!canUpdate}
+                onReorder={handleReorder}
+                renderRow={(item, { dragHandle }) => {
+                  const bannerModule = isBannerFormModule(item);
+                  return (
+                    <>
+                      <td className="px-6 py-4 font-medium text-gray-900">{item.label}</td>
+                      <td className="px-6 py-4">{dragHandle}</td>
+                      <td className="px-6 py-4 text-gray-500">{item.admin_name || '—'}</td>
+                      <td className="px-6 py-4">
+                        {bannerModule ? <Badge variant="secondary" className="bg-amber-50 text-amber-700">Banner</Badge> : item.is_common ? <Badge variant="secondary" className="bg-blue-50 text-blue-700">Common</Badge> : <Badge variant="outline" className="text-gray-500">Specific</Badge>}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {bannerModule ? null : (
+                            <Button variant="ghost" size="sm" onClick={() => router.push(`/listings/form-modules/${item.id}/fields`)} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Manage Fields">
+                              <Layers className="w-4 h-4 mr-1" /> Manage Fields
+                            </Button>
+                          )}
+                          {canUpdate && (
+                            <Button variant="ghost" size="sm" onClick={() => handleOpenModal(item)} className="text-gray-500 hover:text-gray-700">
+                              <Edit2 className="w-4 h-4" />
+                            </Button>
+                          )}
+                          {canDelete && (
+                            <Button variant="ghost" size="sm" onClick={() => handleOpenDelete(item)} className="text-red-500 hover:text-red-600 hover:bg-red-50">
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </>
+                  );
+                }}
+              />
+            ) : (
+              <tbody />
+            )}
           </table>
         </AdminDataTable>
 
@@ -226,6 +398,8 @@ export default function FormModulesPage() {
                 <Input value={formData.label} onChange={e => setFormData({...formData, label: e.target.value})} placeholder="e.g. Area Details" />
                 <p className="text-xs text-gray-500">This is what app users will see.</p>
               </div>
+              {isBannerFormModule(editingItem) ? null : (
+                <>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Admin Name</label>
                 <Input value={formData.admin_name} onChange={e => setFormData({...formData, admin_name: e.target.value})} placeholder="e.g. Area Config v2" />
@@ -244,10 +418,12 @@ export default function FormModulesPage() {
                 </div>
                 <Switch checked={formData.is_common} onCheckedChange={c => setFormData({...formData, is_common: c})} />
               </div>
+                </>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => void handleModalOpenChange(false)}>Cancel</Button>
-              <Button onClick={handleSave} disabled={isSubmitting || !formData.key || !formData.label}>
+              <Button onClick={handleSave} disabled={isSubmitting || !formData.label || (!isBannerFormModule(editingItem) && !formData.key)}>
                 {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save
               </Button>
             </DialogFooter>

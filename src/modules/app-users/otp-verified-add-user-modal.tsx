@@ -458,7 +458,7 @@ export function OtpVerifiedAddUserModal({
             }
           : {}),
       });
-      onSuccess('User created. Temporary password: 123456');
+      onSuccess('User created. Temporary password: 1234');
       onOpenChange(false);
     } catch (err) {
       const { issues, message } = apiFieldErrors(err, { emailProvided });
@@ -481,7 +481,7 @@ export function OtpVerifiedAddUserModal({
         <DialogHeader>
           <DialogTitle>Add User</DialogTitle>
           <DialogDescription>
-            User will log in with mobile + temporary password 123456 and complete setup on first login.
+            User will log in with mobile + temporary password 1234 and complete setup on first login.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-2" noValidate>

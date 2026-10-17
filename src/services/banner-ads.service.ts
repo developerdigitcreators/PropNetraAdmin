@@ -129,7 +129,6 @@ export const DEFAULT_PLACEMENTS: AdPlacementOption[] = [
   { key: 'developer_home', label: 'Developer Home page' },
   { key: 'direct_builder_floor', label: 'Direct Builder floor' },
   { key: 'upgrade', label: 'Upgrade / Unlock Plan' },
-  { key: 'property_listing_form', label: 'Property Listing Form' },
   { key: 'contact_reveal_popup', label: 'Contact Reveal Popup' },
 ];
 
@@ -142,10 +141,17 @@ export const isTopOnlyPlacement = (placement?: string | null) =>
 /** Managed from Subscription Plans — hide from Banner Ads page dropdown. */
 export const SUBSCRIPTION_PLAN_BANNER_PLACEMENT = 'upgrade';
 
+/** Listing form creatives use this page key. Only the Top Banner section applies. */
+export const LISTING_FORM_BANNER_PLACEMENT = 'property_listing_form';
+
+const HIDDEN_BANNER_ADS_PAGE_PLACEMENTS = new Set([
+  SUBSCRIPTION_PLAN_BANNER_PLACEMENT,
+]);
+
 export const placementsForBannerAdsDropdown = (
   placements: AdPlacementOption[],
 ): AdPlacementOption[] =>
-  placements.filter((p) => p.key !== SUBSCRIPTION_PLAN_BANNER_PLACEMENT);
+  placements.filter((p) => !HIDDEN_BANNER_ADS_PAGE_PLACEMENTS.has(p.key));
 
 export const DEFAULT_SECTIONS: AdSectionOption[] = [
   { key: 'top', label: 'Top Banner' },
@@ -377,7 +383,7 @@ function mapKeyLabelOptions(
   );
 }
 
-function normalizeListResponse(data: unknown): BannerListResponse {
+export function normalizeListResponse(data: unknown): BannerListResponse {
   if (data && typeof data === 'object' && !Array.isArray(data)) {
     const obj = data as {
       sections?: Record<string, AdBanner[]>;

@@ -818,12 +818,12 @@ export default function AttributesPage() {
         open={isModalOpen}
         onOpenChange={(next) => (next ? setIsModalOpen(true) : void closeModal())}
       >
-        <DialogContent>
-          <DialogHeader>
+        <DialogContent className="!flex max-h-[min(92dvh,52rem)] !flex-col gap-0 overflow-hidden sm:max-w-md">
+          <DialogHeader className="shrink-0 pr-8">
             <DialogTitle>{editingItem ? 'Edit' : 'Add'} {activeTab.replace('_', ' ')}</DialogTitle>
             <DialogDescription>Fill out the details below.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto py-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Name</label>
               <Input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="e.g. Residential" />

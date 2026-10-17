@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { PermissionGuard } from '@/components/common/permission-guard';
-import { listingConfigService } from '@/services/listing-config.service';
+import { isBannerFormModule, listingConfigService } from '@/services/listing-config.service';
 import { moduleOptionsService } from '@/services/module-options.service';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
@@ -325,6 +325,7 @@ export default function FormFieldsPage() {
   };
 
   const [moduleLabel, setModuleLabel] = useState('Fields Management');
+  const [bannerModule, setBannerModule] = useState(false);
 
   const fetchFields = async () => {
     setIsLoading(true);
@@ -334,7 +335,10 @@ export default function FormFieldsPage() {
       
       const modules = await listingConfigService.getFormModules();
       const mod = modules.find((m: any) => m.id === moduleId);
-      if (mod) setModuleLabel(mod.label);
+      if (mod) {
+        setModuleLabel(mod.label);
+        setBannerModule(isBannerFormModule(mod));
+      }
     } catch (err) {
       console.error('Failed to fetch fields', err);
     } finally {
@@ -423,7 +427,12 @@ export default function FormFieldsPage() {
           </div>
         </div>
 
-        <div className="space-y-4 mt-6">
+        {bannerModule ? (
+          <div className="rounded-xl border border-gray-100 bg-white p-8 text-sm text-gray-500">
+            Banner Ads is placed in the listing form by sort order. Ads come from the module banner placement. Fields are not added on this section.
+          </div>
+        ) : null}
+        <div className={`space-y-4 mt-6 ${bannerModule ? 'hidden' : ''}`}>
           {isLoading ? (
             <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
           ) : fields.length === 0 ? (

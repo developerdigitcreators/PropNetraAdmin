@@ -360,12 +360,22 @@ export type CreateFormField = {
   options?: CreateFormFieldOption[];
   placeholder?: string;
   moduleKey?: string;
+  slot?: string;
+  bannerPlacement?: unknown;
   raw?: Record<string, unknown>;
+};
+
+export type CreateFormModule = {
+  key: string;
+  label: string;
+  fields: CreateFormField[];
+  slot?: string;
+  bannerPlacement?: unknown;
 };
 
 export type CreateFormSchema = {
   fields: CreateFormField[];
-  modules: { key: string; label: string; fields: CreateFormField[] }[];
+  modules: CreateFormModule[];
   raw: unknown;
 };
 
@@ -741,10 +751,14 @@ function normalizeCreateField(
     key,
   );
   const fieldId = pickStr(row.id, row.field_id, row.fieldId);
+  const slot = pickStr(row.slot).toLowerCase();
+  const bannerPlacement = row.bannerPlacement ?? row.banner_placement;
   return {
     key,
     label: label || key,
-    type: type || "text",
+    type: slot === "banner" ? "banner" : type || "text",
+    slot: slot || undefined,
+    bannerPlacement,
     required:
       row.required === true ||
       row.is_required === true ||
@@ -764,9 +778,23 @@ function normalizeCreateField(
   };
 }
 
-function normalizeModule(
-  raw: unknown,
-): { key: string; label: string; fields: CreateFormField[] } | null {
+function bannerSlotField(
+  key: string,
+  label: string,
+  bannerPlacement: unknown,
+  raw: Record<string, unknown>,
+): CreateFormField {
+  return {
+    key: key || "banner",
+    label: label || "Banner Ads",
+    type: "banner",
+    slot: "banner",
+    bannerPlacement,
+    raw,
+  };
+}
+
+function normalizeModule(raw: unknown): CreateFormModule | null {
   const row = asObject(raw);
   const key = pickStr(row.key, row.module_key, row.moduleKey, row.name, row.id);
   const label = pickStr(
@@ -776,24 +804,55 @@ function normalizeModule(
     row.name,
     key,
   );
-  const fields = collectFieldsRaw(row)
+  const slot = pickStr(row.slot).toLowerCase();
+  const bannerPlacement = row.bannerPlacement ?? row.banner_placement;
+  const isBanner = slot === "banner" || key.toLowerCase() === "banner";
+  let fields = collectFieldsRaw(row)
     .map((field) => normalizeCreateField(field, key))
     .filter((field): field is CreateFormField => !!field);
+  if (isBanner) {
+    fields = fields.map((field) =>
+      field.slot === "banner" || field.type === "banner"
+        ? {
+            ...field,
+            type: "banner",
+            slot: "banner",
+            bannerPlacement: field.bannerPlacement ?? bannerPlacement,
+          }
+        : field,
+    );
+    if (!fields.some((field) => field.slot === "banner")) {
+      fields = [
+        bannerSlotField(key, label, bannerPlacement, row),
+        ...fields,
+      ];
+    }
+  }
   if (!key && fields.length === 0) return null;
   // Hide modules with no renderable fields (pure catalog modules)
   if (fields.length === 0) return null;
-  return { key: key || "module", label: label || key || "Module", fields };
+  return {
+    key: key || "module",
+    label: label || key || "Module",
+    fields,
+    slot: isBanner ? "banner" : slot || undefined,
+    bannerPlacement,
+  };
 }
 
 export function normalizeCreateSchema(data: unknown): CreateFormSchema {
   const root = asObject(data);
-  const modulesRaw = collectModulesRaw(data);
+  const modulesRaw = [...collectModulesRaw(data)].sort((a, b) => {
+    const left = asObject(a);
+    const right = asObject(b);
+    return (
+      Number(left.sort_order ?? left.sortOrder ?? 0) -
+      Number(right.sort_order ?? right.sortOrder ?? 0)
+    );
+  });
   const modules = modulesRaw
     .map(normalizeModule)
-    .filter(
-      (mod): mod is { key: string; label: string; fields: CreateFormField[] } =>
-        !!mod,
-    );
+    .filter((mod): mod is CreateFormModule => !!mod);
 
   const topFieldsRaw = Array.isArray(root.fields)
     ? root.fields
@@ -874,7 +933,15 @@ async function buildSchemaFromModuleConfigs(params: {
     if (moduleId) configByModuleId.set(moduleId, row);
   }
 
-  const visibleModules = modulesList
+  const visibleModules = [...modulesList]
+    .sort((a, b) => {
+      const left = asObject(a);
+      const right = asObject(b);
+      return (
+        Number(left.sort_order ?? left.sortOrder ?? 0) -
+        Number(right.sort_order ?? right.sortOrder ?? 0)
+      );
+    })
     .map((mod) => {
       const row = asObject(mod);
       const id = pickStr(row.id);
@@ -896,11 +963,22 @@ async function buildSchemaFromModuleConfigs(params: {
       if (!isVisible) return null;
       // Skip modules that are only catalog pickers in the app flow.
       if (SKIP_CREATE_SCHEMA_KEYS.has(key.toLowerCase())) return null;
+      const slot = pickStr(row.slot).toLowerCase();
+      const isBanner = slot === "banner" || key.toLowerCase() === "banner";
+      const bannerPlacement = row.bannerPlacement ?? row.banner_placement;
       const isMandatory =
-        conf?.is_mandatory === true ||
-        conf?.isMandatory === true ||
-        conf?.is_required === true;
-      return { id, key, label: label || key, isMandatory };
+        !isBanner &&
+        (conf?.is_mandatory === true ||
+          conf?.isMandatory === true ||
+          conf?.is_required === true);
+      return {
+        id,
+        key,
+        label: label || key,
+        isMandatory,
+        isBanner,
+        bannerPlacement,
+      };
     })
     .filter(
       (
@@ -910,6 +988,8 @@ async function buildSchemaFromModuleConfigs(params: {
         key: string;
         label: string;
         isMandatory: boolean;
+        isBanner: boolean;
+        bannerPlacement: unknown;
       } => !!mod,
     );
 
@@ -933,8 +1013,24 @@ async function buildSchemaFromModuleConfigs(params: {
           })
           .filter((field): field is CreateFormField => !!field);
         fields = await enrichFieldOptions(fields);
+        if (mod.isBanner && !fields.some((field) => field.slot === "banner")) {
+          fields = [
+            bannerSlotField(mod.key, mod.label, mod.bannerPlacement, {
+              id: mod.id,
+              key: mod.key,
+              bannerPlacement: mod.bannerPlacement,
+            }),
+            ...fields,
+          ];
+        }
         if (fields.length === 0) return null;
-        return { key: mod.key, label: mod.label, fields };
+        return {
+          key: mod.key,
+          label: mod.label,
+          fields,
+          slot: mod.isBanner ? "banner" : undefined,
+          bannerPlacement: mod.bannerPlacement,
+        };
       } catch {
         return null;
       }
@@ -942,8 +1038,7 @@ async function buildSchemaFromModuleConfigs(params: {
   );
 
   const resolved = modules.filter(
-    (mod): mod is { key: string; label: string; fields: CreateFormField[] } =>
-      !!mod,
+    (mod): mod is CreateFormModule => !!mod,
   );
   return {
     modules: resolved,

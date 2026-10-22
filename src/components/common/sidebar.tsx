@@ -30,6 +30,8 @@ import {
   ToggleRight,
   KeyRound,
   TrendingUp,
+  Scale,
+  Phone,
 } from "lucide-react";
 import { useIsSuperAdmin } from "@/hooks/use-is-super-admin";
 import { PermissionGuard } from "@/components/common/permission-guard";
@@ -282,6 +284,18 @@ const MENU_ITEMS: MenuItem[] = [
     icon: Headset,
     permission: "support_tickets:read",
     badgeKey: "supportTickets",
+  },
+  {
+    name: "Terms & Privacy",
+    path: "/legal",
+    icon: Scale,
+    permission: "legal_pages:read",
+  },
+  {
+    name: "Contact Us",
+    path: "/support-contact",
+    icon: Phone,
+    permission: "support_contact:read",
   },
   {
     name: "Account Deletion Requests",

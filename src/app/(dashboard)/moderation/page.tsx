@@ -4,6 +4,9 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   listingsService,
+  PRE_LEASED_FILTER_ID,
+  isCommercialName,
+  isPreLeasedName,
   type ApproveListingReviewPayload,
   type ListingReviewItem,
   type ReviewQueueFiltersResponse,
@@ -112,20 +115,64 @@ function ReviewListingPageInner() {
 
   const [isLoading, setIsLoading] = useState(true);
 
+  const commercialBuildingTypeId = useMemo(() => {
+    const rows =
+      filtersByTab.unverified?.buildingTypes ??
+      filtersByTab.verified?.buildingTypes ??
+      [];
+    return (
+      rows.find(
+        (row) =>
+          isCommercialName(row.buildingTypeName) &&
+          !isPreLeasedName(row.buildingTypeName),
+      )?.buildingTypeId || ""
+    );
+  }, [filtersByTab.unverified, filtersByTab.verified]);
+
+  useEffect(() => {
+    const rows = filtersByTab.unverified?.buildingTypes ?? [];
+    const match = rows.find(
+      (row) => row.buildingTypeId === selectedBuildingTypeId,
+    );
+    if (match && isPreLeasedName(match.buildingTypeName)) {
+      setSelectedBuildingTypeId(PRE_LEASED_FILTER_ID);
+    }
+  }, [
+    filtersByTab.unverified,
+    selectedBuildingTypeId,
+    setSelectedBuildingTypeId,
+  ]);
+
   const apiFilters = useMemo(() => {
+    let buildingTypeId = selectedBuildingTypeId;
+    let leasingStatus: "leased" | undefined;
+    let excludeLeasingStatus: "leased" | undefined;
+    if (selectedBuildingTypeId === PRE_LEASED_FILTER_ID) {
+      buildingTypeId = commercialBuildingTypeId || undefined;
+      leasingStatus = "leased";
+    } else if (
+      commercialBuildingTypeId &&
+      selectedBuildingTypeId === commercialBuildingTypeId
+    ) {
+      excludeLeasingStatus = "leased";
+    }
     return {
       categoryId:
         typeof selectedCategoryId === "string" ? selectedCategoryId : undefined,
-      buildingTypeId:
-        typeof selectedBuildingTypeId === "string"
-          ? selectedBuildingTypeId
-          : undefined,
+      buildingTypeId,
+      leasingStatus,
+      excludeLeasingStatus,
       propertyTypeId:
         typeof selectedPropertyTypeId === "string"
           ? selectedPropertyTypeId
           : undefined,
     };
-  }, [selectedBuildingTypeId, selectedCategoryId, selectedPropertyTypeId]);
+  }, [
+    commercialBuildingTypeId,
+    selectedBuildingTypeId,
+    selectedCategoryId,
+    selectedPropertyTypeId,
+  ]);
 
   const fetchTab = useCallback(
     async (target: ReviewTab, page: number) => {
@@ -606,7 +653,31 @@ function FiltersBar({
 }) {
   const propertyTypeValue = selectedPropertyTypeId ?? "__ALL__";
   const categories = filters?.categories ?? [];
-  const buildingTypes = filters?.buildingTypes ?? [];
+  const buildingTypes = (filters?.buildingTypes ?? []).flatMap((bt) => {
+    if (isPreLeasedName(bt.buildingTypeName)) {
+      return [
+        {
+          ...bt,
+          buildingTypeId: PRE_LEASED_FILTER_ID,
+          buildingTypeName: "Pre-Leased",
+        },
+      ];
+    }
+    return [bt];
+  });
+  if (
+    !buildingTypes.some((bt) => bt.buildingTypeId === PRE_LEASED_FILTER_ID) &&
+    buildingTypes.some((bt) => isCommercialName(bt.buildingTypeName))
+  ) {
+    const commercialIndex = buildingTypes.findIndex((bt) =>
+      isCommercialName(bt.buildingTypeName),
+    );
+    buildingTypes.splice(commercialIndex + 1, 0, {
+      buildingTypeId: PRE_LEASED_FILTER_ID,
+      buildingTypeName: "Pre-Leased",
+      total: 0,
+    });
+  }
   const propertyTypes = filters?.propertyTypes ?? [];
 
   const buildingTypeSum = buildingTypes.reduce(

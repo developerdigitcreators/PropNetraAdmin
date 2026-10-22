@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   listingsService,
+  PRE_LEASED_FILTER_ID,
+  isCommercialName,
+  isPreLeasedName,
+  listingBuildingTypeQuery,
+  withVirtualPreLeasedOption,
   getListingDetailRows,
   type ListingInterestDetails,
   type ListingReviewItem,
@@ -294,16 +299,38 @@ export function MyListingsPanel() {
     null,
   );
   const [detailLoading, setDetailLoading] = useState(false);
+  const buildingTypesRef = useRef(filters.buildingTypes);
+  buildingTypesRef.current = filters.buildingTypes;
+  const commercialBuildingTypeId =
+    filters.buildingTypes.find((row) => isCommercialName(row.name))?.id || "";
+
+  useEffect(() => {
+    const match = filters.buildingTypes.find(
+      (row) => row.id === selectedBuildingTypeId,
+    );
+    if (match && isPreLeasedName(match.name)) {
+      setSelectedBuildingTypeId(PRE_LEASED_FILTER_ID);
+    }
+  }, [filters.buildingTypes, selectedBuildingTypeId, setSelectedBuildingTypeId]);
 
   const fetchList = useCallback(async () => {
     setLoading(true);
     try {
+      const knownTypes = buildingTypesRef.current;
+      const buildingTypeQuery = listingBuildingTypeQuery(selectedBuildingTypeId, [
+        ...knownTypes,
+        ...(commercialBuildingTypeId
+          ? [{ id: commercialBuildingTypeId, name: "Commercial" }]
+          : []),
+      ]);
       const result = await listingsService.getMyListings({
         tab,
         page: listingIdFilter ? 1 : page,
         limit: listingIdFilter ? 100 : pageSize,
         categoryId: selectedCategoryId || undefined,
-        buildingTypeId: selectedBuildingTypeId || undefined,
+        buildingTypeId: buildingTypeQuery.buildingTypeId,
+        leasingStatus: buildingTypeQuery.leasingStatus,
+        excludeLeasingStatus: buildingTypeQuery.excludeLeasingStatus,
         propertyTypeId:
           selectedPropertyTypeId === "__ALL__"
             ? undefined
@@ -362,6 +389,7 @@ export function MyListingsPanel() {
     usernameFilter,
     leadFilter,
     listingIdFilter,
+    commercialBuildingTypeId,
   ]);
 
   useEffect(() => {
@@ -505,13 +533,14 @@ export function MyListingsPanel() {
     setPage(1);
   };
 
+  const buildingTypeOptions = withVirtualPreLeasedOption(filters.buildingTypes);
   const categorySum = filters.categories.reduce((a, c) => a + c.total, 0);
-  const buildingSum = filters.buildingTypes.reduce((a, c) => a + c.total, 0);
+  const buildingSum = buildingTypeOptions.reduce((a, c) => a + c.total, 0);
   const propertySum = filters.propertyTypes.reduce((a, c) => a + c.total, 0);
   const selectedCategory = filters.categories.find(
     (c) => c.id === selectedCategoryId,
   );
-  const selectedBuildingType = filters.buildingTypes.find(
+  const selectedBuildingType = buildingTypeOptions.find(
     (b) => b.id === selectedBuildingTypeId,
   );
   const selectedPropertyType =
@@ -649,7 +678,7 @@ export function MyListingsPanel() {
                     )}
                   </SelectTrigger>
                   <SelectContent>
-                    {filters.buildingTypes.map((b) => (
+                    {buildingTypeOptions.map((b) => (
                       <SelectItem key={b.id} value={b.id}>
                         {b.name} ({b.total})
                       </SelectItem>

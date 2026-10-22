@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { listingConfigApiError, listingConfigService } from '@/services/listing-config.service';
+import { isPreLeasedName } from '@/services/listings.service';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
@@ -75,7 +76,7 @@ const EMPTY_FORM: AttributeFormData = {
   share_image_url: '',
 };
 
-const SHARE_BUILDING_TYPE_NAMES = ['Residential', 'Commercial', 'Pre-Leased'];
+const SHARE_BUILDING_TYPE_NAMES = ['Residential', 'Commercial'];
 
 function typeNameKey(name?: string | null) {
   return String(name || '')
@@ -236,8 +237,16 @@ export default function AttributesPage() {
         listingConfigService.getPropertyTypes(),
       ]);
       const nextCats = asAttributeList(cats);
-      const nextBuildingTypes = asAttributeList(bTypes);
-      const nextPropertyTypes = asAttributeList(pTypes);
+      const loadedBuildingTypes = asAttributeList(bTypes);
+      const preLeasedIds = new Set(
+        loadedBuildingTypes.filter((row) => isPreLeasedName(row.name)).map((row) => row.id),
+      );
+      const nextBuildingTypes = loadedBuildingTypes.filter((row) => !isPreLeasedName(row.name));
+      const nextPropertyTypes = asAttributeList(pTypes).filter(
+        (row) =>
+          !preLeasedIds.has(row.building_type_id || '') &&
+          !isPreLeasedName(row.building_type?.name),
+      );
       setCategories(nextCats);
       setBuildingTypes(nextBuildingTypes);
       setPropertyTypes(nextPropertyTypes);
@@ -327,6 +336,10 @@ export default function AttributesPage() {
 
   const handleSave = async () => {
     if (!formData.name) return;
+    if (activeTab === 'building_types' && isPreLeasedName(formData.name)) {
+      setSaveError('Pre-Leased is retired. Create Residential or Commercial instead.');
+      return;
+    }
     setIsSubmitting(true);
     setSaveError('');
     try {
@@ -338,7 +351,7 @@ export default function AttributesPage() {
       if (activeTab === 'building_types' && editingItem) {
         // We will handle category_id directly in the update logic below
       }
-      if (activeTab === 'property_types' || activeTab === 'categories') {
+      if (activeTab === 'categories') {
         payload.icon_url = formData.icon_url;
       }
       if (activeTab === 'property_types') {
@@ -509,10 +522,23 @@ export default function AttributesPage() {
     try {
       if (activeTab === 'categories') await listingConfigService.deleteCategory(editingItem.id, remark);
       else if (activeTab === 'building_types') await listingConfigService.deleteBuildingType(editingItem.id, remark);
-      else if (activeTab === 'property_types') await listingConfigService.deletePropertyType(editingItem.id, remark);
-      
+      else if (activeTab === 'property_types') {
+        await listingConfigService.deletePropertyType(editingItem.id, remark);
+        const fresh = asAttributeList(await listingConfigService.getPropertyTypes());
+        const preLeasedIds = new Set(
+          buildingTypes.filter((row) => isPreLeasedName(row.name)).map((row) => row.id),
+        );
+        setPropertyTypes(
+          fresh.filter(
+            (row) =>
+              !preLeasedIds.has(row.building_type_id || '') &&
+              !isPreLeasedName(row.building_type?.name),
+          ),
+        );
+      }
+
       setIsDeleteModalOpen(false);
-      fetchData();
+      if (activeTab !== 'property_types') fetchData();
     } catch (err) {
       setError(
         listingConfigApiError(err, 'Failed to delete. Ensure it is not in use.'),
@@ -540,7 +566,6 @@ export default function AttributesPage() {
               {type === 'property_types' && (
                 <>
                   <th className="px-6 py-4 font-semibold text-gray-700">Building Type</th>
-                  <th className="px-6 py-4 font-semibold text-gray-700">Icon</th>
                   <th className="px-6 py-4 font-semibold text-gray-700">Share image</th>
                 </>
               )}
@@ -593,17 +618,6 @@ export default function AttributesPage() {
                     <>
                       <td className="px-6 py-4 text-gray-500">
                         {item.building_type?.name || 'N/A'}
-                      </td>
-                      <td className="px-6 py-4">
-                        {item.icon_url ? (
-                          <img
-                            src={item.icon_url}
-                            alt={item.name}
-                            className="w-8 h-8 object-contain bg-gray-50 rounded border"
-                          />
-                        ) : (
-                          <span className="text-gray-400 text-xs italic">No Icon</span>
-                        )}
                       </td>
                       <td className="px-6 py-4">
                         {item.share_image_url ? (
@@ -888,7 +902,7 @@ export default function AttributesPage() {
                   WhatsApp preview group <span className="text-red-500">*</span>
                 </label>
                 <p className="text-xs text-gray-500">
-                  Only Residential, Commercial and Pre-Leased. The share image applies across
+                  Only Residential and Commercial. The share image applies across
                   Resale, Rent/Lease and Buy Requirement — it will not create extra Apartment rows.
                 </p>
                 <div className="relative">
@@ -900,7 +914,7 @@ export default function AttributesPage() {
                     <span className="truncate flex-1 text-left pr-2">
                       {formData.building_type_names?.length > 0 
                          ? formData.building_type_names.join(', ')
-                         : 'Select Residential, Commercial or Pre-Leased'}
+                         : 'Select Residential or Commercial'}
                     </span>
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 opacity-50 shrink-0"><path d="m6 9 6 6 6-6"/></svg>
                   </button>
@@ -912,7 +926,7 @@ export default function AttributesPage() {
                         <div className="max-h-60 overflow-y-auto p-1">
                           {uniqueShareBuildingTypes(buildingTypes).length === 0 ? (
                             <div className="px-3 py-2 text-sm text-gray-500">
-                              Add Residential, Commercial or Pre-Leased building types first.
+                              Add Residential or Commercial building types first.
                             </div>
                           ) : (
                             uniqueShareBuildingTypes(buildingTypes).map((b) => (
@@ -949,7 +963,7 @@ export default function AttributesPage() {
               </div>
             )}
 
-            {(activeTab === 'property_types' || activeTab === 'categories') && (
+            {activeTab === 'categories' && (
               <ImageUrlOrUpload
                 label="Icon URL"
                 value={formData.icon_url}
@@ -1000,6 +1014,11 @@ export default function AttributesPage() {
         onOpenChange={setIsDeleteModalOpen}
         title={editingItem?.name ? `Delete ${editingItem.name}?` : 'Delete item?'}
         itemName={editingItem?.name}
+        description={
+          activeTab === 'property_types'
+            ? 'This deletes only this building-type row. The same name on another category stays until that row is deleted separately.'
+            : undefined
+        }
         submitting={isSubmitting}
         onConfirm={handleDelete}
       />

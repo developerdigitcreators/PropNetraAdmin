@@ -1,7 +1,7 @@
 import { axiosClient } from '@/lib/axios-client';
 import { deleteWithRemark } from '@/lib/delete-with-remark';
 
-export type TicketStatus = 'pending' | 'resolved' | 'closed';
+export type TicketStatus = 'pending' | 'under_review' | 'closed';
 export type TicketTier = 'elite' | 'pro' | 'network' | null;
 
 export type TicketUser = {
@@ -72,14 +72,14 @@ function asArray(data: unknown): unknown[] {
 }
 
 function asStatus(value: unknown): TicketStatus {
-  const raw = pickString(value).toLowerCase();
-  if (raw === 'resolved' || raw === 'closed' || raw === 'pending') return raw;
+  const raw = pickString(value).toLowerCase().replace(/[\s-]+/g, '_');
+  if (raw === 'under_review' || raw === 'closed' || raw === 'pending') return raw;
   return 'pending';
 }
 
 function asRemarkStatus(value: unknown): TicketStatus | null {
-  const raw = pickString(value).toLowerCase();
-  if (raw === 'resolved' || raw === 'closed' || raw === 'pending') return raw;
+  const raw = pickString(value).toLowerCase().replace(/[\s-]+/g, '_');
+  if (raw === 'under_review' || raw === 'closed' || raw === 'pending') return raw;
   return null;
 }
 

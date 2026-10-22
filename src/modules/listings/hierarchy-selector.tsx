@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { listingConfigService } from '@/services/listing-config.service';
+import { isPreLeasedName } from '@/services/listings.service';
 import { useMatrixStore } from '@/store/use-matrix-store';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
@@ -27,11 +28,22 @@ export function HierarchySelector() {
   );
 
   // Only active building types for the selected category (inactive ones stay hidden).
+  const preLeasedBuildingTypeIds = useMemo(
+    () =>
+      new Set(
+        buildingTypes
+          .filter((bt) => isPreLeasedName(bt?.name))
+          .map((bt) => String(bt.id)),
+      ),
+    [buildingTypes],
+  );
+
   const availableBuildingTypes = useMemo(
     () =>
       buildingTypes.filter(
         (bt) =>
           isRowActive(bt) &&
+          !isPreLeasedName(bt?.name) &&
           (bt.category_id === categoryId || bt.category?.id === categoryId),
       ),
     [buildingTypes, categoryId],
@@ -42,10 +54,14 @@ export function HierarchySelector() {
       propertyTypes.filter(
         (pt) =>
           isRowActive(pt) &&
+          !preLeasedBuildingTypeIds.has(
+            String(pt.building_type_id || pt.building_type?.id || ''),
+          ) &&
+          !isPreLeasedName(pt.building_type?.name) &&
           (pt.building_type_id === buildingTypeId ||
             pt.building_type?.id === buildingTypeId),
       ),
-    [propertyTypes, buildingTypeId],
+    [propertyTypes, buildingTypeId, preLeasedBuildingTypeIds],
   );
 
   const selectedCategoryName = activeCategories.find((c) => c.id === categoryId)?.name;

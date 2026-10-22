@@ -144,8 +144,17 @@ export const SUBSCRIPTION_PLAN_BANNER_PLACEMENT = 'upgrade';
 /** Listing form creatives use this page key. Only the Top Banner section applies. */
 export const LISTING_FORM_BANNER_PLACEMENT = 'property_listing_form';
 
+/** Coming Soon popup ads are managed from Developer Home, not Banner Ads. */
+export const COMING_SOON_POPUP_PLACEMENT = 'coming_soon_popup';
+
+export function comingSoonPopupAdsHref(stateId: string, cityId: string) {
+  const q = new URLSearchParams({ stateId, cityId });
+  return `/coming-soon-popup-ads?${q.toString()}`;
+}
+
 const HIDDEN_BANNER_ADS_PAGE_PLACEMENTS = new Set([
   SUBSCRIPTION_PLAN_BANNER_PLACEMENT,
+  COMING_SOON_POPUP_PLACEMENT,
 ]);
 
 export const placementsForBannerAdsDropdown = (
@@ -227,11 +236,11 @@ export function sectionsForPlacement(
       ? mapIncoming(fromApi)
       : placement === 'chat_notification'
         ? CHAT_NOTIFICATION_SECTIONS
-        : placement === 'popup'
+        : placement === 'popup' || placement === COMING_SOON_POPUP_PLACEMENT
           ? DEFAULT_SECTIONS.filter((s) => s.key === 'general')
           : DEFAULT_SECTIONS;
 
-  if (placement === 'popup') {
+  if (placement === 'popup' || placement === COMING_SOON_POPUP_PLACEMENT) {
     return base.filter((s) => s.key === 'general');
   }
 

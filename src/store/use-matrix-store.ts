@@ -18,6 +18,7 @@ interface MatrixState {
   fetchConfigs: () => Promise<void>;
   updateConfig: (moduleId: string, field: string, value: any) => void;
   saveConfigs: () => Promise<void>;
+  saveModuleRows: (rows: Array<Record<string, unknown>>) => Promise<void>;
   resetChanges: () => void;
 }
 
@@ -34,6 +35,17 @@ function asConfigList(data: unknown): any[] {
 
 function configModuleId(row: any): string {
   return String(row?.module_id ?? row?.moduleId ?? "");
+}
+
+function readSortOrder(row: any, fallback: number) {
+  const raw = row?.sort_order ?? row?.sortOrder;
+  const n = Number(raw);
+  return raw == null || raw === "" || !Number.isFinite(n) ? fallback : n;
+}
+
+function suggestableMessage(value: unknown) {
+  if (value == null || value === "") return null;
+  return String(value);
 }
 
 export const useMatrixStore = create<MatrixState>((set, get) => ({
@@ -53,14 +65,14 @@ export const useMatrixStore = create<MatrixState>((set, get) => ({
       unsavedChanges: {},
       configs: [],
     });
-    if (categoryId) {
+    if (categoryId && buildingTypeId && propertyTypeId) {
       get().fetchConfigs();
     }
   },
 
   fetchConfigs: async () => {
     const { categoryId, buildingTypeId, propertyTypeId } = get();
-    if (!categoryId) return;
+    if (!categoryId || !buildingTypeId || !propertyTypeId) return;
 
     set({ isFetching: true });
     try {
@@ -101,6 +113,22 @@ export const useMatrixStore = create<MatrixState>((set, get) => ({
   },
 
   saveConfigs: async () => {
+    const { unsavedChanges, configs, categoryId, buildingTypeId, propertyTypeId } = get();
+    if (Object.keys(unsavedChanges).length === 0 || !categoryId || !buildingTypeId || !propertyTypeId) {
+      return;
+    }
+    const rows = Object.entries(unsavedChanges).map(([moduleId, changes]) => {
+      const server = configs.find((row) => configModuleId(row) === moduleId) || {};
+      return {
+        module_id: moduleId,
+        ...changes,
+        sort_order: readSortOrder(server, 0),
+      };
+    });
+    await get().saveModuleRows(rows);
+  },
+
+  saveModuleRows: async (rows) => {
     const {
       unsavedChanges,
       configs,
@@ -109,9 +137,7 @@ export const useMatrixStore = create<MatrixState>((set, get) => ({
       propertyTypeId,
       fetchConfigs,
     } = get();
-    if (Object.keys(unsavedChanges).length === 0 || !categoryId || !buildingTypeId || !propertyTypeId) {
-      return;
-    }
+    if (!categoryId || !buildingTypeId || !propertyTypeId || rows.length === 0) return;
 
     set({ isSaving: true });
     try {
@@ -119,23 +145,34 @@ export const useMatrixStore = create<MatrixState>((set, get) => ({
       const bannerIds = new Set(
         modules.filter((mod) => isBannerFormModule(mod)).map((mod) => String(mod.id)),
       );
-      const payload = Object.entries(unsavedChanges)
-        .filter(([moduleId]) => !bannerIds.has(moduleId))
-        .map(([moduleId, changes]) => {
-          const server = configs.find((row) => configModuleId(row) === moduleId) || {};
-          const message = changes.suggestable_message ?? server.suggestable_message ?? null;
-          return {
-            category_id: categoryId,
-            building_type_id: buildingTypeId,
-            property_type_id: propertyTypeId,
-            module_id: moduleId,
-            is_visible: changes.is_visible ?? server.is_visible ?? true,
-            is_mandatory: changes.is_mandatory ?? server.is_mandatory ?? false,
-            is_suggestable: changes.is_suggestable ?? server.is_suggestable ?? false,
-            suggestable_message:
-              message === "" || message == null ? null : String(message),
-          };
-        });
+      const merged = new Map<string, Record<string, unknown>>();
+      for (const [moduleId, changes] of Object.entries(unsavedChanges)) {
+        if (bannerIds.has(moduleId)) continue;
+        merged.set(moduleId, { module_id: moduleId, ...(changes as Record<string, unknown>) });
+      }
+      for (const row of rows) {
+        const moduleId = String(row.module_id || "");
+        if (!moduleId || bannerIds.has(moduleId)) continue;
+        merged.set(moduleId, { ...(merged.get(moduleId) || {}), ...row, module_id: moduleId });
+      }
+
+      const payload = [...merged.values()].map((changes) => {
+        const moduleId = String(changes.module_id);
+        const server = configs.find((row) => configModuleId(row) === moduleId) || {};
+        return {
+          category_id: categoryId,
+          building_type_id: buildingTypeId,
+          property_type_id: propertyTypeId,
+          module_id: moduleId,
+          is_visible: changes.is_visible ?? server.is_visible ?? true,
+          is_mandatory: changes.is_mandatory ?? server.is_mandatory ?? false,
+          is_suggestable: changes.is_suggestable ?? server.is_suggestable ?? false,
+          suggestable_message: suggestableMessage(
+            changes.suggestable_message ?? server.suggestable_message,
+          ),
+          sort_order: readSortOrder(changes, readSortOrder(server, 0)),
+        };
+      });
 
       if (payload.length) {
         await listingConfigService.upsertModuleConfig(payload);
@@ -145,8 +182,8 @@ export const useMatrixStore = create<MatrixState>((set, get) => ({
       await fetchConfigs();
     } catch (error) {
       console.error("Failed to save configs", error);
-      set({ unsavedChanges: {}, isSaving: false });
-      await fetchConfigs();
+      set({ isSaving: false });
+      throw error;
     }
   },
 

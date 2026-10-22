@@ -1,10 +1,11 @@
 'use client';
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import { useAuthStore } from '@/store/use-auth-store';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -30,7 +31,8 @@ import {
   toEditorTeamGroups,
   type EditorTeamGroup,
 } from '@/components/developer-home/coming-soon-team-groups';
-import { Building2, Loader2, Plus, Save, Trash2 } from 'lucide-react';
+import { comingSoonPopupAdsHref } from '@/services/banner-ads.service';
+import { Building2, ImageIcon, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 
 const selectCls =
   'h-9 rounded-md border border-gray-200 bg-white px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60';
@@ -260,6 +262,7 @@ function SectionCard({
   onDirtyChange: (kind: HomeSectionKind, dirty: boolean) => void;
   onSaved: () => void;
 }) {
+  const canReadAds = useAuthStore((s) => s.hasPermission)('ads', 'read');
   const meta = kindMeta(kind);
   const isDeveloperKind = meta.items === 'developer';
   const [title, setTitle] = useState(section?.title || '');
@@ -558,12 +561,23 @@ function SectionCard({
           {!section?.id && <Badge variant="outline" className="text-gray-500">Not set</Badge>}
           {section?.id && !section.isActive && <Badge variant="outline" className="text-gray-500">Hidden</Badge>}
         </div>
-        {canUpdate && (
+        <div className="flex flex-wrap items-center gap-2">
+          {kind === 'coming_soon' && canReadAds && stateId && cityId ? (
+            <Link
+              href={comingSoonPopupAdsHref(stateId, cityId)}
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+            >
+              <ImageIcon className="h-4 w-4 mr-1.5" />
+              Coming Soon popup ads
+            </Link>
+          ) : null}
+          {canUpdate && (
           <Button size="sm" onClick={() => void save()} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Save className="h-4 w-4 mr-1.5" />}
             Save
           </Button>
-        )}
+          )}
+        </div>
       </div>
       {KIND_HINTS[kind] && <p className="text-xs text-gray-500">{KIND_HINTS[kind]}</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}

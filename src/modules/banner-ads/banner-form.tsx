@@ -41,6 +41,8 @@ export type BannerFormProps = {
   lockedPlacement?: string;
   lockedSection?: string;
   banner?: AdBanner | null;
+  /** Where Cancel and a successful save return. Defaults to Banner Ads. */
+  listHref?: string;
 };
 
 export function BannerForm({
@@ -52,6 +54,7 @@ export function BannerForm({
   lockedPlacement,
   lockedSection,
   banner,
+  listHref,
 }: BannerFormProps) {
   const router = useRouter();
   const [mediaUrl, setMediaUrl] = useState(banner?.mediaUrl || '');
@@ -59,7 +62,7 @@ export function BannerForm({
     lockedPlacement || banner?.placement || 'home'
   );
   const [section, setSection] = useState(
-    lockedPlacement === 'popup'
+    lockedPlacement === 'popup' || lockedPlacement === 'coming_soon_popup'
       ? 'general'
       : lockedSection || banner?.section || 'general'
   );
@@ -134,7 +137,9 @@ export function BannerForm({
         if (lockedPlacement) setPlacement(lockedPlacement);
         else if (!banner?.placement && placementOpts[0]) setPlacement(placementOpts[0].key);
         else if (!banner?.placement && !placementOpts.length) setPlacement('home');
-        if (lockedPlacement === 'popup') setSection('general');
+        if (lockedPlacement === 'popup' || lockedPlacement === 'coming_soon_popup') {
+          setSection('general');
+        }
         else if (
           lockedPlacement === 'chat_notification' &&
           (lockedSection === 'top' || lockedSection === 'stories')
@@ -153,7 +158,9 @@ export function BannerForm({
           if (!pageKey) setPageKey('refer_and_earn');
           if (lockedPlacement) setPlacement(lockedPlacement);
           else if (!placement) setPlacement('home');
-          if (lockedPlacement === 'popup') setSection('general');
+          if (lockedPlacement === 'popup' || lockedPlacement === 'coming_soon_popup') {
+          setSection('general');
+        }
           else if (
             lockedPlacement === 'chat_notification' &&
             (lockedSection === 'top' || lockedSection === 'stories')
@@ -208,7 +215,10 @@ export function BannerForm({
     return opts;
   }, [posts, listingId, banner]);
 
-  const placementLabel = placements.find((p) => p.key === placement)?.label || placement;
+  const placementLabel =
+    placement === 'coming_soon_popup'
+      ? 'Coming Soon popup'
+      : placements.find((p) => p.key === placement)?.label || placement;
   const topOnly = isTopOnlyPlacement(placement);
   const sectionLabel = topOnly
     ? sectionLabelForKey('top')
@@ -254,7 +264,12 @@ export function BannerForm({
       mediaUrl: mediaUrl.trim(),
       mediaType,
       placement,
-      section: topOnly ? 'top' : section,
+      section:
+        topOnly
+          ? 'top'
+          : placement === 'popup' || placement === 'coming_soon_popup'
+            ? 'general'
+            : section,
       linkType,
       listingId: linkType === 'post' ? listingId : null,
       pageKey: linkType === 'page' ? pageKey : null,
@@ -289,9 +304,7 @@ export function BannerForm({
         await bannerAdsService.createBanner(payload);
       }
       setBaseline(formSnapshot);
-      router.push(
-        bannerAdsListHref({ stateId, cityId, placement }),
-      );
+      router.push(listHref || bannerAdsListHref({ stateId, cityId, placement }));
     } catch (err: any) {
       console.error(err);
       const msg = err?.response?.data?.message;
@@ -340,6 +353,7 @@ export function BannerForm({
             </Select>
           )}
         </div>
+        {placement === 'coming_soon_popup' ? null : (
         <div className="space-y-1.5">
           <label className="text-sm font-medium text-gray-700">Section</label>
           {lockedSection || lockedPlacement === 'popup' || topOnly ? (
@@ -367,6 +381,7 @@ export function BannerForm({
             </Select>
           )}
         </div>
+        )}
       </div>
 
       <div className="space-y-1.5">
@@ -503,7 +518,7 @@ export function BannerForm({
 
       <div className="flex justify-end gap-3 pt-2">
         <Link
-          href={bannerAdsListHref({ stateId, cityId, placement })}
+          href={listHref || bannerAdsListHref({ stateId, cityId, placement })}
           className="inline-flex h-8 items-center justify-center rounded-lg border border-border bg-background px-2.5 text-sm font-medium hover:bg-muted"
         >
           Cancel

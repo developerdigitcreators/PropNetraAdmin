@@ -402,6 +402,18 @@ export type CreateFormPrefill = {
   cityName?: string;
 };
 
+export type CreateFormPlaceLocation = {
+  id: string;
+  name: string;
+  microMarketId: string | null;
+  microMarketName: string | null;
+};
+
+export type CreateFormPlaces = {
+  locations: CreateFormPlaceLocation[];
+  microMarkets: { id: string; name: string }[];
+};
+
 export type CreateVerifiedListingPayload = {
   category_id: string;
   building_type_id: string;
@@ -416,6 +428,7 @@ export type CreateVerifiedListingPayload = {
   price?: number | null;
   price_on_request?: boolean;
   details?: Record<string, unknown>;
+  dynamic_data?: Record<string, unknown>;
   lead_contact_name: string;
   lead_contact_phone: string;
   lead_unit_no?: string;
@@ -717,6 +730,75 @@ const SKIP_CREATE_SCHEMA_KEYS = new Set([
   "owner",
 ]);
 
+const POSSESSION_MONTH_OPTIONS: CreateFormFieldOption[] = [
+  ["01", "January"],
+  ["02", "February"],
+  ["03", "March"],
+  ["04", "April"],
+  ["05", "May"],
+  ["06", "June"],
+  ["07", "July"],
+  ["08", "August"],
+  ["09", "September"],
+  ["10", "October"],
+  ["11", "November"],
+  ["12", "December"],
+].map(([value, label]) => ({ value, label }));
+
+const POSSESSION_YEAR_OPTIONS: CreateFormFieldOption[] = Array.from(
+  { length: 2040 - 2024 + 1 },
+  (_, index) => {
+    const year = String(2024 + index);
+    return { value: year, label: year };
+  },
+);
+
+function isPossessionModuleKey(key: string, label = ""): boolean {
+  const normalized = (value: string) =>
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+  return (
+    normalized(key) === "possession" || normalized(label) === "possession"
+  );
+}
+
+function possessionControlKind(
+  field: CreateFormField,
+): "month" | "year" | null {
+  const token = (value: string) =>
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+  const key = token(field.key);
+  const label = token(field.label);
+  if (key === "month" || key.endsWith("_month") || label === "month") {
+    return "month";
+  }
+  if (key === "year" || key.endsWith("_year") || label === "year") {
+    return "year";
+  }
+  return null;
+}
+
+function applyPossessionFieldControls(
+  field: CreateFormField,
+  moduleKey: string,
+  moduleLabel = "",
+): CreateFormField {
+  if (!isPossessionModuleKey(moduleKey, moduleLabel)) return field;
+  const kind = possessionControlKind(field);
+  if (kind === "month") {
+    return { ...field, type: "select", options: POSSESSION_MONTH_OPTIONS };
+  }
+  if (kind === "year") {
+    return { ...field, type: "select", options: POSSESSION_YEAR_OPTIONS };
+  }
+  return field;
+}
+
 function normalizeCreateField(
   raw: unknown,
   moduleKey = "",
@@ -831,10 +913,14 @@ function normalizeModule(raw: unknown): CreateFormModule | null {
   if (!key && fields.length === 0) return null;
   // Hide modules with no renderable fields (pure catalog modules)
   if (fields.length === 0) return null;
+  const moduleKey = key || "module";
+  const moduleLabel = label || key || "Module";
   return {
-    key: key || "module",
-    label: label || key || "Module",
-    fields,
+    key: moduleKey,
+    label: moduleLabel,
+    fields: fields.map((field) =>
+      applyPossessionFieldControls(field, moduleKey, moduleLabel),
+    ),
     slot: isBanner ? "banner" : slot || undefined,
     bannerPlacement,
   };
@@ -933,15 +1019,19 @@ async function buildSchemaFromModuleConfigs(params: {
     if (moduleId) configByModuleId.set(moduleId, row);
   }
 
+  const configSort = (mod: unknown) => {
+    const row = asObject(mod);
+    const id = pickStr(row.id);
+    const conf = id ? configByModuleId.get(id) : undefined;
+    const saved = conf?.sort_order ?? conf?.sortOrder;
+    if (saved != null && saved !== "" && Number.isFinite(Number(saved))) {
+      return Number(saved);
+    }
+    return Number(row.sort_order ?? row.sortOrder ?? 0);
+  };
+
   const visibleModules = [...modulesList]
-    .sort((a, b) => {
-      const left = asObject(a);
-      const right = asObject(b);
-      return (
-        Number(left.sort_order ?? left.sortOrder ?? 0) -
-        Number(right.sort_order ?? right.sortOrder ?? 0)
-      );
-    })
+    .sort((a, b) => configSort(a) - configSort(b))
     .map((mod) => {
       const row = asObject(mod);
       const id = pickStr(row.id);
@@ -1012,7 +1102,9 @@ async function buildSchemaFromModuleConfigs(params: {
             return normalized;
           })
           .filter((field): field is CreateFormField => !!field);
-        fields = await enrichFieldOptions(fields);
+        fields = (await enrichFieldOptions(fields)).map((field) =>
+          applyPossessionFieldControls(field, mod.key, mod.label),
+        );
         if (mod.isBanner && !fields.some((field) => field.slot === "banner")) {
           fields = [
             bannerSlotField(mod.key, mod.label, mod.bannerPlacement, {
@@ -1143,6 +1235,112 @@ export function listingCreateApiError(err: unknown, fallback: string): string {
   return e?.message || fallback;
 }
 
+/** Filter value for Pre-Leased. Never a building-type id. */
+export const PRE_LEASED_FILTER_ID = "__pre_leased__";
+
+export function isPreLeasedName(name?: string | null): boolean {
+  const normalized = String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+  return normalized === "pre leased" || normalized === "preleased";
+}
+
+export function isCommercialName(name?: string | null): boolean {
+  return String(name || "").trim().toLowerCase() === "commercial";
+}
+
+/** Resale, Rent, and Buy Requirement — the only categories that show leasing status. */
+export function showsCommercialLeasingStatus(
+  categoryName?: string | null,
+  buildingTypeName?: string | null,
+): boolean {
+  if (!isCommercialName(buildingTypeName)) return false;
+  const category = String(categoryName || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_/-]+/g, " ")
+    .replace(/\s+/g, " ");
+  return (
+    category === "resale" ||
+    category === "rent" ||
+    category === "rent lease" ||
+    category === "buy requirement"
+  );
+}
+
+export type ListingBuildingTypeQuery = {
+  buildingTypeId?: string;
+  leasingStatus?: "leased";
+  excludeLeasingStatus?: "leased";
+};
+
+/**
+ * Pre-Leased is Commercial + dynamic_data.leasing_status = leased.
+ * Commercial excludes those leased rows.
+ */
+export function listingBuildingTypeQuery(
+  selectedId: string | undefined | null,
+  options: Array<{ id: string; name: string }>,
+): ListingBuildingTypeQuery {
+  if (!selectedId) return {};
+  const selected = options.find((row) => row.id === selectedId);
+  const virtual =
+    selectedId === PRE_LEASED_FILTER_ID || isPreLeasedName(selected?.name);
+  if (virtual) {
+    const commercial = options.find(
+      (row) =>
+        isCommercialName(row.name) &&
+        row.id !== PRE_LEASED_FILTER_ID &&
+        !isPreLeasedName(row.name),
+    );
+    return {
+      ...(commercial?.id ? { buildingTypeId: commercial.id } : {}),
+      leasingStatus: "leased",
+    };
+  }
+  if (isCommercialName(selected?.name)) {
+    return {
+      buildingTypeId: selectedId,
+      excludeLeasingStatus: "leased",
+    };
+  }
+  return { buildingTypeId: selectedId };
+}
+
+export function withVirtualPreLeasedOption<
+  T extends { id: string; name: string; total?: number },
+>(rows: T[]): T[] {
+  const retired = rows.find((row) => isPreLeasedName(row.name));
+  const rest = rows.filter((row) => !isPreLeasedName(row.name));
+  if (rest.length === 0 && !retired) return rows;
+  const virtual = {
+    ...(retired ?? {}),
+    id: PRE_LEASED_FILTER_ID,
+    name: "Pre-Leased",
+    total: retired?.total ?? 0,
+  } as T;
+  const commercialIndex = rest.findIndex((row) => isCommercialName(row.name));
+  if (commercialIndex < 0) return [...rest, virtual];
+  const next = [...rest];
+  next.splice(commercialIndex + 1, 0, virtual);
+  return next;
+}
+
+function applyListingBuildingTypeQuery(
+  params: Record<string, unknown>,
+  filters?: ListingBuildingTypeQuery | null,
+) {
+  if (filters?.buildingTypeId && filters.buildingTypeId !== PRE_LEASED_FILTER_ID) {
+    params.buildingTypeId = filters.buildingTypeId;
+  }
+  if (filters?.leasingStatus) params.leasingStatus = filters.leasingStatus;
+  if (filters?.excludeLeasingStatus) {
+    params.excludeLeasingStatus = filters.excludeLeasingStatus;
+  }
+}
+
 export const listingsService = {
   getReviewQueue: async (
     tab: ReviewTab = "unverified",
@@ -1152,11 +1350,17 @@ export const listingsService = {
       categoryId?: string | null;
       buildingTypeId?: string | null;
       propertyTypeId?: string | null;
+      leasingStatus?: "leased";
+      excludeLeasingStatus?: "leased";
     },
   ): Promise<ListingReviewQueueResult> => {
     const params: Record<string, unknown> = { tab, page, limit };
     if (filters?.categoryId) params.categoryId = filters.categoryId;
-    if (filters?.buildingTypeId) params.buildingTypeId = filters.buildingTypeId;
+    applyListingBuildingTypeQuery(params, {
+      buildingTypeId: filters?.buildingTypeId || undefined,
+      leasingStatus: filters?.leasingStatus,
+      excludeLeasingStatus: filters?.excludeLeasingStatus,
+    });
     if (filters?.propertyTypeId) params.propertyTypeId = filters.propertyTypeId;
 
     const response = await axiosClient.get("/admin/listings/review", {
@@ -1194,7 +1398,12 @@ export const listingsService = {
         params: { buildingTypeId, categoryId },
       },
     );
-    return asOptionList(response.data);
+    return asOptionList(response.data).map((row) => ({
+      id: row.id,
+      name: row.name,
+      is_active: row.is_active,
+      phase: row.phase,
+    }));
   },
 
   getCreateSchema: async (params: {
@@ -1269,6 +1478,49 @@ export const listingsService = {
     return normalizePrefill(response.data);
   },
 
+  /** City location + micro-market options when the property name is typed (custom). */
+  getCreateFormPlaces: async (
+    cityId: string,
+  ): Promise<CreateFormPlaces> => {
+    const response = await axiosClient.get(
+      "/admin/listings/create-form/places",
+      { params: { cityId } },
+    );
+    const row = asObject(
+      (response.data as { data?: unknown })?.data ?? response.data,
+    );
+    const locations = (Array.isArray(row.locations) ? row.locations : [])
+      .map((item) => {
+        const loc = asObject(item);
+        const id = pickStr(loc.id);
+        const name = pickStr(loc.name);
+        if (!id || !name) return null;
+        return {
+          id,
+          name,
+          microMarketId: pickStr(loc.microMarketId, loc.micro_market_id) || null,
+          microMarketName:
+            pickStr(loc.microMarketName, loc.micro_market_name) || null,
+        };
+      })
+      .filter((item): item is CreateFormPlaceLocation => !!item);
+    const microMarkets = (Array.isArray(row.microMarkets)
+      ? row.microMarkets
+      : Array.isArray(row.micro_markets)
+        ? row.micro_markets
+        : []
+    )
+      .map((item) => {
+        const mm = asObject(item);
+        const id = pickStr(mm.id);
+        const name = pickStr(mm.name);
+        if (!id || !name) return null;
+        return { id, name };
+      })
+      .filter((item): item is { id: string; name: string } => !!item);
+    return { locations, microMarkets };
+  },
+
   createVerifiedListing: async (
     payload: CreateVerifiedListingPayload,
   ): Promise<CreateVerifiedListingResult> => {
@@ -1311,16 +1563,27 @@ export const listingsService = {
     tab?: MyListingsTab;
     categoryId?: string;
     buildingTypeId?: string;
+    leasingStatus?: "leased";
+    excludeLeasingStatus?: "leased";
     propertyTypeId?: string;
     status?: "active" | "expired" | "inactive";
     companyName?: string;
     username?: string;
+    lead?: string;
     listingId?: string;
     page?: number;
     limit?: number;
   }): Promise<MyListingsResponse> => {
+    const { buildingTypeId, leasingStatus, excludeLeasingStatus, ...rest } =
+      params;
+    const query: Record<string, unknown> = { ...rest };
+    applyListingBuildingTypeQuery(query, {
+      buildingTypeId,
+      leasingStatus,
+      excludeLeasingStatus,
+    });
     const response = await axiosClient.get("/admin/listings/my-listings", {
-      params,
+      params: query,
     });
     return response.data as MyListingsResponse;
   },
@@ -1970,6 +2233,16 @@ export function getListingDetailRows(
     typeof item.building_type === "object"
   ) {
     merged.buildingType = (item.building_type as { name?: string }).name;
+  }
+  const leasing = String(merged.leasing_status || merged.leasingStatus || "")
+    .trim()
+    .toLowerCase();
+  const buildingName = String(merged.buildingType || merged.building_type || "")
+    .trim()
+    .toLowerCase();
+  if (leasing === "leased" && buildingName === "commercial") {
+    merged.buildingType = "Pre-Leased";
+    delete merged.building_type;
   }
 
   const byNorm = new Map<string, { originalKey: string; value: unknown }>();

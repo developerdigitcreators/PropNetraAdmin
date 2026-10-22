@@ -22,6 +22,8 @@ type SuggestionAddDialogProps = {
   kind: 'property' | 'location';
   propertyTypeId?: string;
   propertyTypeName?: string;
+  cityId?: string;
+  cityName?: string;
   submitting: boolean;
   error: string;
   onOpenChange: (open: boolean) => void;
@@ -33,6 +35,8 @@ export function SuggestionAddDialog({
   kind,
   propertyTypeId,
   propertyTypeName,
+  cityId,
+  cityName,
   submitting,
   error,
   onOpenChange,
@@ -47,7 +51,7 @@ export function SuggestionAddDialog({
     if (!open) return;
     setSelected([]);
     setLoadError('');
-    if (kind === 'property' && !propertyTypeId) {
+    if (!cityId || (kind === 'property' && !propertyTypeId)) {
       setOptions([]);
       return;
     }
@@ -55,8 +59,8 @@ export function SuggestionAddDialog({
     setLoading(true);
     const request =
       kind === 'property'
-        ? formSuggestionsService.propertyNameOptions(propertyTypeId || '')
-        : formSuggestionsService.locationOptions();
+        ? formSuggestionsService.propertyNameOptions(propertyTypeId || '', cityId)
+        : formSuggestionsService.locationOptions(cityId);
     request
       .then((rows) => {
         if (!cancelled) setOptions(rows);
@@ -73,7 +77,7 @@ export function SuggestionAddDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, kind, propertyTypeId]);
+  }, [open, kind, propertyTypeId, cityId]);
 
   return (
     <Dialog open={open} onOpenChange={(next) => !submitting && onOpenChange(next)}>
@@ -84,8 +88,8 @@ export function SuggestionAddDialog({
           </DialogTitle>
           <DialogDescription>
             {kind === 'property'
-              ? `Saved project names for ${propertyTypeName || 'this property type'} that are not suggestions yet.`
-              : 'Saved locations that are not suggestions yet.'}
+              ? `Saved project names for ${propertyTypeName || 'this property type'}${cityName ? ` in ${cityName}` : ''} that are not suggestions yet.`
+              : `Saved locations${cityName ? ` in ${cityName}` : ''} that are not suggestions yet.`}
           </DialogDescription>
         </DialogHeader>
 

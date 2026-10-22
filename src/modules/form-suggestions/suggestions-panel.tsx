@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { useIsSuperAdmin } from '@/hooks/use-is-super-admin';
 import { Breadcrumb } from '@/components/common/breadcrumb';
@@ -12,6 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import { SortableTableBody } from '@/components/common/sortable-list';
 import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
+import { locationService } from '@/services/location.service';
 import {
   formSuggestionApiError,
   formSuggestionsService,
@@ -33,12 +34,21 @@ export function SuggestionsPanel({ kind }: SuggestionsPanelProps) {
   const canUpdate = ready && (superAdmin || hasPermission('form_suggestions', 'update'));
   const canDelete = ready && (superAdmin || hasPermission('form_suggestions', 'delete'));
 
+  const [states, setStates] = useState<Array<{ id: string; name: string }>>([]);
+  const [cities, setCities] = useState<Array<{ id: string; name: string }>>([]);
+  const [stateId, setStateId] = useState('');
+  const [cityId, setCityId] = useState('');
+  const [citiesLoading, setCitiesLoading] = useState(false);
+  const stateRequestRef = useRef('');
+  const cityRef = useRef('');
+  cityRef.current = cityId;
+
   const [propertyTypes, setPropertyTypes] = useState<FormSuggestionPropertyType[]>([]);
   const [propertyTypeId, setPropertyTypeId] = useState('');
   const [typesReady, setTypesReady] = useState(kind === 'location');
 
   const [items, setItems] = useState<FormSuggestion[]>([]);
-  const [loading, setLoading] = useState(kind === 'location');
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -47,9 +57,69 @@ export function SuggestionsPanel({ kind }: SuggestionsPanelProps) {
   const [deleting, setDeleting] = useState(false);
   const [statusBusyId, setStatusBusyId] = useState('');
 
-  const listReady = kind === 'location' || Boolean(propertyTypeId);
+  const cityReady = Boolean(cityId);
+  const listReady = cityReady && (kind === 'location' || Boolean(propertyTypeId));
   const selectedType = propertyTypes.find((row) => row.id === propertyTypeId);
   const propertyTypeLabel = selectedType?.label || '';
+  const stateName = states.find((row) => row.id === stateId)?.name || '';
+  const cityName = cities.find((row) => row.id === cityId)?.name || '';
+
+  useEffect(() => {
+    let cancelled = false;
+    locationService
+      .getStates({ activeOnly: true })
+      .then((data) => {
+        if (cancelled) return;
+        const rows = Array.isArray(data) ? data : [];
+        setStates(
+          rows
+            .map((row: { id?: string; name?: string }) => ({
+              id: String(row?.id || ''),
+              name: String(row?.name || ''),
+            }))
+            .filter((row) => row.id && row.name),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setError('Failed to load states.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onStateChange = (next: string) => {
+    setStateId(next);
+    setCityId('');
+    setCities([]);
+    setItems([]);
+    setFormOpen(false);
+    if (!next) return;
+    setCitiesLoading(true);
+    stateRequestRef.current = next;
+    locationService
+      .getCities({ activeOnly: true, stateId: next })
+      .then((data) => {
+        if (stateRequestRef.current !== next) return;
+        const rows = Array.isArray(data) ? data : [];
+        setCities(
+          rows
+            .map((row: { id?: string; name?: string }) => ({
+              id: String(row?.id || ''),
+              name: String(row?.name || ''),
+            }))
+            .filter((row) => row.id && row.name),
+        );
+      })
+      .catch(() => setError('Failed to load cities.'))
+      .finally(() => setCitiesLoading(false));
+  };
+
+  const onCityChange = (next: string) => {
+    setCityId(next);
+    setItems([]);
+    setFormOpen(false);
+  };
 
   useEffect(() => {
     if (kind !== 'property') return;
@@ -76,17 +146,20 @@ export function SuggestionsPanel({ kind }: SuggestionsPanelProps) {
   }, [kind]);
 
   const fetchItems = useCallback(async () => {
-    if (kind === 'property' && !propertyTypeId) {
+    if (!cityId || (kind === 'property' && !propertyTypeId)) {
       setItems([]);
+      setLoading(false);
       return;
     }
+    const requestedCityId = cityId;
     setLoading(true);
     setError('');
     try {
       const rows =
         kind === 'property'
-          ? await formSuggestionsService.listPropertyNames(propertyTypeId)
-          : await formSuggestionsService.listLocations();
+          ? await formSuggestionsService.listPropertyNames(propertyTypeId, cityId)
+          : await formSuggestionsService.listLocations(cityId);
+      if (cityRef.current !== requestedCityId) return;
       setItems(rows);
     } catch (err) {
       setItems([]);
@@ -94,12 +167,13 @@ export function SuggestionsPanel({ kind }: SuggestionsPanelProps) {
     } finally {
       setLoading(false);
     }
-  }, [kind, propertyTypeId]);
+  }, [kind, propertyTypeId, cityId]);
 
   useEffect(() => {
-    if (!typesReady) return;
+    if (!cityId) return;
+    if (kind === 'property' && !typesReady) return;
     void fetchItems();
-  }, [typesReady, fetchItems]);
+  }, [cityId, typesReady, fetchItems, kind]);
 
   const openCreate = () => {
     setFormError('');
@@ -114,9 +188,15 @@ export function SuggestionsPanel({ kind }: SuggestionsPanelProps) {
         await formSuggestionsService.createPropertyNames({
           property_type_id: propertyTypeId,
           property_name_ids: ids,
+          state_id: stateId,
+          city_id: cityId,
         });
       } else {
-        await formSuggestionsService.createLocations({ location_ids: ids });
+        await formSuggestionsService.createLocations({
+          location_ids: ids,
+          state_id: stateId,
+          city_id: cityId,
+        });
       }
       setFormOpen(false);
       await fetchItems();
@@ -210,41 +290,78 @@ export function SuggestionsPanel({ kind }: SuggestionsPanelProps) {
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-gray-900">{title}</h1>
             <p className="mt-1 text-gray-500">
-              {kind === 'property'
-                ? 'A property type is selected. Add saved project names that are not suggestions yet.'
-                : 'Add saved locations that are not suggestions yet.'}
+              Select a state, then a city. Suggestions load only for that city.
             </p>
           </div>
-          <AdminListToolbar
-            onRefresh={() => void fetchItems()}
-            refreshDisabled={loading || !listReady}
-          >
-            {canCreate && listReady ? (
-              <Button onClick={openCreate} className="bg-primary text-white hover:bg-primary/90">
-                <Plus className="mr-1.5 h-4 w-4" />
-                Add
-              </Button>
-            ) : null}
-          </AdminListToolbar>
+          {cityReady ? (
+            <AdminListToolbar
+              onRefresh={() => void fetchItems()}
+              refreshDisabled={loading || !listReady}
+            >
+              {canCreate && listReady ? (
+                <Button onClick={openCreate} className="bg-primary text-white hover:bg-primary/90">
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  Add
+                </Button>
+              ) : null}
+            </AdminListToolbar>
+          ) : null}
         </div>
 
-        {kind === 'property' ? (
-          <Select value={propertyTypeId} onValueChange={(value) => setPropertyTypeId(value ?? '')}>
-            <SelectTrigger className="w-72 bg-white">
-              <span>{propertyTypeLabel || 'Select property type'}</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <Select value={stateId} onValueChange={(value) => onStateChange(value ?? '')}>
+            <SelectTrigger className="w-56 bg-white">
+              <span>{stateName || 'Select State'}</span>
             </SelectTrigger>
             <SelectContent>
-              {propertyTypes.map((row) => (
+              {states.map((row) => (
                 <SelectItem key={row.id} value={row.id}>
-                  {row.label}
+                  {row.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-        ) : null}
+
+          {stateId ? (
+            <Select
+              value={cityId}
+              onValueChange={(value) => onCityChange(value ?? '')}
+              disabled={citiesLoading}
+            >
+              <SelectTrigger className="w-56 bg-white">
+                <span>
+                  {citiesLoading ? 'Loading cities…' : cityName || 'Select City'}
+                </span>
+              </SelectTrigger>
+              <SelectContent>
+                {cities.map((row) => (
+                  <SelectItem key={row.id} value={row.id}>
+                    {row.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+
+          {kind === 'property' && cityReady ? (
+            <Select value={propertyTypeId} onValueChange={(value) => setPropertyTypeId(value ?? '')}>
+              <SelectTrigger className="w-72 bg-white">
+                <span>{propertyTypeLabel || 'Select property type'}</span>
+              </SelectTrigger>
+              <SelectContent>
+                {propertyTypes.map((row) => (
+                  <SelectItem key={row.id} value={row.id}>
+                    {row.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+        </div>
 
         {error ? <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</div> : null}
 
+        {cityReady ? (
         <AdminDataTable
           page={1}
           limit={Math.max(items.length, 1)}
@@ -257,7 +374,7 @@ export function SuggestionsPanel({ kind }: SuggestionsPanelProps) {
           emptyMessage={
             kind === 'property' && !propertyTypeId
               ? 'Select a property type to see its suggestions.'
-              : 'No suggestions yet.'
+              : 'No suggestions for this city yet.'
           }
           syncKey={items.length}
           hidePaginationWhenEmpty
@@ -317,6 +434,7 @@ export function SuggestionsPanel({ kind }: SuggestionsPanelProps) {
             />
           </table>
         </AdminDataTable>
+        ) : null}
       </div>
 
       <SuggestionAddDialog
@@ -324,6 +442,8 @@ export function SuggestionsPanel({ kind }: SuggestionsPanelProps) {
         kind={kind}
         propertyTypeId={propertyTypeId}
         propertyTypeName={propertyTypeLabel}
+        cityId={cityId}
+        cityName={cityName}
         submitting={saving}
         error={formError}
         onOpenChange={(open) => {

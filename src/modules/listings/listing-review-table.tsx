@@ -72,6 +72,7 @@ import {
   ChevronRight,
   Database,
   Loader2,
+  Lock,
   Pencil,
   X,
 } from "lucide-react";
@@ -404,6 +405,29 @@ function pickReviewFromCatalog(
   return { id: "", name: "" };
 }
 
+/** Catalog id only when the cell was chosen from DB, not a pending/custom name. */
+function selectedCatalogId(
+  item: ListingReviewItem,
+  field: CatalogField,
+  override?: FieldOverride,
+): string {
+  if (override) return override.id?.trim() || "";
+  const pickId = getReviewPickId(item, field);
+  if (pickId) return pickId;
+  const original = getFieldOriginal(item, field);
+  const pending =
+    field === "propertyName"
+      ? isPropertyNamePending(item)
+      : field === "location"
+        ? isLocationPending(item)
+        : isMicroMarketPending(item);
+  if (original.id && !pending) return original.id;
+  if (original.id && isExplicitCatalogField(catalogFieldStatus(item, field))) {
+    return original.id;
+  }
+  return "";
+}
+
 function listingPropertyTypeIds(
   propertyTypes: any[],
   item?: ListingReviewItem | null,
@@ -575,6 +599,8 @@ function CatalogValueCell({
   canEdit,
   disabled,
   onEdit,
+  locked,
+  lockReason,
 }: {
   value: string;
   pending?: boolean;
@@ -584,7 +610,10 @@ function CatalogValueCell({
   canEdit?: boolean;
   disabled?: boolean;
   onEdit?: () => void;
+  locked?: boolean;
+  lockReason?: string;
 }) {
+  const [lockTip, setLockTip] = useState(false);
   return (
     <div className="flex items-start gap-1.5">
       <div className="min-w-0">
@@ -611,7 +640,24 @@ function CatalogValueCell({
           <p className="text-[10px] text-amber-700 mt-1">Pending — not in DB</p>
         ) : null}
       </div>
-      {canEdit ? (
+      {locked ? (
+        <span className="relative shrink-0">
+          <button
+            type="button"
+            title={lockReason || "Locked"}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => setLockTip((open) => !open)}
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+          >
+            <Lock className="w-3.5 h-3.5" />
+          </button>
+          {lockTip && lockReason ? (
+            <span className="absolute left-7 top-0 z-20 whitespace-nowrap rounded-md border border-gray-200 bg-white px-2 py-1 text-[10px] text-gray-700 shadow-sm">
+              {lockReason}
+            </span>
+          ) : null}
+        </span>
+      ) : canEdit ? (
         <button
           type="button"
           title="Edit"
@@ -850,6 +896,10 @@ export function ListingReviewTable({
     earlier?: string;
   } | null>(null);
   const [fieldEditPick, setFieldEditPick] = useState<CatalogPick | null>(null);
+  const [fieldEditLocation, setFieldEditLocation] = useState<CatalogPick>({
+    id: "",
+    name: "",
+  });
   const [fieldOverrides, setFieldOverrides] = useState<
     Record<string, Partial<Record<CatalogField, FieldOverride>>>
   >({});
@@ -961,12 +1011,25 @@ export function ListingReviewTable({
         pickReviewFromCatalog(item, field, original.name, original.id),
       );
     }
+    const locOverride = fieldOverrides[item.id]?.location;
+    if (locOverride?.name?.trim()) {
+      setFieldEditLocation({
+        id: locOverride.id || "",
+        name: locOverride.name.trim(),
+      });
+    } else {
+      const locOriginal = getFieldOriginal(item, "location");
+      setFieldEditLocation(
+        pickReviewFromCatalog(item, "location", locOriginal.name, locOriginal.id),
+      );
+    }
     setFieldEdit({ id: item.id, field, earlier: earlierName });
   };
 
   const closeFieldEdit = () => {
     setFieldEdit(null);
     setFieldEditPick(null);
+    setFieldEditLocation({ id: "", name: "" });
   };
 
   const rememberFieldOverride = (
@@ -1375,9 +1438,7 @@ export function ListingReviewTable({
     const locReady =
       saveDraft.locations.some((chip) => chip.id || chip.name.trim()) ||
       !!saveDraft.locationDraft.name.trim();
-    const mmReady = !!(
-      saveDraft.microMarket.id || saveDraft.microMarket.name.trim()
-    );
+    const mmReady = !!saveDraft.microMarket.id;
     const pnReady = !!(
       saveDraft.propertyName.id || saveDraft.propertyName.name.trim()
     );
@@ -1391,12 +1452,22 @@ export function ListingReviewTable({
       alert("Property name and location are required.");
       return;
     }
-    if (!saveDraft.forSale && (!saveDraft.propertyTypeIds.length || !saveDraft.imageUrl.trim())) {
-      alert("Property type and image URL are required when saving a property name.");
+    const customProperty =
+      !saveDraft.propertyName.id && !!saveDraft.propertyName.name.trim();
+    if (
+      !saveDraft.forSale &&
+      (!saveDraft.propertyTypeIds.length ||
+        (customProperty && !saveDraft.imageUrl.trim()))
+    ) {
+      alert(
+        customProperty
+          ? "Property type and an image are required for a custom property name."
+          : "Property type is required when saving a property name.",
+      );
       return;
     }
     if (!mmReady) {
-      alert("Select or enter a micro market.");
+      alert("Select a micro market from the list.");
       return;
     }
 
@@ -1481,6 +1552,22 @@ export function ListingReviewTable({
       alert(`Enter a ${FIELD_LABEL[fieldEdit.field].toLowerCase()}.`);
       return;
     }
+    if (fieldEdit.field === "microMarket" && !fieldEditPick.id) {
+      alert("Select a micro market from the list.");
+      return;
+    }
+    const mmLocation =
+      fieldEdit.field === "microMarket"
+        ? locations.find(
+            (row) =>
+              row.id === fieldEditLocation.id &&
+              row.microMarketId === fieldEditPick.id,
+          )
+        : undefined;
+    if (fieldEdit.field === "microMarket" && !mmLocation) {
+      alert("Select a location in this micro market.");
+      return;
+    }
     const editMmId = (() => {
       if (!editItem || fieldEdit.field !== "location") return "";
       const fromPick = getReviewPickId(editItem, "microMarket");
@@ -1531,40 +1618,68 @@ export function ListingReviewTable({
       const linkedMmId = editItem
         ? getHighlightedMicroMarketId(editItem)
         : "";
+      const pnOpt =
+        fieldEdit.field === "propertyName" && pickedFromCatalog
+          ? propertyNames.find((row) => row.id === fieldEditPick.id)
+          : undefined;
+      const pnLocId = pnOpt?.locationIds?.[0] || "";
+      const pnLoc = pnLocId
+        ? locations.find((row) => row.id === pnLocId)
+        : undefined;
+      const pnMmId = pnOpt?.microMarketId || pnLoc?.microMarketId || "";
+      const pnMmName =
+        (pnMmId && microMarkets.find((row) => row.id === pnMmId)?.name) ||
+        pnOpt?.microMarketName ||
+        "";
+      const locOpt =
+        fieldEdit.field === "location" && pickedFromCatalog
+          ? locations.find((row) => row.id === fieldEditPick.id)
+          : undefined;
+      const locMm = locOpt?.microMarketId
+        ? microMarkets.find((row) => row.id === locOpt.microMarketId)
+        : undefined;
       const draftPayload: SaveListingCatalogPayload =
         fieldEdit.field === "propertyName"
           ? {
               savePropertyName: true,
-              saveLocation: false,
-              saveMicroMarket: false,
+              saveLocation: !!pnLoc?.id,
+              saveMicroMarket: !!pnMmId,
               draftOnly: true,
               propertyNameId: pickedFromCatalog
                 ? fieldEditPick.id
                 : linkedPnId || undefined,
               propertyName: typedName,
+              locationId: pnLoc?.id || undefined,
+              locationName: pnLoc?.name || undefined,
+              microMarketId: pnMmId || undefined,
+              microMarketName: pnMmName || undefined,
               applyToListing: false,
             }
           : fieldEdit.field === "location"
             ? {
                 savePropertyName: false,
                 saveLocation: true,
-                saveMicroMarket: false,
+                saveMicroMarket: !!locMm?.id,
                 draftOnly: true,
                 locationId: pickedFromCatalog
                   ? fieldEditPick.id
                   : linkedLocId || undefined,
                 locationName: typedName,
+                microMarketId: locMm?.id || undefined,
+                microMarketName: locMm?.name || undefined,
                 applyToListing: false,
               }
             : {
                 savePropertyName: false,
-                saveLocation: false,
+                saveLocation: true,
                 saveMicroMarket: true,
                 draftOnly: true,
                 microMarketId: pickedFromCatalog
                   ? fieldEditPick.id
                   : undefined,
                 microMarketName: typedName,
+                locationId: mmLocation?.id,
+                locationName: mmLocation?.name,
                 applyToListing: false,
               };
       setBusyId(fieldEdit.id);
@@ -1579,6 +1694,42 @@ export function ListingReviewTable({
             ? fieldEditPick.id
             : linkedPnId || linkedLocId || linkedMmId || "",
         );
+        if (fieldEdit.field === "propertyName" && pnLoc?.id && pnLoc.name) {
+          rememberFieldOverride(
+            fieldEdit.id,
+            "location",
+            pnLoc.name,
+            earlierFor("location"),
+            pnLoc.id,
+          );
+        }
+        if (fieldEdit.field === "propertyName" && pnMmId && pnMmName) {
+          rememberFieldOverride(
+            fieldEdit.id,
+            "microMarket",
+            pnMmName,
+            earlierFor("microMarket"),
+            pnMmId,
+          );
+        }
+        if (fieldEdit.field === "location" && locMm?.id && locMm.name) {
+          rememberFieldOverride(
+            fieldEdit.id,
+            "microMarket",
+            locMm.name,
+            earlierFor("microMarket"),
+            locMm.id,
+          );
+        }
+        if (fieldEdit.field === "microMarket" && mmLocation) {
+          rememberFieldOverride(
+            fieldEdit.id,
+            "location",
+            mmLocation.name,
+            earlierFor("location"),
+            mmLocation.id,
+          );
+        }
         closeFieldEdit();
       } catch (err) {
         console.error(err);
@@ -1617,20 +1768,30 @@ export function ListingReviewTable({
             } as SaveListingCatalogPayload;
           })()
         : fieldEdit.field === "location"
-          ? {
-              savePropertyName: false,
-              saveLocation: true,
-              saveMicroMarket: false,
-              locationId: fieldEditPick.id,
-              locationName: typedName,
-              applyToListing: true,
-            }
+          ? (() => {
+              const loc = locations.find((row) => row.id === fieldEditPick.id);
+              const mm = loc?.microMarketId
+                ? microMarkets.find((row) => row.id === loc.microMarketId)
+                : undefined;
+              return {
+                savePropertyName: false,
+                saveLocation: true,
+                saveMicroMarket: !!mm?.id,
+                locationId: fieldEditPick.id,
+                locationName: typedName,
+                microMarketId: mm?.id || undefined,
+                microMarketName: mm?.name || undefined,
+                applyToListing: true,
+              } as SaveListingCatalogPayload;
+            })()
           : {
               savePropertyName: false,
-              saveLocation: false,
+              saveLocation: true,
               saveMicroMarket: true,
               microMarketId: fieldEditPick.id,
               microMarketName: typedName,
+              locationId: mmLocation?.id,
+              locationName: mmLocation?.name,
               applyToListing: true,
             };
 
@@ -1675,6 +1836,30 @@ export function ListingReviewTable({
           );
         }
       }
+      if (fieldEdit.field === "location") {
+        const loc = locations.find((row) => row.id === fieldEditPick.id);
+        const mm = loc?.microMarketId
+          ? microMarkets.find((row) => row.id === loc.microMarketId)
+          : undefined;
+        if (mm?.id && mm.name) {
+          rememberFieldOverride(
+            fieldEdit.id,
+            "microMarket",
+            mm.name,
+            earlierFor("microMarket"),
+            mm.id,
+          );
+        }
+      }
+      if (fieldEdit.field === "microMarket" && mmLocation) {
+        rememberFieldOverride(
+          fieldEdit.id,
+          "location",
+          mmLocation.name,
+          earlierFor("location"),
+          mmLocation.id,
+        );
+      }
       closeFieldEdit();
       await reloadCatalog();
     } catch (err) {
@@ -1689,11 +1874,11 @@ export function ListingReviewTable({
     !!saveDraft &&
     (saveDraft.locations.some((chip) => chip.id || chip.name.trim()) ||
       !!saveDraft.locationDraft.name.trim()) &&
-    !!(saveDraft.microMarket.id || saveDraft.microMarket.name.trim()) &&
+    !!saveDraft.microMarket.id &&
     (saveDraft.forSale ||
       (!!(saveDraft.propertyName.id || saveDraft.propertyName.name.trim()) &&
         saveDraft.propertyTypeIds.length > 0 &&
-        !!saveDraft.imageUrl.trim()));
+        (!!saveDraft.propertyName.id || !!saveDraft.imageUrl.trim())));
 
   if (items.length === 0) {
     return (
@@ -1794,11 +1979,19 @@ export function ListingReviewTable({
           : []
         : microMarkets
     : [];
+  const mmEditLocations =
+    fieldEdit?.field === "microMarket" && fieldEditPick?.id
+      ? locations.filter((row) => row.microMarketId === fieldEditPick.id)
+      : [];
   const fieldEditReady =
-    isCatalogMode
-      ? !!fieldEditPick?.name?.trim()
-      : !!fieldEditPick?.id &&
-        fieldEditOptions.some((o) => o.id === fieldEditPick.id);
+    fieldEdit?.field === "microMarket"
+      ? !!fieldEditPick?.id &&
+        fieldEditOptions.some((o) => o.id === fieldEditPick.id) &&
+        mmEditLocations.some((row) => row.id === fieldEditLocation.id)
+      : isCatalogMode
+        ? !!fieldEditPick?.name?.trim()
+        : !!fieldEditPick?.id &&
+          fieldEditOptions.some((o) => o.id === fieldEditPick.id);
   const rejectDialogItem =
     confirm?.action === "reject"
       ? items.find((row) => row.id === confirm.id) || null
@@ -1945,6 +2138,18 @@ export function ListingReviewTable({
                     : pnCell.pending || locCell.pending || mmCell.pending;
                 const canEditField =
                   mode === "unverified" || isCatalogMode;
+                const pnSelectedId = selectedCatalogId(
+                  item,
+                  "propertyName",
+                  fieldOverrides[item.id]?.propertyName,
+                );
+                const locSelectedId = selectedCatalogId(
+                  item,
+                  "location",
+                  fieldOverrides[item.id]?.location,
+                );
+                const lockToProperty = !!pnSelectedId;
+                const lockMmToLocation = !lockToProperty && !!locSelectedId;
                 const rowBusy = busyId === item.id;
                 const expanded = !!expandedIds[item.id];
                 const detailRows = expanded ? getListingDetailRows(item) : [];
@@ -2072,7 +2277,9 @@ export function ListingReviewTable({
                           earlier={locCell.earlier}
                           rejected={locRejected}
                           remark={locRemark}
-                          canEdit={canEditField}
+                          canEdit={canEditField && !lockToProperty}
+                          locked={lockToProperty}
+                          lockReason="Locked to Property Name"
                           disabled={rowBusy}
                           onEdit={() => openFieldEdit(item, "location")}
                         />
@@ -2085,7 +2292,13 @@ export function ListingReviewTable({
                           earlier={mmCell.earlier}
                           rejected={mmRejected}
                           remark={mmRemark}
-                          canEdit={canEditField}
+                          canEdit={canEditField && !lockToProperty && !lockMmToLocation}
+                          locked={lockToProperty || lockMmToLocation}
+                          lockReason={
+                            lockToProperty
+                              ? "Locked to Property Name"
+                              : "Locked to Location"
+                          }
                           disabled={rowBusy}
                           onEdit={() => openFieldEdit(item, "microMarket")}
                         />
@@ -2397,12 +2610,14 @@ export function ListingReviewTable({
                           );
                           if (!opt) {
                             const nextLocations = prev.locations.filter((chip) => !chip.locked);
+                            const cleared = !next.name.trim();
                             return {
                               ...prev,
                               propertyName: next,
                               locations: nextLocations,
                               location: primaryLocation(nextLocations),
                               mmLocked: false,
+                              imageUrl: cleared ? "" : prev.imageUrl,
                             };
                           }
                           const locked = chipsFromPropertyName(opt, locations);
@@ -2427,7 +2642,7 @@ export function ListingReviewTable({
                             ...prev,
                             propertyName: next,
                             propertyTypeIds: typeIds.length ? [...new Set(typeIds)] : prev.propertyTypeIds,
-                            imageUrl: opt.imageUrl || prev.imageUrl,
+                            imageUrl: opt.imageUrl || "",
                             microMarket: mm || prev.microMarket,
                             locations: nextLocations,
                             location: primaryLocation(nextLocations),
@@ -2466,9 +2681,14 @@ export function ListingReviewTable({
                     )
                   }
                   kind="property_name"
-                  required
+                  required={!saveDraft.propertyName.id && !!saveDraft.propertyName.name.trim()}
+                  readOnly={!!saveDraft.propertyName.id}
                   placeholder="https://… (share / OG image)"
-                  hint="Paste HTTPS URL or upload. Used as property-name share image."
+                  hint={
+                    saveDraft.propertyName.id
+                      ? "Preview of the selected property image. Clear the property name to upload a new one."
+                      : "Required for a custom property name. Paste HTTPS URL or upload."
+                  }
                 />
                 </>
               ) : null}
@@ -2485,13 +2705,13 @@ export function ListingReviewTable({
                     }
                     value={saveDraft.microMarket}
                     disabled={saveDraft.mmLocked}
-                    allowCreate={!saveDraft.mmLocked}
+                    allowCreate={false}
                     loading={catalogLoading}
                     emptyText="No micro markets found."
                     placeholder={
                       saveDraft.mmLocked
                         ? "Locked to property name"
-                        : "Select or type micro market"
+                        : "Search and select a micro market"
                     }
                     onChange={(next) =>
                       setSaveDraft((prev) => {
@@ -2671,7 +2891,9 @@ export function ListingReviewTable({
                     options={fieldEditOptions}
                     value={fieldEditPick}
                     loading={catalogLoading}
-                    allowCreate={isCatalogMode}
+                    allowCreate={
+                      isCatalogMode && fieldEdit.field !== "microMarket"
+                    }
                     emptyText={
                       fieldEdit.field === "location"
                         ? fieldEditMmId
@@ -2680,14 +2902,49 @@ export function ListingReviewTable({
                         : "No options found."
                     }
                     placeholder={
-                      isCatalogMode
-                        ? `Select or type ${FIELD_LABEL[fieldEdit.field].toLowerCase()}`
-                        : FIELD_PLACEHOLDER[fieldEdit.field]
+                      fieldEdit.field === "microMarket"
+                        ? "Search and select a micro market"
+                        : isCatalogMode
+                          ? `Select or type ${FIELD_LABEL[fieldEdit.field].toLowerCase()}`
+                          : FIELD_PLACEHOLDER[fieldEdit.field]
                     }
-                    onChange={setFieldEditPick}
+                    onChange={(next) => {
+                      setFieldEditPick(next);
+                      if (fieldEdit.field === "microMarket") {
+                        setFieldEditLocation((prev) => {
+                          const still =
+                            next.id &&
+                            locations.some(
+                              (row) =>
+                                row.id === prev.id &&
+                                row.microMarketId === next.id,
+                            );
+                          return still ? prev : { id: "", name: "" };
+                        });
+                      }
+                    }}
                   />
                 }
               />
+              {fieldEdit.field === "microMarket" && fieldEditPick.id ? (
+                <div className="space-y-1 pt-1">
+                  <p className="text-sm font-medium">
+                    Select location <span className="text-red-500">*</span>
+                  </p>
+                  <CatalogPickSelect
+                    options={mmEditLocations}
+                    value={fieldEditLocation}
+                    loading={catalogLoading}
+                    allowCreate={false}
+                    emptyText="No locations in this micro market."
+                    placeholder="Select location"
+                    onChange={setFieldEditLocation}
+                  />
+                  <p className="text-xs text-gray-500">
+                    Save stays off until a location in this micro market is selected.
+                  </p>
+                </div>
+              ) : null}
               {fieldEdit.field === "location" && fieldEditMmName ? (
                 <p className="text-xs text-gray-500">
                   Showing locations for micro market: {fieldEditMmName}

@@ -145,38 +145,48 @@ export const formSuggestionsService = {
     return mapPropertyTypes(response.data);
   },
 
-  listPropertyNames: async (propertyTypeId: string): Promise<FormSuggestion[]> => {
+  listPropertyNames: async (propertyTypeId: string, cityId: string): Promise<FormSuggestion[]> => {
     const response = await axiosClient.get('/admin/form-suggestions/property-names', {
-      params: { propertyTypeId },
+      params: { propertyTypeId, cityId },
     });
     return mapList(response.data);
   },
 
-  listLocations: async (): Promise<FormSuggestion[]> => {
-    const response = await axiosClient.get('/admin/form-suggestions/locations');
+  listLocations: async (cityId: string): Promise<FormSuggestion[]> => {
+    const response = await axiosClient.get('/admin/form-suggestions/locations', {
+      params: { cityId },
+    });
     return mapList(response.data);
   },
 
-  propertyNameOptions: async (propertyTypeId: string): Promise<CatalogOption[]> => {
+  propertyNameOptions: async (propertyTypeId: string, cityId: string): Promise<CatalogOption[]> => {
     const response = await axiosClient.get('/admin/form-suggestions/property-names/options', {
-      params: { propertyTypeId },
+      params: { propertyTypeId, cityId },
     });
     return mapOptions(response.data);
   },
 
-  locationOptions: async (): Promise<CatalogOption[]> => {
-    const response = await axiosClient.get('/admin/form-suggestions/locations/options');
+  locationOptions: async (cityId: string): Promise<CatalogOption[]> => {
+    const response = await axiosClient.get('/admin/form-suggestions/locations/options', {
+      params: { cityId },
+    });
     return mapOptions(response.data);
   },
 
   createPropertyNames: async (payload: {
     property_type_id: string;
     property_name_ids: string[];
+    state_id: string;
+    city_id: string;
   }): Promise<void> => {
     await axiosClient.post('/admin/form-suggestions/property-names', payload);
   },
 
-  createLocations: async (payload: { location_ids: string[] }): Promise<void> => {
+  createLocations: async (payload: {
+    location_ids: string[];
+    state_id: string;
+    city_id: string;
+  }): Promise<void> => {
     await axiosClient.post('/admin/form-suggestions/locations', payload);
   },
 

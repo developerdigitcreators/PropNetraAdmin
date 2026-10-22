@@ -573,7 +573,12 @@ function WriteToUsTab({ userId }: { userId: string }) {
                 #{row.ticketNo} · {row.issueType || "Support ticket"}
               </p>
               <p className="mt-1 text-xs capitalize text-gray-500">
-                Status: {row.status}
+                Status:{" "}
+                {row.status === "under_process"
+                  ? "Under Process"
+                  : row.status === "closed"
+                    ? "Closed"
+                    : "Pending"}
               </p>
             </div>
             <Badge variant="secondary" className="bg-gray-100 text-gray-700">

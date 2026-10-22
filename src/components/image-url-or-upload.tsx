@@ -22,6 +22,8 @@ type ImageUrlOrUploadProps = {
   /** Suggested pixel size shown under the field (defaults per `kind`). */
   recommendedSize?: string;
   required?: boolean;
+  /** Catalog pick: keep the preview, block URL edits and uploads. */
+  readOnly?: boolean;
   error?: string;
   previewClassName?: string;
 };
@@ -59,6 +61,7 @@ export function ImageUrlOrUpload({
   hint = 'Paste a public HTTPS URL, or upload a file (stored on CDN).',
   recommendedSize,
   required,
+  readOnly = false,
   error,
   previewClassName = 'h-16 w-28 rounded border bg-gray-50 object-cover',
 }: ImageUrlOrUploadProps) {
@@ -100,29 +103,34 @@ export function ImageUrlOrUpload({
           {label}
           {required ? <span className="text-red-500"> *</span> : null}
         </label>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={uploading}
-          onClick={() => inputRef.current?.click()}
-          className="h-8 gap-1.5"
-        >
-          {uploading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Upload className="h-3.5 w-3.5" />
-          )}
-          {uploading ? 'Uploading…' : 'Upload'}
-        </Button>
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          className="hidden"
-          onChange={(e) => onPickFile(e.target.files?.[0])}
-        />
+        {!readOnly ? (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={uploading}
+              onClick={() => inputRef.current?.click()}
+              className="h-8 gap-1.5"
+            >
+              {uploading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Upload className="h-3.5 w-3.5" />
+              )}
+              {uploading ? 'Uploading…' : 'Upload'}
+            </Button>
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={(e) => onPickFile(e.target.files?.[0])}
+            />
+          </>
+        ) : null}
       </div>
+      {!readOnly ? (
       <Input
         value={value}
         onChange={(e) => {
@@ -132,12 +140,13 @@ export function ImageUrlOrUpload({
         placeholder={placeholder}
         disabled={uploading}
       />
+      ) : null}
       {error || uploadError ? (
         <p className="text-xs text-red-600">{error || uploadError}</p>
       ) : (
         <p className="text-xs text-gray-500">{hint}</p>
       )}
-      {sizeHint ? <p className="text-xs text-gray-500">{sizeHint}</p> : null}
+      {!readOnly && sizeHint ? <p className="text-xs text-gray-500">{sizeHint}</p> : null}
       {value.trim() ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img

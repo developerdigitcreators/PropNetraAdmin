@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, Plus, Edit2, Trash2 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useParams } from 'next/navigation';
 import { Breadcrumb } from '@/components/common/breadcrumb';
@@ -33,10 +34,18 @@ const FIELD_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'file_upload', label: 'File Upload' },
   { value: 'media_gallery', label: 'Media Gallery (Images, Videos, YouTube)' },
   { value: 'floor_plans', label: 'Floor Plans' },
+  { value: 'available_units', label: 'Available Unit Details' },
+  { value: 'attach_layouts', label: 'Attach Layout' },
   { value: 'location_advantage', label: 'Location Advantage (Map places)' },
   { value: 'brochure', label: 'Brochure (PDF)' },
   { value: 'team_members', label: 'Team Members' },
 ];
+
+function fieldIsRequired(item: any) {
+  return item?.is_required === true || item?.isRequired === true || item?.is_mandatory === true || item?.isMandatory === true;
+}
+
+const APP_FILLED_FIELD_TYPES = new Set(['available_units', 'attach_layouts']);
 
 const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canManageOptions: boolean }) => {
   const [options, setOptions] = useState<any[]>([]);
@@ -305,7 +314,7 @@ export default function FormFieldsPage() {
   const [optionFormData, setOptionFormData] = useState({ label: '', value: '', sort_order: 1 });
 
   // Form State
-  const [formData, setFormData] = useState<any>({ key: '', label: '', field_type: 'select' });
+  const [formData, setFormData] = useState<any>({ key: '', label: '', field_type: 'select', is_required: false });
   const baselineRef = useRef('');
   const formSnapshot = useMemo(() => JSON.stringify(formData), [formData]);
   const dirty =
@@ -353,8 +362,8 @@ export default function FormFieldsPage() {
   const handleOpenModal = (item: any = null) => {
     setEditingItem(item);
     const next = item
-      ? { key: item.key, label: item.label, field_type: item.field_type }
-      : { key: '', label: '', field_type: 'select' };
+      ? { key: item.key, label: item.label, field_type: item.field_type, is_required: fieldIsRequired(item) }
+      : { key: '', label: '', field_type: 'select', is_required: false };
     setFormData(next);
     baselineRef.current = JSON.stringify(next);
     setIsModalOpen(true);
@@ -371,7 +380,8 @@ export default function FormFieldsPage() {
     try {
       const payload: any = { 
         label: formData.label, 
-        field_type: formData.field_type 
+        field_type: formData.field_type,
+        is_required: !!formData.is_required,
       };
 
       if (editingItem) {
@@ -446,6 +456,7 @@ export default function FormFieldsPage() {
                     <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
                       <span>Type: <span className="font-medium text-gray-700 capitalize">{String(item.field_type).replace(/_/g, ' ')}</span></span>
                       {item.key && <span>• Key: <span className="font-mono text-xs text-gray-600 bg-gray-100 px-1 py-0.5 rounded">{item.key}</span></span>}
+                      {fieldIsRequired(item) ? <span>• Mandatory</span> : null}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -461,6 +472,11 @@ export default function FormFieldsPage() {
                     )}
                   </div>
                 </div>
+                {APP_FILLED_FIELD_TYPES.has(item.field_type) ? (
+                  <p className="px-5 py-3 text-sm text-gray-500 bg-gray-50/50">
+                    Unit rows are entered on the developer app. Label and mandatory can be changed here.
+                  </p>
+                ) : null}
                 {requiresOptions(item.field_type) && (
                   <div className="px-5 pb-5 pt-3 bg-gray-50/50">
                     <FieldOptionsRenderer field={item} canManageOptions={canManageOptions} />
@@ -484,12 +500,23 @@ export default function FormFieldsPage() {
                 <Input value={formData.label} onChange={e => setFormData({...formData, label: e.target.value})} placeholder="e.g. Furnishing Status" />
               </div>
               
+              <div className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2">
+                <label className="text-sm font-medium">Mandatory</label>
+                <Switch
+                  checked={!!formData.is_required}
+                  onCheckedChange={(checked) => setFormData({ ...formData, is_required: checked })}
+                />
+              </div>
+
               <div className="space-y-2">
                 <label className="text-sm font-medium">Field Type</label>
                 <Select value={formData.field_type} onValueChange={v => setFormData({...formData, field_type: v})}>
                   <SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger>
                   <SelectContent>
-                    {FIELD_TYPE_OPTIONS.map((t) => (
+                    {(FIELD_TYPE_OPTIONS.some((t) => t.value === formData.field_type)
+                      ? FIELD_TYPE_OPTIONS
+                      : [...FIELD_TYPE_OPTIONS, { value: formData.field_type, label: String(formData.field_type || '').replace(/_/g, ' ') }]
+                    ).map((t) => (
                       <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
                     ))}
                   </SelectContent>

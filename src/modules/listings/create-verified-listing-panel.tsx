@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PermissionGuard } from "@/components/common/permission-guard";
@@ -18,8 +18,10 @@ import {
 } from "@/components/ui/select";
 import { locationService } from "@/services/location.service";
 import {
+  isPreLeasedName,
   listingCreateApiError,
   listingsService,
+  showsCommercialLeasingStatus,
   type CreateFormField,
   type CreateFormOption,
   type CreateFormPrefill,
@@ -66,6 +68,45 @@ function normalizeKey(key: string) {
     .replace(/[\s-]+/g, "_");
 }
 
+const LEASING_STATUS_OPTIONS = [
+  { label: "Vacant", value: "vacant" },
+  { label: "Leased", value: "leased" },
+];
+
+function isTenantInfoModule(key: string, label: string) {
+  const normalizedKey = normalizeKey(key);
+  const normalizedLabel = normalizeKey(label);
+  return (
+    normalizedKey === "tenant_info" ||
+    normalizedLabel === "tenant_info" ||
+    normalizedLabel === "tenant info"
+  );
+}
+
+function isTenantInfoField(field: CreateFormField) {
+  return (
+    normalizeKey(field.moduleKey || "") === "tenant_info" ||
+    normalizeKey(field.key) === "tenant_info"
+  );
+}
+
+function tenantInfoFieldKeys(schema: CreateFormSchema | null): Set<string> {
+  const keys = new Set<string>(["tenant_info"]);
+  for (const mod of schema?.modules ?? []) {
+    if (!isTenantInfoModule(mod.key, mod.label)) continue;
+    for (const field of mod.fields) keys.add(field.key);
+  }
+  for (const field of schema?.fields ?? []) {
+    if (
+      isTenantInfoField(field) ||
+      isTenantInfoModule(field.moduleKey || "", field.label)
+    ) {
+      keys.add(field.key);
+    }
+  }
+  return keys;
+}
+
 function isSelectType(type: string) {
   const t = type.toLowerCase();
   return (
@@ -87,6 +128,54 @@ function isNumberType(type: string) {
   const t = type.toLowerCase();
   return (
     t === "number" || t === "integer" || t === "decimal" || t === "currency"
+  );
+}
+
+function isPossessionModule(key: string, label: string) {
+  return (
+    normalizeKey(key) === "possession" || normalizeKey(label) === "possession"
+  );
+}
+
+function isPossessionMonthField(field: CreateFormField) {
+  const key = normalizeKey(field.key);
+  const label = normalizeKey(field.label);
+  return key === "month" || key.endsWith("_month") || label === "month";
+}
+
+function isPossessionYearField(field: CreateFormField) {
+  const key = normalizeKey(field.key);
+  const label = normalizeKey(field.label);
+  return key === "year" || key.endsWith("_year") || label === "year";
+}
+
+function renderModuleFields(
+  mod: { key: string; label: string; fields: CreateFormField[] },
+  renderField: (field: CreateFormField) => ReactNode,
+) {
+  if (!isPossessionModule(mod.key, mod.label)) {
+    return mod.fields.map(renderField);
+  }
+  const month = mod.fields.find(isPossessionMonthField);
+  const year = mod.fields.find(isPossessionYearField);
+  const rest = mod.fields.filter(
+    (field) => field !== month && field !== year,
+  );
+  return (
+    <>
+      {month && year ? (
+        <div className="grid gap-4 sm:col-span-2 sm:grid-cols-2">
+          {renderField(month)}
+          {renderField(year)}
+        </div>
+      ) : (
+        <>
+          {month ? renderField(month) : null}
+          {year ? renderField(year) : null}
+        </>
+      )}
+      {rest.map(renderField)}
+    </>
   );
 }
 
@@ -295,7 +384,11 @@ export function CreateVerifiedListingPanel() {
       .getCreateBuildingTypes(categoryId)
       .then((rows) => {
         if (!cancelled)
-          setBuildingTypes(rows.filter((r) => r.is_active !== false));
+          setBuildingTypes(
+            rows.filter(
+              (r) => r.is_active !== false && !isPreLeasedName(r.name),
+            ),
+          );
       })
       .catch((err) => {
         if (!cancelled) {
@@ -445,21 +538,102 @@ export function CreateVerifiedListingPanel() {
     };
   }, [propertyNameId]);
 
+  const showLeasingStatus = showsCommercialLeasingStatus(
+    categories.find((row) => row.id === categoryId)?.name,
+    buildingTypes.find((row) => row.id === buildingTypeId)?.name,
+  );
+  const leasingStatus =
+    details.leasing_status === "leased" || details.leasing_status === "vacant"
+      ? details.leasing_status
+      : showLeasingStatus
+        ? "vacant"
+        : "";
+  const showTenantInfo = showLeasingStatus && leasingStatus === "leased";
+
+  useEffect(() => {
+    if (!showLeasingStatus) return;
+    setDetails((prev) => {
+      if (prev.leasing_status === "vacant" || prev.leasing_status === "leased") {
+        return prev;
+      }
+      return { ...prev, leasing_status: "vacant" };
+    });
+  }, [showLeasingStatus, schema]);
+
   const detailModules = useMemo(() => {
     if (!schema) return [];
+    const applyLeasingRules = (
+      modules: Array<{
+        key: string;
+        label: string;
+        fields: CreateFormField[];
+      }>,
+    ) => {
+      const next = modules
+        .map((mod) => {
+          const tenantModule = isTenantInfoModule(mod.key, mod.label);
+          if (tenantModule && !showTenantInfo) return null;
+          const fields = mod.fields
+            .filter((field) => showTenantInfo || !isTenantInfoField(field))
+            .map((field) => {
+              if (field.key === "leasing_status") {
+                return {
+                  ...field,
+                  options:
+                    field.options && field.options.length > 0
+                      ? field.options
+                      : LEASING_STATUS_OPTIONS,
+                };
+              }
+              if (tenantModule || isTenantInfoField(field)) {
+                return { ...field, required: false };
+              }
+              return field;
+            });
+          if (fields.length === 0) return null;
+          return { ...mod, fields };
+        })
+        .filter((mod): mod is NonNullable<typeof mod> => !!mod);
+
+      if (
+        showLeasingStatus &&
+        !next.some((mod) =>
+          mod.fields.some((field) => field.key === "leasing_status"),
+        )
+      ) {
+        next.unshift({
+          key: "leasing_status",
+          label: "Leasing Status",
+          fields: [
+            {
+              key: "leasing_status",
+              label: "Leasing Status",
+              type: "select",
+              options: LEASING_STATUS_OPTIONS,
+            },
+          ],
+        });
+      }
+      return next;
+    };
+
     if (schema.modules.length > 0) {
-      return schema.modules
-        .map((mod) => ({
-          ...mod,
-          fields: filterRenderableFields(mod.fields),
-        }))
-        .filter((mod) => mod.fields.length > 0);
+      return applyLeasingRules(
+        schema.modules
+          .map((mod) => ({
+            ...mod,
+            fields: filterRenderableFields(mod.fields),
+          }))
+          .filter((mod) => mod.fields.length > 0),
+      );
     }
     const fields = filterRenderableFields(schema.fields);
-    return fields.length > 0
-      ? [{ key: "details", label: "Listing details", fields }]
-      : [];
-  }, [schema]);
+    return applyLeasingRules(
+      fields.length > 0
+        ? [{ key: "details", label: "Listing details", fields }]
+        : [],
+    );
+  }, [schema, showLeasingStatus, showTenantInfo]);
 
   const detailFieldsCount = detailModules.reduce(
     (sum, mod) => sum + mod.fields.length,
@@ -534,10 +708,36 @@ export function CreateVerifiedListingPanel() {
   };
 
   const updateDetail = (key: string, value: string) => {
-    setDetails((prev) => ({ ...prev, [key]: value }));
+    setDetails((prev) => {
+      const next = { ...prev, [key]: value };
+      if (key === "leasing_status" && value !== "leased") {
+        const tenantKeys = tenantInfoFieldKeys(schema);
+        for (const tenantKey of tenantKeys) delete next[tenantKey];
+      }
+      return next;
+    });
   };
 
   const renderField = (field: CreateFormField) => {
+    const type = field.type.toLowerCase();
+    if (type === "available_units" || type === "attach_layouts") {
+      return (
+        <div
+          key={field.key}
+          className="space-y-1 rounded-lg border border-gray-100 bg-gray-50 px-3 py-3 sm:col-span-2"
+        >
+          <p className="text-sm font-medium text-gray-700">
+            {field.label}
+            {field.required ? <span className="text-red-500"> *</span> : null}
+          </p>
+          <p className="text-sm text-gray-500">
+            {type === "available_units"
+              ? "Available unit rows are entered on the developer app."
+              : "Layout files are attached on the developer app."}
+          </p>
+        </div>
+      );
+    }
     if (field.slot === "banner" || field.type === "banner") {
       return (
         <div key={field.key} className="space-y-2 sm:col-span-2">
@@ -551,7 +751,10 @@ export function CreateVerifiedListingPanel() {
         </div>
       );
     }
-    const value = details[field.key] ?? "";
+    const value =
+      field.key === "leasing_status" && showLeasingStatus
+        ? leasingStatus
+        : (details[field.key] ?? "");
     if (isBooleanType(field.type)) {
       return (
         <div
@@ -627,15 +830,36 @@ export function CreateVerifiedListingPanel() {
     setError("");
     try {
       const detailsPayload: Record<string, unknown> = {};
+      const hiddenTenantKeys =
+        leasingStatus === "leased"
+          ? new Set<string>()
+          : tenantInfoFieldKeys(schema);
       for (const [key, value] of Object.entries(details)) {
         if (value === "" || value == null) continue;
+        if (hiddenTenantKeys.has(key)) continue;
         const field = schema?.fields.find((item) => item.key === key);
         if (field?.slot === "banner" || field?.type === "banner") continue;
         if (value === "true") detailsPayload[key] = true;
         else if (value === "false") detailsPayload[key] = false;
-        else if (/^-?\d+(\.\d+)?$/.test(value))
+        else if (
+          /^-?\d+(\.\d+)?$/.test(value) &&
+          key !== "leasing_status" &&
+          !isPossessionMonthField({ key, label: key, type: "select" }) &&
+          !isPossessionYearField({ key, label: key, type: "select" })
+        )
           detailsPayload[key] = Number(value);
         else detailsPayload[key] = value;
+      }
+      const leasingValue = leasingStatus;
+      const dynamicData: Record<string, unknown> = {};
+      if (
+        showLeasingStatus &&
+        (leasingValue === "vacant" || leasingValue === "leased")
+      ) {
+        dynamicData.leasing_status = leasingValue;
+        detailsPayload.leasing_status = leasingValue;
+      } else {
+        delete detailsPayload.leasing_status;
       }
 
       const created = await listingsService.createVerifiedListing({
@@ -662,6 +886,9 @@ export function CreateVerifiedListingPanel() {
         lead_unit_no: leadUnitNo.trim() || undefined,
         connected_staff_user_id: connectedStaffUserId,
         details: detailsPayload,
+        ...(Object.keys(dynamicData).length > 0
+          ? { dynamic_data: dynamicData }
+          : {}),
       });
 
       const pending = created?.meta?.pendingReview === true;
@@ -1163,7 +1390,7 @@ export function CreateVerifiedListingPanel() {
                     {mod.label}
                   </h2>
                   <div className="grid gap-4 sm:grid-cols-2">
-                    {mod.fields.map(renderField)}
+                    {renderModuleFields(mod, renderField)}
                   </div>
                 </div>
               ))}

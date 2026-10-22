@@ -45,13 +45,13 @@ function formatDateTime(value?: string | null) {
 }
 
 function statusLabel(status: TicketStatus) {
-  if (status === 'resolved') return 'Resolved';
+  if (status === 'under_review') return 'Under Review';
   if (status === 'closed') return 'Closed';
   return 'Pending';
 }
 
 function statusClass(status: TicketStatus) {
-  if (status === 'resolved') return 'bg-green-100 text-green-700';
+  if (status === 'under_review') return 'bg-sky-100 text-sky-800';
   if (status === 'closed') return 'bg-gray-100 text-gray-700';
   return 'bg-amber-100 text-amber-800';
 }
@@ -66,7 +66,7 @@ function tierLabel(tier: SupportTicketItem['user']['tier']) {
 const STATUS_FILTERS: Array<{ id: '' | TicketStatus; label: string }> = [
   { id: '', label: 'All' },
   { id: 'pending', label: 'Pending' },
-  { id: 'resolved', label: 'Resolved' },
+  { id: 'under_review', label: 'Under Review' },
   { id: 'closed', label: 'Closed' },
 ];
 
@@ -103,7 +103,7 @@ function SupportTicketsPageInner() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
   const [remarkDraft, setRemarkDraft] = useState('');
-  const [nextStatus, setNextStatus] = useState<TicketStatus>('resolved');
+  const [nextStatus, setNextStatus] = useState<TicketStatus>('under_review');
   const [remarkBusy, setRemarkBusy] = useState(false);
   const [statusBusy, setStatusBusy] = useState(false);
   const [editingRemark, setEditingRemark] = useState<TicketRemark | null>(null);
@@ -207,7 +207,7 @@ function SupportTicketsPageInner() {
 
   const handleStatusChange = async () => {
     if (!detail || !remarkDraft.trim() || statusBusy || !canUpdate) return;
-    if (detail.status === 'resolved' || detail.status === 'closed') return;
+    if (detail.status === 'closed') return;
     setStatusBusy(true);
     setDetailError('');
     try {
@@ -280,8 +280,7 @@ function SupportTicketsPageInner() {
 
   const remarks = detail?.remarks || [];
   const messages = detail?.messages || [];
-  const statusLocked =
-    detail?.status === 'resolved' || detail?.status === 'closed';
+  const statusLocked = detail?.status === 'closed';
   const firstMessageId = messages[0]?.id ?? null;
   const remarksForMessage = (messageId: string, isFirst: boolean) =>
     remarks
@@ -697,7 +696,7 @@ function SupportTicketsPageInner() {
                     </p>
                   ) : null}
                   <div className="flex flex-wrap gap-2">
-                    {(['pending', 'resolved', 'closed'] as TicketStatus[]).map((status) => (
+                    {(['pending', 'under_review', 'closed'] as TicketStatus[]).map((status) => (
                       <Button
                         key={status}
                         type="button"

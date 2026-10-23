@@ -1,0 +1,549 @@
+'use client';
+
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useAuthStore } from '@/store/use-auth-store';
+import { PermissionGuard } from '@/components/common/permission-guard';
+import { isBannerFormModule, listingConfigService } from '@/services/listing-config.service';
+import { moduleOptionsService } from '@/services/module-options.service';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Loader2, Plus, Edit2, Trash2 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
+import { useParams } from 'next/navigation';
+import { Breadcrumb } from '@/components/common/breadcrumb';
+import { SortableGrid } from '@/components/common/sortable-list';
+import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
+import { useDialogUnsavedGuard } from '@/hooks/use-unsaved-changes-guard';
+import { ImageUrlOrUpload } from '@/components/image-url-or-upload';
+import React from 'react';
+
+const FIELD_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'text', label: 'Text (Short)' },
+  { value: 'textarea', label: 'Paragraph (Long text)' },
+  { value: 'number', label: 'Number' },
+  { value: 'range', label: 'Range (Min – Max)' },
+  { value: 'date', label: 'Date' },
+  { value: 'select', label: 'Select (Dropdown)' },
+  { value: 'multi_select', label: 'Multi Select' },
+  { value: 'radio', label: 'Radio' },
+  { value: 'checkbox', label: 'Checkbox' },
+  { value: 'creatable_select', label: 'Creatable Select' },
+  { value: 'file_upload', label: 'File Upload' },
+  { value: 'media_gallery', label: 'Media Gallery (Images, Videos, YouTube)' },
+  { value: 'floor_plans', label: 'Floor Plans' },
+  { value: 'available_units', label: 'Available Unit Details' },
+  { value: 'attach_layouts', label: 'Attach Layout' },
+  { value: 'location_advantage', label: 'Location Advantage (Map places)' },
+  { value: 'brochure', label: 'Brochure (PDF)' },
+  { value: 'team_members', label: 'Team Members' },
+];
+
+function fieldIsRequired(item: any) {
+  return item?.is_required === true || item?.isRequired === true || item?.is_mandatory === true || item?.isMandatory === true;
+}
+
+const APP_FILLED_FIELD_TYPES = new Set(['available_units', 'attach_layouts']);
+
+const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canManageOptions: boolean }) => {
+  const [options, setOptions] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingOption, setEditingOption] = useState<any>(null);
+  const [formData, setFormData] = useState({ label: '', value: '', sort_order: 1, icon_url: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [optionToDelete, setOptionToDelete] = useState<any>(null);
+  const supportsIcons = field.field_type === 'multi_select' || field.field_type === 'select';
+  const baselineRef = useRef('');
+  const formSnapshot = useMemo(() => JSON.stringify(formData), [formData]);
+  const dirty =
+    isFormOpen &&
+    baselineRef.current !== '' &&
+    formSnapshot !== baselineRef.current;
+  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(dirty);
+
+  const closeOptionForm = async () => {
+    if (isSubmitting) return;
+    const ok = await requestClose();
+    if (ok) setIsFormOpen(false);
+  };
+
+  const loadOptions = async () => {
+    setIsLoading(true);
+    try {
+      const data = await moduleOptionsService.getOptionsForField(field.id);
+      const list = Array.isArray(data) ? data : [];
+      setOptions([...list].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
+    } catch (err) {
+      console.error('Failed to load options', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => { loadOptions(); }, [field.id]);
+
+  const handleReorder = async (ordered: Array<any & { sortOrder: number }>) => {
+    const updates = ordered.filter((item) => {
+      const prev = options.find((o) => o.id === item.id);
+      return (prev?.sort_order || 0) !== item.sortOrder;
+    });
+
+    setOptions(ordered.map((item) => ({ ...item, sort_order: item.sortOrder })));
+
+    try {
+      await Promise.all(
+        updates.map((item) =>
+          moduleOptionsService.updateOption(item.id, {
+            sort_order: item.sortOrder,
+            field_id: field.id,
+          }),
+        ),
+      );
+    } catch (err) {
+      console.error('Failed to reorder options', err);
+      await loadOptions();
+      throw err;
+    }
+  };
+
+  const handleOpenForm = (opt: any = null) => {
+    setEditingOption(opt);
+    const next = opt
+      ? {
+          label: opt.option_label || opt.label,
+          value: opt.option_value || opt.value,
+          sort_order: opt.sort_order || 1,
+          icon_url: opt.icon_url || opt.iconUrl || '',
+        }
+      : {
+          label: '',
+          value: '',
+          sort_order:
+            options.length > 0
+              ? Math.max(...options.map((o) => o.sort_order || 0)) + 1
+              : 1,
+          icon_url: '',
+        };
+    setFormData(next);
+    baselineRef.current = JSON.stringify(next);
+    setIsFormOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!formData.label) return;
+    setIsSubmitting(true);
+    try {
+      const payload: any = {
+        option_label: formData.label,
+        option_value: formData.value?.trim() || undefined,
+        sort_order: Number(formData.sort_order),
+        field_id: field.id,
+      };
+      if (supportsIcons) payload.icon_url = formData.icon_url.trim() || null;
+      if (editingOption) {
+        await moduleOptionsService.updateOption(editingOption.id, payload);
+      } else {
+        await moduleOptionsService.createOption(payload);
+      }
+      setIsFormOpen(false);
+      loadOptions();
+    } catch (err) {
+      console.error('Save failed', err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (remark: string) => {
+    if (!optionToDelete?.id) return;
+    try {
+      await moduleOptionsService.deleteOption(optionToDelete.id, remark);
+      setOptionToDelete(null);
+      loadOptions();
+    } catch (err) {
+      console.error('Delete failed', err);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm mt-2">
+      <div className="flex items-center justify-between mb-4">
+        <h4 className="font-semibold text-gray-900 text-sm">Options for "{field.label}"</h4>
+        {canManageOptions && !isFormOpen && (
+          <Button onClick={() => handleOpenForm()} size="sm" variant="outline" className="h-8 text-xs text-primary border-primary hover:bg-primary-light">
+            <Plus className="w-3 h-3 mr-1" /> Add Option
+          </Button>
+        )}
+      </div>
+
+      {!isFormOpen ? (
+        isLoading ? (
+          <div className="flex justify-center p-4"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
+        ) : options.length === 0 ? (
+          <p className="text-center text-sm text-gray-500 p-4 border border-dashed rounded-lg bg-gray-50">No options defined yet.</p>
+        ) : (
+          <SortableGrid
+            items={options}
+            disabled={!canManageOptions}
+            onReorder={handleReorder}
+            renderItem={(opt, { dragHandle }) => (
+              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100 group hover:border-gray-300 transition-colors h-full">
+                {supportsIcons && (opt.icon_url || opt.iconUrl) ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={opt.icon_url || opt.iconUrl}
+                    alt=""
+                    className="h-8 w-8 rounded border bg-white object-contain mr-2 shrink-0"
+                  />
+                ) : null}
+                <div className="min-w-0 pr-2 flex-1">
+                  <p className="font-medium text-sm text-gray-900 truncate">{opt.option_label || opt.label}</p>
+                  {(opt.option_value || opt.value) && (
+                    <p className="text-xs text-gray-500 font-mono mt-0.5 truncate">
+                      Val: {opt.option_value || opt.value}
+                    </p>
+                  )}
+                  {opt.status === 'pending' && (
+                    <Badge variant="outline" className="mt-1 text-[10px] text-orange-600 bg-orange-50 border-orange-200 py-0 h-4">
+                      Pending
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {dragHandle}
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {canManageOptions && (
+                      <Button variant="ghost" size="sm" onClick={() => handleOpenForm(opt)} className="h-7 w-7 p-0">
+                        <Edit2 className="w-3 h-3 text-gray-500" />
+                      </Button>
+                    )}
+                    {canManageOptions && (
+                      <Button variant="ghost" size="sm" onClick={() => setOptionToDelete(opt)} className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50">
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          />
+        )
+      ) : (
+        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+          <h5 className="font-medium text-sm text-gray-900 mb-3">{editingOption ? 'Edit Option' : 'Add Option'}</h5>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-700">Display Label</label>
+              <Input
+                value={formData.label}
+                onChange={(e) => setFormData({ ...formData, label: e.target.value })}
+                placeholder="e.g. Fully Furnished"
+                className="bg-white h-9 text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-700">Value</label>
+              <Input
+                value={formData.value}
+                onChange={(e) => setFormData({ ...formData, value: e.target.value })}
+                placeholder="e.g. fully_furnished"
+                className="bg-white h-9 text-sm font-mono"
+              />
+              <p className="text-[10px] text-gray-500">
+                Optional — if empty, backend generates from label.
+              </p>
+            </div>
+            {supportsIcons && (
+              <div className="sm:col-span-2">
+                <ImageUrlOrUpload
+                  label="Icon (optional)"
+                  kind="icon"
+                  value={formData.icon_url}
+                  onChange={(url) => setFormData({ ...formData, icon_url: url })}
+                  hint="Shown next to the option in the app (e.g. amenity icons). Square PNG works best."
+                  previewClassName="h-10 w-10 rounded border bg-white object-contain"
+                />
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" size="sm" onClick={() => void closeOptionForm()} className="h-8">Cancel</Button>
+            <Button size="sm" onClick={handleSave} disabled={isSubmitting || !formData.label} className="h-8">
+              {isSubmitting && <Loader2 className="w-3 h-3 mr-2 animate-spin" />} Save Option
+            </Button>
+          </div>
+        </div>
+      )}
+      <DeleteRemarkDialog
+        open={Boolean(optionToDelete)}
+        onOpenChange={(open) => !open && setOptionToDelete(null)}
+        title="Delete option?"
+        itemName={optionToDelete?.option_label || optionToDelete?.label}
+        onConfirm={handleDelete}
+      />
+      {unsavedDialog}
+    </div>
+  );
+};
+
+export default function FormFieldsPage() {
+  const { permissions } = useAuthStore();
+  const params = useParams();
+  const moduleId = params.id as string;
+
+  const [fields, setFields] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Modals state
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<any>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Options State
+  const [expandedFieldId, setExpandedFieldId] = useState<string | null>(null);
+  const [currentField, setCurrentField] = useState<any>(null);
+  const [fieldOptions, setFieldOptions] = useState<any[]>([]);
+  const [isLoadingOptions, setIsLoadingOptions] = useState(false);
+  
+  const [editingOption, setEditingOption] = useState<any>(null);
+  const [isOptionFormOpen, setIsOptionFormOpen] = useState(false);
+  const [optionFormData, setOptionFormData] = useState({ label: '', value: '', sort_order: 1 });
+
+  // Form State
+  const [formData, setFormData] = useState<any>({ key: '', label: '', field_type: 'select', is_required: false });
+  const baselineRef = useRef('');
+  const formSnapshot = useMemo(() => JSON.stringify(formData), [formData]);
+  const dirty =
+    isModalOpen &&
+    baselineRef.current !== '' &&
+    formSnapshot !== baselineRef.current;
+  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(dirty);
+
+  const handleModalOpenChange = async (next: boolean) => {
+    if (isSubmitting) return;
+    if (!next) {
+      const ok = await requestClose();
+      if (ok) setIsModalOpen(false);
+      return;
+    }
+    setIsModalOpen(true);
+  };
+
+  const [moduleLabel, setModuleLabel] = useState('Fields Management');
+  const [bannerModule, setBannerModule] = useState(false);
+
+  const fetchFields = async () => {
+    setIsLoading(true);
+    try {
+      const data = await listingConfigService.getFormFields(moduleId);
+      setFields(Array.isArray(data) ? data : []);
+      
+      const modules = await listingConfigService.getFormModules();
+      const mod = modules.find((m: any) => m.id === moduleId);
+      if (mod) {
+        setModuleLabel(mod.label);
+        setBannerModule(isBannerFormModule(mod));
+      }
+    } catch (err) {
+      console.error('Failed to fetch fields', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (moduleId) fetchFields();
+  }, [moduleId]);
+
+  const handleOpenModal = (item: any = null) => {
+    setEditingItem(item);
+    const next = item
+      ? { key: item.key, label: item.label, field_type: item.field_type, is_required: fieldIsRequired(item) }
+      : { key: '', label: '', field_type: 'select', is_required: false };
+    setFormData(next);
+    baselineRef.current = JSON.stringify(next);
+    setIsModalOpen(true);
+  };
+
+  const handleOpenDelete = (item: any) => {
+    setEditingItem(item);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!formData.label) return;
+    setIsSubmitting(true);
+    try {
+      const payload: any = { 
+        label: formData.label, 
+        field_type: formData.field_type,
+        is_required: !!formData.is_required,
+      };
+
+      if (editingItem) {
+        await listingConfigService.updateFormField(editingItem.id, payload);
+      } else {
+        await listingConfigService.createFormField(moduleId, payload);
+      }
+      setIsModalOpen(false);
+      fetchFields();
+    } catch (err) {
+      console.error('Save failed', err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (remark: string) => {
+    if (!editingItem) return;
+    setIsSubmitting(true);
+    try {
+      await listingConfigService.deleteFormField(editingItem.id, remark);
+      setIsDeleteModalOpen(false);
+      fetchFields();
+    } catch (err) {
+      console.error('Delete failed', err);
+      alert('Failed to delete. Ensure it is not in use.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Remove old options management functions as they are handled by FieldOptionsRenderer
+
+  const canCreate = permissions.has('form_modules:create');
+  const canUpdate = permissions.has('form_modules:update');
+  const canDelete = permissions.has('form_modules:delete');
+
+  const canManageOptions = permissions.has('module_options:create') || permissions.has('module_options:update');
+
+  const requiresOptions = (type: string) => {
+    return ['select', 'multi_select', 'radio', 'checkbox', 'creatable_select'].includes(type);
+  };
+
+  return (
+    <PermissionGuard permission="form_modules:read" fallback={<div className="p-12 text-center text-gray-500">You do not have permission to view form modules.</div>}>
+      <div className="space-y-6 pb-24">
+        <Breadcrumb items={[{ label: 'Form Modules', href: '/listings/form-modules' }, { label: moduleLabel }]} />
+
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">{moduleLabel} Fields</h1>
+            <p className="text-gray-500 mt-1">Manage the specific inputs that belong to this section.</p>
+          </div>
+        </div>
+
+        {bannerModule ? (
+          <div className="rounded-xl border border-gray-100 bg-white p-8 text-sm text-gray-500">
+            Banner Ads is placed in the listing form by sort order. Ads come from the module banner placement. Fields are not added on this section.
+          </div>
+        ) : null}
+        <div className={`space-y-4 mt-6 ${bannerModule ? 'hidden' : ''}`}>
+          {isLoading ? (
+            <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+          ) : fields.length === 0 ? (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-500">No fields found for this section.</div>
+          ) : (
+            fields.map(item => (
+              <div key={item.id} className="bg-gray-50/30 rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="p-5 flex items-center justify-between border-b border-gray-100 bg-white">
+                  <div>
+                    <h3 className="font-semibold text-gray-900 text-lg">{item.label}</h3>
+                    <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
+                      <span>Type: <span className="font-medium text-gray-700 capitalize">{String(item.field_type).replace(/_/g, ' ')}</span></span>
+                      {item.key && <span>• Key: <span className="font-mono text-xs text-gray-600 bg-gray-100 px-1 py-0.5 rounded">{item.key}</span></span>}
+                      {fieldIsRequired(item) ? <span>• Mandatory</span> : null}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {canUpdate && (
+                      <Button variant="ghost" size="sm" onClick={() => handleOpenModal(item)} className="text-gray-500 hover:text-gray-700 bg-gray-50 hover:bg-gray-100">
+                        <Edit2 className="w-4 h-4 mr-2" /> Edit Field
+                      </Button>
+                    )}
+                    {canDelete && (
+                      <Button variant="ghost" size="sm" onClick={() => handleOpenDelete(item)} className="text-red-500 hover:text-red-600 bg-red-50 hover:bg-red-100 px-3">
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                {APP_FILLED_FIELD_TYPES.has(item.field_type) ? (
+                  <p className="px-5 py-3 text-sm text-gray-500 bg-gray-50/50">
+                    Unit rows are entered on the developer app. Label and mandatory can be changed here.
+                  </p>
+                ) : null}
+                {requiresOptions(item.field_type) && (
+                  <div className="px-5 pb-5 pt-3 bg-gray-50/50">
+                    <FieldOptionsRenderer field={item} canManageOptions={canManageOptions} />
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Create/Edit Field Modal */}
+        <Dialog open={isModalOpen} onOpenChange={(next) => void handleModalOpenChange(next)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{editingItem ? 'Edit' : 'Add'} Field</DialogTitle>
+              <DialogDescription>Configure the dynamic input field.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Label</label>
+                <Input value={formData.label} onChange={e => setFormData({...formData, label: e.target.value})} placeholder="e.g. Furnishing Status" />
+              </div>
+              
+              <div className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2">
+                <label className="text-sm font-medium">Mandatory</label>
+                <Switch
+                  checked={!!formData.is_required}
+                  onCheckedChange={(checked) => setFormData({ ...formData, is_required: checked })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Field Type</label>
+                <Select value={formData.field_type} onValueChange={v => setFormData({...formData, field_type: v})}>
+                  <SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger>
+                  <SelectContent>
+                    {(FIELD_TYPE_OPTIONS.some((t) => t.value === formData.field_type)
+                      ? FIELD_TYPE_OPTIONS
+                      : [...FIELD_TYPE_OPTIONS, { value: formData.field_type, label: String(formData.field_type || '').replace(/_/g, ' ') }]
+                    ).map((t) => (
+                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => void handleModalOpenChange(false)}>Cancel</Button>
+              <Button onClick={handleSave} disabled={isSubmitting || !formData.label}>
+                {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {unsavedDialog}
+
+        <DeleteRemarkDialog
+          open={isDeleteModalOpen}
+          onOpenChange={setIsDeleteModalOpen}
+          title={editingItem?.label ? `Delete ${editingItem.label}?` : 'Delete field?'}
+          itemName={editingItem?.label}
+          submitting={isSubmitting}
+          onConfirm={handleDelete}
+        />
+
+        {/* Removed Manage Options Modal, using inline expandable rows instead */}
+      </div>
+    </PermissionGuard>
+  );
+}

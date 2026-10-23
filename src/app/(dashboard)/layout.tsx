@@ -1,0 +1,25 @@
+'use client';
+
+import { ReactNode } from 'react';
+import { Sidebar } from '@/components/common/sidebar';
+import { Navbar } from '@/components/common/navbar';
+import { AdminPageBack } from '@/components/common/admin-page-back';
+import { AuthSessionGuard } from '@/components/common/auth-session-guard';
+import { useHideContactsOnRouteChange } from '@/components/contact/contact-reveal-store';
+
+export default function DashboardLayout({ children }: { children: ReactNode }) {
+  useHideContactsOnRouteChange();
+  return (
+    <div className="h-screen flex overflow-hidden bg-gray-50">
+      <AuthSessionGuard />
+      <Sidebar />
+      <div className="flex-1 flex flex-col min-w-0">
+        <Navbar />
+        <main className="flex-1 min-h-0 p-6 overflow-y-auto flex flex-col">
+          <AdminPageBack />
+          <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+        </main>
+      </div>
+    </div>
+  );
+}

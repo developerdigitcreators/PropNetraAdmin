@@ -3,17 +3,21 @@
 This architecture plan designs an enterprise-grade, config-driven Admin Panel for PropNetra using Next.js (App Router), TypeScript, Zustand, and Zod.
 
 ## Interactive Entry & Security Architecture
+
 [ User Login ] ──► [ JWT Auth ] ──► [ Interactive Role Scope Modal ] ──► [ Fetch Permissions ] ──► [ Load Zustand Store ] ──► [ Render Dynamic Sidebar ]
 
 ### 1. Interactive Role Scope Modal
+
 Upon successful authentication, an interactive modal prompts the user to select their active workspace context (e.g., Super Admin Global Access, Verification Scope, Listings Manager) if they hold multi-role privileges. For single-role Sub-Admins, the modal auto-resolves their assigned scope without manual intervention.
 
 ### 2. Enterprise Security Layer
+
 - **Authentication**: Dual-token strategy (Short-lived Access JWT + HttpOnly Refresh Token).
 - **Authorization Gate**: Next.js Middleware intercepts all route requests, checking route meta against the user's granular permission matrix fetched from `/admin/permissions`.
 - **UI Component-Level Security**: Wraps action buttons, forms, and tabs with a custom `<PermissionGuard permission="module:action"/>` component to enforce true client-side hide/disable logic matching backend guards.
 
 ## Industry-Standard Folder Structure (Next.js App Router)
+
 This structure breaks down code cleanly into atomic components, domain modules, state stores, API services, and Zod validation schemas.
 
 ```text
@@ -118,20 +122,23 @@ propnetra-admin/
 ```
 
 ## UI/UX Architecture & Dynamic Design Strategy
+
 ### 1. Dynamic Config Matrix Interface (`/listings/config`)
+
 An interactive control center for Super Admins to manage form field rules across Categories, Building Types, and Property Types.
 
-| Module Key | Visibility | Mandatory (is_mandatory) | Suggestable (is_suggestable) | Nudge Message (suggestable_message) | Unit Default |
-|---|---|---|---|---|---|
-| bhk | ON | YES | OFF (Disabled) | N/A | N/A |
-| media_upload | ON | NO | YES | "Properties with photos get 3x more interest!" | N/A |
-| area_details | ON | YES | OFF | N/A | sq_ft |
-| geo_location | ON | NO | YES | "Adding live location helps buyers find your site" | N/A |
+| Module Key   | Visibility | Mandatory (is_mandatory) | Suggestable (is_suggestable) | Nudge Message (suggestable_message)                | Unit Default |
+| ------------ | ---------- | ------------------------ | ---------------------------- | -------------------------------------------------- | ------------ |
+| bhk          | ON         | YES                      | OFF (Disabled)               | N/A                                                | N/A          |
+| media_upload | ON         | NO                       | YES                          | "Properties with photos get 3x more interest!"     | N/A          |
+| area_details | ON         | YES                      | OFF                          | N/A                                                | sq_ft        |
+| geo_location | ON         | NO                       | YES                          | "Adding live location helps buyers find your site" | N/A          |
 
-- **Mandatory vs Suggestable Logic**: Selecting *Mandatory* automatically disables *Suggestable* in the UI to prevent illegal state configurations.
-- **Batch Save**: Changes accumulate in Zustand store state and bulk-upsert via `PUT /admin/module-config`.
+- **Mandatory vs Suggestable Logic**: Selecting _Mandatory_ automatically disables _Suggestable_ in the UI to prevent illegal state configurations.
+- **badge Save**: Changes accumulate in Zustand store state and bulk-upsert via `PUT /admin/module-config`.
 
 ### 2. Granular RBAC Checkbox Grid (`/rbac/roles`)
+
 A matrix allowing admins to configure custom Sub-Admin capabilities across system modules.
 
 ```text
@@ -146,9 +153,10 @@ Role & Permissions   │  [ ]   │  [ ] │   [ ]  │   [ ]
 ## Core State & Validation Stack
 
 ### 1. Zustand Store Specification (`use-auth-store.ts` & `use-permission-store.ts`)
+
 ```typescript
-import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 
 interface AuthState {
   user: { id: string; email: string; roleScope: string } | null;
@@ -177,66 +185,81 @@ export const useAuthStore = create<AuthState>()(
       setActiveRole: (role) => set({ activeRole: role }),
       hasPermission: (moduleName, action) => {
         const perms = get().permissions;
-        return perms.has(`${moduleName}:${action}`) || perms.has('ALL:ALL');
+        return perms.has(`${moduleName}:${action}`) || perms.has("ALL:ALL");
       },
-      logout: () => set({ user: null, accessToken: null, permissions: new Set(), activeRole: null }),
+      logout: () =>
+        set({
+          user: null,
+          accessToken: null,
+          permissions: new Set(),
+          activeRole: null,
+        }),
     }),
     {
-      name: 'propnetra-auth-storage',
+      name: "propnetra-auth-storage",
       storage: createJSONStorage(() => localStorage),
-    }
-  )
+    },
+  ),
 );
 ```
 
 ### 2. Dynamic Schema Validation via Zod (`config-matrix.schema.ts`)
+
 ```typescript
-import { z } from 'zod';
+import { z } from "zod";
 
-export const ModuleConfigRowSchema = z.object({
-  categoryId: z.string().uuid(),
-  buildingTypeId: z.string().uuid().nullable(),
-  propertyTypeId: z.string().uuid().nullable(),
-  moduleId: z.string().uuid(),
-  isVisible: z.boolean(),
-  isMandatory: z.boolean(),
-  isSuggestable: z.boolean(),
-  suggestableMessage: z.string().nullable(),
-  unitDefault: z.string().nullable(),
-}).refine((data) => !(data.isMandatory && data.isSuggestable), {
-  message: "A field cannot be both mandatory and suggestable.",
-  path: ["isSuggestable"],
-});
+export const ModuleConfigRowSchema = z
+  .object({
+    categoryId: z.string().uuid(),
+    buildingTypeId: z.string().uuid().nullable(),
+    propertyTypeId: z.string().uuid().nullable(),
+    moduleId: z.string().uuid(),
+    isVisible: z.boolean(),
+    isMandatory: z.boolean(),
+    isSuggestable: z.boolean(),
+    suggestableMessage: z.string().nullable(),
+    unitDefault: z.string().nullable(),
+  })
+  .refine((data) => !(data.isMandatory && data.isSuggestable), {
+    message: "A field cannot be both mandatory and suggestable.",
+    path: ["isSuggestable"],
+  });
 
-export const BatchConfigSchema = z.array(ModuleConfigRowSchema);
+export const badgeConfigSchema = z.array(ModuleConfigRowSchema);
 export type ModuleConfigRow = z.infer<typeof ModuleConfigRowSchema>;
 ```
 
 ## Implementation Phases
 
 **Phase 0: Base Boilerplate & Folder Setup**
+
 - Scaffold Next.js App Router with TypeScript, Tailwind CSS, and Shadcn UI.
 - Implement the exact directory structure detailed above.
 - Setup `axios-client.ts` with auto-refresh token logic and central error toast routing.
 
 **Phase 1: Security & Interactive Auth Gateway**
+
 - Implement Login Screen (`/login`) integrating with backend `/auth/login`.
 - Build the **Role Scope Modal** that renders upon authentication to resolve session permissions and update Zustand store state.
 - Implement `PermissionGuard` component and Next.js middleware protection.
 
 **Phase 2: RBAC Management Engine**
+
 - Build `/rbac/roles` interface: Super Admin matrix to create custom Sub-Admin roles and toggle permission flags.
 - Build `/rbac/users` interface: Assign roles to Sub-Admins via `POST /admin/users/:userId/assign-role`.
 
 **Phase 3: Dynamic Module Config Matrix Builder**
+
 - Build `/listings/config` dashboard displaying the 21 form modules against category and building/property type selections.
-- Wire batch-upsert logic to `PUT /admin/module-config`.
+- Wire badge-upsert logic to `PUT /admin/module-config`.
 - Build dynamic options management screen (`/listings/options`) to configure select dropdown options scoped by building type.
 
 **Phase 4: Location & Property Name Moderation Engine**
+
 - Build `/locations/pending` queue to approve or reject pending user submissions via `POST /admin/locations/:id/approve` and `reject`.
-- Provide clear visual status indicators (*Admin Added, Pending Review, Approved, Rejected*).
+- Provide clear visual status indicators (_Admin Added, Pending Review, Approved, Rejected_).
 
 **Phase 5: Redis Cache Triggers & Deployment**
+
 - Connect admin config update actions to automated Redis cache invalidation channels.
 - Dockerize the Next.js frontend using multi-stage builds for DigitalOcean Droplet deployment behind Cloudflare CDN/WAF. (To be done later after local check).

@@ -1,0 +1,685 @@
+'use client';
+
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  bannerAdsService,
+  formatBannerLinkLabel,
+  normalizeAutoslideValue,
+  isBannerActive,
+  DEFAULT_SECTIONS,
+  DEFAULT_AUTOSLIDE,
+  placementsForBannerAdsDropdown,
+  sectionsForPlacement,
+  sectionLabelForKey,
+  normalizeSectionKey,
+  CHAT_STORY_SECTION_KEY,
+  type AdBanner,
+  type AdPlacementOption,
+  type AdSectionOption,
+} from '@/services/banner-ads.service';
+import { locationService } from '@/services/location.service';
+import { PermissionGuard } from '@/components/common/permission-guard';
+import { useAuthStore } from '@/store/use-auth-store';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
+import { Breadcrumb } from '@/components/common/breadcrumb';
+import { AdminDataTable } from '@/components/common/admin-data-table';
+import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
+import { AutoslideTimePicker } from '@/components/common/autoslide-time-picker';
+import { SortableTableBody } from '@/components/common/sortable-list';
+import { DeleteRemarkDialog } from '@/components/common/delete-remark-dialog';
+import { withCount } from '@/lib/filter-label';
+import { useClientPagedRows } from '@/hooks/use-client-paged-rows';
+import { useUrlFilters } from '@/hooks/use-url-filters';
+import {
+  Loader2,
+  Plus,
+  Edit2,
+  Trash2,
+  Image as ImageIcon,
+  Video,
+  ChevronDown,
+  ChevronRight,
+} from 'lucide-react';
+
+type LocItem = { id: string; name: string; state_id?: string; state?: { id: string } };
+
+function sortBanners(rows: AdBanner[]) {
+  return [...rows].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+}
+
+type SectionBlockProps = {
+  section: AdSectionOption;
+  banners: AdBanner[];
+  isLoading: boolean;
+  open: boolean;
+  onToggle: () => void;
+  canCreate: boolean;
+  canUpdate: boolean;
+  canDelete: boolean;
+  onReorder: (ordered: Array<AdBanner & { sortOrder: number }>) => void | Promise<void>;
+  onAdd: () => void;
+  onEdit: (banner: AdBanner) => void;
+  onDelete: (banner: AdBanner) => void;
+  emptyHint: string;
+};
+
+function SectionBlock({
+  section,
+  banners,
+  isLoading,
+  open,
+  onToggle,
+  canCreate,
+  canUpdate,
+  canDelete,
+  onReorder,
+  onAdd,
+  onEdit,
+  onDelete,
+  emptyHint,
+}: SectionBlockProps) {
+  const {
+    page,
+    limit,
+    total,
+    totalPages,
+    pageRows,
+    onPageChange,
+    onPageSizeChange,
+    resetPage,
+  } = useClientPagedRows(banners);
+
+  useEffect(() => {
+    resetPage();
+  }, [banners, resetPage]);
+
+  const handleReorder = async (ordered: Array<AdBanner & { sortOrder: number }>) => {
+    const start = (page - 1) * limit;
+    const merged = [...banners];
+    merged.splice(start, ordered.length, ...ordered);
+    await onReorder(
+      merged.map((item, index) => ({ ...item, sortOrder: index + 1 })),
+    );
+  };
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 bg-gray-50/80">
+        <button type="button" onClick={onToggle} className="flex items-center gap-2 text-left min-w-0">
+          {open ? (
+            <ChevronDown className="w-4 h-4 text-gray-500 shrink-0" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-gray-500 shrink-0" />
+          )}
+          <span className="font-semibold text-gray-900">{section.label}</span>
+          <Badge variant="outline" className="bg-white text-gray-600 border-gray-200">
+            {banners.length}
+          </Badge>
+        </button>
+        {canCreate && (
+          <Button onClick={onAdd} size="sm" className="bg-primary text-white hover:bg-primary/90 shrink-0">
+            <Plus className="w-4 h-4 mr-1.5" /> Add
+          </Button>
+        )}
+      </div>
+
+      {open && (
+        <div className="p-4">
+          <AdminDataTable
+            page={page}
+            limit={limit}
+            total={total}
+            totalPages={totalPages}
+            onPageChange={onPageChange}
+            onPageSizeChange={onPageSizeChange}
+            loading={isLoading}
+            isEmpty={!banners.length}
+            emptyMessage={emptyHint}
+            syncKey={pageRows.length}
+            className="pb-0"
+          >
+            <table className="w-full text-sm text-left">
+              <thead className="bg-white border-b border-gray-100">
+                <tr>
+                  <th className="px-5 py-3 font-semibold text-gray-700">Preview</th>
+                  <th className="px-5 py-3 font-semibold text-gray-700">Media type</th>
+                  <th className="px-5 py-3 font-semibold text-gray-700">Page / Post link</th>
+                  <th className="px-5 py-3 font-semibold text-gray-700">Sort order</th>
+                  <th className="px-5 py-3 font-semibold text-gray-700">Status</th>
+                  <th className="px-5 py-3 font-semibold text-gray-700 text-right">Actions</th>
+                </tr>
+              </thead>
+              <SortableTableBody
+                items={pageRows}
+                disabled={!canUpdate}
+                onReorder={handleReorder}
+                renderRow={(banner, { dragHandle }) => (
+                  <>
+                    <td className="px-5 py-4 w-40">
+                      <div className="w-28 h-14 bg-gray-100 rounded-md border border-gray-200 flex items-center justify-center overflow-hidden">
+                        {banner.mediaType === 'image' ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={banner.mediaUrl}
+                            alt="Banner"
+                            className="w-full h-full object-cover"
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                          />
+                        ) : (
+                          <div className="flex flex-col items-center text-gray-400">
+                            <Video className="w-5 h-5" />
+                            <span className="text-[10px]">Video</span>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="inline-flex items-center gap-1.5 capitalize text-gray-700">
+                        {banner.mediaType === 'image' ? (
+                          <ImageIcon className="w-3.5 h-3.5 text-blue-500" />
+                        ) : (
+                          <Video className="w-3.5 h-3.5 text-purple-500" />
+                        )}
+                        {banner.mediaType}
+                      </div>
+                    </td>
+                    <td className="px-5 py-4 text-xs text-gray-600 max-w-[180px]">
+                      {formatBannerLinkLabel(banner)}
+                    </td>
+                    <td className="px-5 py-4">{dragHandle}</td>
+                    <td className="px-5 py-4">
+                      {isBannerActive(banner) ? (
+                        <Badge className="bg-green-100 text-green-700">Active</Badge>
+                      ) : (
+                        <Badge variant="secondary" className="bg-gray-100 text-gray-700">Inactive</Badge>
+                      )}
+                    </td>
+                    <td className="px-5 py-4 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {canUpdate && (
+                          <Button variant="ghost" size="sm" onClick={() => onEdit(banner)} title="Edit">
+                            <Edit2 className="w-4 h-4 text-gray-500" />
+                          </Button>
+                        )}
+                        {canDelete && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onDelete(banner)}
+                            className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </>
+                )}
+              />
+            </table>
+          </AdminDataTable>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function BannerAdsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <BannerAdsPageInner />
+    </Suspense>
+  );
+}
+
+function BannerAdsPageInner() {
+  const router = useRouter();
+  const { permissions } = useAuthStore();
+  const canCreate = permissions.has('ads:create') || permissions.has('ALL:ALL');
+  const canUpdate = permissions.has('ads:update') || permissions.has('ALL:ALL');
+  const canDelete = permissions.has('ads:delete') || permissions.has('ALL:ALL');
+
+  const [states, setStates] = useState<LocItem[]>([]);
+  const [cities, setCities] = useState<LocItem[]>([]);
+  const [placements, setPlacements] = useState<AdPlacementOption[]>([]);
+  const [sectionsMeta, setSectionsMeta] = useState<AdSectionOption[]>(DEFAULT_SECTIONS);
+  const { filters, setFilters, resetFilters } = useUrlFilters({
+    stateId: '',
+    cityId: '',
+    placement: '',
+  });
+  const stateId = filters.stateId;
+  const cityId = filters.cityId;
+  const placement = filters.placement;
+
+  const [sectionMap, setSectionMap] = useState<Record<string, AdBanner[]>>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ top: true, general: true });
+
+  const [autoslideBySection, setAutoslideBySection] = useState<Record<string, string>>({
+    top: DEFAULT_AUTOSLIDE,
+    general: DEFAULT_AUTOSLIDE,
+  });
+  const [savingAutoslideSection, setSavingAutoslideSection] = useState<string | null>(null);
+
+  const [bannerToDelete, setBannerToDelete] = useState<AdBanner | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const ready = Boolean(stateId && cityId && placement);
+
+  const citiesForState = useMemo(
+    () => cities.filter((c) => c.state_id === stateId || c.state?.id === stateId),
+    [cities, stateId]
+  );
+
+  const cityCountByState = useCallback(
+    (sid: string) => cities.filter((c) => c.state_id === sid || c.state?.id === sid).length,
+    [cities],
+  );
+
+  const bannerTotal = useMemo(
+    () => Object.values(sectionMap).reduce((sum, rows) => sum + (rows?.length || 0), 0),
+    [sectionMap],
+  );
+
+  const stateName = states.find((s) => s.id === stateId)?.name || '';
+  const cityName = cities.find((c) => c.id === cityId)?.name || '';
+  const pageLabel = placements.find((p) => p.key === placement)?.label || placement;
+  const dropdownPlacements = useMemo(
+    () => placementsForBannerAdsDropdown(placements),
+    [placements],
+  );
+  const displaySections = useMemo(() => {
+    const allowed = sectionsForPlacement(placement, sectionsMeta);
+    const allowedKeys = new Set(allowed.map((s) => s.key));
+    // Keep banners that live in a non-meta section (e.g. legacy data),
+    // but never reintroduce Top Banner on chat notification / popup.
+    // Merge API aliases (stories → story) so we never show both.
+    const ordered: AdSectionOption[] = [...allowed];
+    for (const rawKey of Object.keys(sectionMap)) {
+      const key = normalizeSectionKey(rawKey, placement);
+      if (allowedKeys.has(key)) continue;
+      if (!(sectionMap[rawKey]?.length > 0) && !(sectionMap[key]?.length > 0)) continue;
+      if (placement === 'chat_notification' && key === 'top') continue;
+      if (placement === 'popup' && key !== 'general') continue;
+      if (ordered.some((s) => s.key === key)) continue;
+      ordered.push({ key, label: sectionLabelForKey(key) });
+    }
+    return ordered.length ? ordered : allowed;
+  }, [sectionsMeta, sectionMap, placement]);
+
+  useEffect(() => {
+    Promise.all([
+      locationService.getStates({ activeOnly: true }),
+      locationService.getCities({ activeOnly: true }),
+      bannerAdsService.getPlacements(),
+      bannerAdsService.getSections(),
+    ])
+      .then(([s, c, p, sec]) => {
+        const nextStates = Array.isArray(s) ? s : [];
+        const nextCities = Array.isArray(c) ? c : [];
+        setStates(nextStates);
+        setCities(nextCities);
+        setPlacements(Array.isArray(p) && p.length ? p : []);
+        setSectionsMeta(Array.isArray(sec) && sec.length ? sec : DEFAULT_SECTIONS);
+
+        // Drop invalid URL filter values after locations load.
+        const stateExists = nextStates.some((st) => st.id === stateId);
+        const cityMatch = nextCities.find((city) => city.id === cityId);
+        const cityMatchesState = !!(
+          cityMatch &&
+          stateExists &&
+          (cityMatch.state_id === stateId || cityMatch.state?.id === stateId)
+        );
+        const placementOk =
+          !!placement &&
+          (p || []).some((opt: AdPlacementOption) => opt.key === placement);
+        if (!stateExists || !cityMatchesState || !placementOk) {
+          setFilters({
+            stateId: stateExists ? stateId : '',
+            cityId: cityMatchesState ? cityId : '',
+            placement: placementOk ? placement : '',
+          });
+        }
+
+        const open: Record<string, boolean> = {};
+        (sec?.length ? sec : DEFAULT_SECTIONS).forEach((item) => {
+          open[item.key] = true;
+        });
+        setOpenSections(open);
+      })
+      .catch(console.error);
+    // Hydrate locations once; URL filters already come from useUrlFilters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Refresh section meta when page (placement) changes — popup has General only
+  useEffect(() => {
+    if (!placement) return;
+    bannerAdsService
+      .getSections(placement)
+      .then((sec) => {
+        setSectionsMeta(Array.isArray(sec) && sec.length ? sec : DEFAULT_SECTIONS);
+        setOpenSections((prev) => {
+          const next = { ...prev };
+          for (const s of sec) next[s.key] = prev[s.key] ?? true;
+          return next;
+        });
+      })
+      .catch(console.error);
+  }, [placement]);
+
+  const fetchBanners = useCallback(async () => {
+    if (!stateId || !cityId || !placement) {
+      setSectionMap({});
+      setAutoslideBySection({
+        top: DEFAULT_AUTOSLIDE,
+        general: DEFAULT_AUTOSLIDE,
+        [CHAT_STORY_SECTION_KEY]: DEFAULT_AUTOSLIDE,
+      });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const data = await bannerAdsService.getBanners({ stateId, cityId, placement });
+      const next: Record<string, AdBanner[]> = {};
+      for (const [rawKey, rows] of Object.entries(data.sections || {})) {
+        const key = normalizeSectionKey(rawKey, placement);
+        const sorted = sortBanners(rows);
+        next[key] = next[key]?.length ? sortBanners([...next[key], ...sorted]) : sorted;
+      }
+      for (const sec of sectionsForPlacement(placement, sectionsMeta)) {
+        if (!next[sec.key]) next[sec.key] = [];
+      }
+      setSectionMap(next);
+      const bySec = data.autoslideBySection || {};
+      const nextAutoslide: Record<string, string> = {};
+      for (const sec of sectionsForPlacement(placement, sectionsMeta)) {
+        const raw =
+          bySec[sec.key]?.autoslide ??
+          bySec[sec.key === CHAT_STORY_SECTION_KEY ? 'stories' : sec.key]?.autoslide ??
+          (sec.key === 'general' ? data.autoslide : undefined);
+        nextAutoslide[sec.key] = normalizeAutoslideValue(raw, DEFAULT_AUTOSLIDE);
+      }
+      // Preserve any section keys present in the response (normalized)
+      for (const [rawKey, value] of Object.entries(bySec)) {
+        const key = normalizeSectionKey(rawKey, placement);
+        if (nextAutoslide[key] == null) {
+          nextAutoslide[key] = normalizeAutoslideValue(
+            value?.autoslide,
+            DEFAULT_AUTOSLIDE,
+          );
+        }
+      }
+      if (!Object.keys(nextAutoslide).length) {
+        nextAutoslide.general = normalizeAutoslideValue(
+          data.autoslide,
+          DEFAULT_AUTOSLIDE,
+        );
+      }
+      setAutoslideBySection(nextAutoslide);
+    } catch (err) {
+      console.error(err);
+      setSectionMap({});
+      setAutoslideBySection({
+        top: DEFAULT_AUTOSLIDE,
+        general: DEFAULT_AUTOSLIDE,
+        [CHAT_STORY_SECTION_KEY]: DEFAULT_AUTOSLIDE,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [stateId, cityId, placement, sectionsMeta]);
+
+  useEffect(() => {
+    fetchBanners();
+  }, [fetchBanners]);
+
+  const onStateChange = (id: string) => {
+    setFilters({ stateId: id, cityId: '', placement });
+    setSectionMap({});
+  };
+
+  const saveAutoslide = async (sectionKey: string, nextRaw: string) => {
+    const next = normalizeAutoslideValue(nextRaw, DEFAULT_AUTOSLIDE);
+    const prev = autoslideBySection[sectionKey] || DEFAULT_AUTOSLIDE;
+    if (!ready || !canUpdate || !next || next === prev) return;
+    setAutoslideBySection((current) => ({ ...current, [sectionKey]: next }));
+    setSavingAutoslideSection(sectionKey);
+    try {
+      await bannerAdsService.updateSettings({
+        stateId,
+        cityId,
+        placement,
+        section: sectionKey,
+        autoslide: next,
+      });
+    } catch (err) {
+      console.error(err);
+      setAutoslideBySection((current) => ({ ...current, [sectionKey]: prev }));
+      alert('Failed to update autoslide.');
+    } finally {
+      setSavingAutoslideSection(null);
+    }
+  };
+
+  const handleReorder = async (
+    sectionKey: string,
+    ordered: Array<AdBanner & { sortOrder: number }>,
+  ) => {
+    if (!canUpdate) return;
+    const prev = sectionMap[sectionKey] || [];
+    const updates = ordered.filter((item) => {
+      const before = prev.find((x) => x.id === item.id);
+      return (before?.sortOrder ?? 0) !== item.sortOrder;
+    });
+
+    setSectionMap((m) => ({
+      ...m,
+      [sectionKey]: ordered.map((b) => ({ ...b, sortOrder: b.sortOrder })),
+    }));
+
+    try {
+      try {
+        await bannerAdsService.reorderBanners(ordered.map((b) => b.id));
+      } catch {
+        await Promise.all(
+          updates.map((item) =>
+            bannerAdsService.updateBanner(item.id, { sortOrder: item.sortOrder }),
+          ),
+        );
+      }
+    } catch (err) {
+      console.error(err);
+      await fetchBanners();
+      throw err;
+    }
+  };
+
+  const handleDelete = async (remark: string) => {
+    if (!bannerToDelete) return;
+    setIsDeleting(true);
+    try {
+      await bannerAdsService.deleteBanner(bannerToDelete.id, remark);
+      setBannerToDelete(null);
+      await fetchBanners();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to delete banner.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const goAdd = (section: string) => {
+    router.push(
+      `/banner-ads/new?stateId=${encodeURIComponent(stateId)}&cityId=${encodeURIComponent(cityId)}&placement=${encodeURIComponent(placement)}&section=${encodeURIComponent(section)}`
+    );
+  };
+
+  const goEdit = (banner: AdBanner) => {
+    const section = banner.section || 'general';
+    router.push(
+      `/banner-ads/${banner.id}/edit?stateId=${encodeURIComponent(stateId)}&cityId=${encodeURIComponent(cityId)}&placement=${encodeURIComponent(placement)}&section=${encodeURIComponent(section)}`
+    );
+  };
+
+  return (
+    <PermissionGuard permission="ads:read" fallback={<div className="p-12 text-center text-gray-500">You do not have permission to view Banner Ads.</div>}>
+      <div className="space-y-6 max-w-7xl pb-16">
+        <Breadcrumb items={[{ label: 'Banner Ads' }]} />
+
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">Banner Ads</h1>
+            <p className="text-gray-500 mt-1">Manage banners by city, page, and section.</p>
+          </div>
+          <AdminListToolbar
+            onRefresh={() => void fetchBanners()}
+            refreshBusy={isLoading}
+            refreshDisabled={!ready}
+            onReset={() => {
+              resetFilters();
+              setSectionMap({});
+            }}
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Select value={stateId} onValueChange={(v) => onStateChange(v ?? '')}>
+            <SelectTrigger className="w-52 bg-white">
+              <span>
+                {stateName
+                  ? withCount(stateName, cityCountByState(stateId))
+                  : 'Select State'}
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              {states.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {withCount(s.name, cityCountByState(s.id))}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={cityId}
+            onValueChange={(v) => setFilters({ cityId: v ?? '' })}
+            disabled={!stateId}
+          >
+            <SelectTrigger className="w-48 bg-white">
+              <span>
+                {cityName || (stateId ? 'Select City' : 'Select state first')}
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              {citiesForState.map((c) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={placement}
+            onValueChange={(v) => setFilters({ placement: v ?? '' })}
+            disabled={!cityId}
+          >
+            <SelectTrigger className="w-56 bg-white">
+              <span>
+                {pageLabel
+                  ? ready
+                    ? withCount(pageLabel, bannerTotal)
+                    : pageLabel
+                  : cityId
+                    ? 'Select Page'
+                    : 'Select city first'}
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              {dropdownPlacements.map((p) => (
+                <SelectItem key={p.key} value={p.key}>
+                  {p.key === placement && ready ? withCount(p.label, bannerTotal) : p.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {!ready ? (
+          <div className="bg-white rounded-2xl border border-dashed border-gray-200 px-6 py-16 text-center text-gray-500">
+            Select State, City, and Page to view and manage banners.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {displaySections.map((section) => {
+              const savingThis = savingAutoslideSection === section.key;
+              return (
+                <div key={section.key} className="space-y-3">
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 flex flex-wrap items-center gap-4 justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">
+                        {section.key === 'top'
+                          ? 'Top Auto-Slide'
+                          : section.key === CHAT_STORY_SECTION_KEY
+                            ? 'Stories Auto-Slide'
+                            : 'General Banner Auto-Slide'}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        How long each {section.label.toLowerCase()} stays on {pageLabel || 'this page'}.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <AutoslideTimePicker
+                        value={autoslideBySection[section.key] || DEFAULT_AUTOSLIDE}
+                        onChange={(next) => saveAutoslide(section.key, next)}
+                        disabled={!canUpdate || savingThis}
+                      />
+                      {savingThis && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
+                    </div>
+                  </div>
+                  <SectionBlock
+                    section={section}
+                    banners={sectionMap[section.key] || []}
+                    isLoading={isLoading}
+                    open={openSections[section.key] ?? true}
+                    onToggle={() =>
+                      setOpenSections((prev) => ({ ...prev, [section.key]: !(prev[section.key] ?? true) }))
+                    }
+                    canCreate={canCreate}
+                    canUpdate={canUpdate}
+                    canDelete={canDelete}
+                    onReorder={(ordered) => handleReorder(section.key, ordered)}
+                    onAdd={() => goAdd(section.key)}
+                    onEdit={goEdit}
+                    onDelete={setBannerToDelete}
+                    emptyHint={`No ${section.label.toLowerCase()} banners yet.`}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <DeleteRemarkDialog
+        open={!!bannerToDelete}
+        onOpenChange={(open) => { if (!open) setBannerToDelete(null); }}
+        title="Delete banner?"
+        itemName={bannerToDelete?.listing?.title || bannerToDelete?.listing?.name || 'Banner'}
+        submitting={isDeleting}
+        onConfirm={handleDelete}
+      />
+    </PermissionGuard>
+  );
+}

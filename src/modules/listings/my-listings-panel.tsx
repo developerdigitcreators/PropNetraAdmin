@@ -1,0 +1,1458 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import {
+  listingsService,
+  PRE_LEASED_FILTER_ID,
+  isCommercialName,
+  isPreLeasedName,
+  listingBuildingTypeQuery,
+  withVirtualPreLeasedOption,
+  getListingDetailRows,
+  type ListingInterestDetails,
+  type ListingReviewItem,
+  type MyListingDetail,
+  type MyListingItem,
+  type MyListingsTab,
+} from "@/services/listings.service";
+import { PermissionGuard } from "@/components/common/permission-guard";
+import { AdminDataTable } from "@/components/common/admin-data-table";
+import { AdminListToolbar } from "@/components/common/admin-list-toolbar";
+import { newFirstCellClass, NewTag } from "@/components/common/new-row-marker";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useAuthStore } from "@/store/use-auth-store";
+import { formatDisplayDateTime } from "@/lib/format-date";
+import { isSuperAdmin } from "@/lib/super-admin";
+import { planLabelFromCode, resolvePlanChip } from "@/lib/plan-labels";
+import { useUrlFilters } from "@/hooks/use-url-filters";
+import { useDialogUnsavedGuard } from "@/hooks/use-unsaved-changes-guard";
+import { MaskedContact } from "@/components/contact/masked-contact";
+import {
+  Loader2,
+  MessageSquare,
+  Plus,
+  X,
+  ExternalLink,
+} from "lucide-react";
+
+function formatDateTime(value?: string | Date | null) {
+  return formatDisplayDateTime(value);
+}
+
+function stopRowClick(event: React.SyntheticEvent) {
+  event.stopPropagation();
+}
+
+function isAdminVerifiedRow(item: MyListingItem) {
+  return Boolean(
+    item.connectedStaff || item.leadContactName || item.leadContactPhone,
+  );
+}
+
+function ownerAnalyticsHref(
+  item: MyListingItem,
+  opts?: { tab?: string; aTab?: string },
+) {
+  const ownerId = item.ownerUser?.id?.trim();
+  if (!ownerId) return null;
+  const today = new Date();
+  const start = new Date(today);
+  start.setDate(start.getDate() - 30);
+  const toYmd = (d: Date) => d.toISOString().slice(0, 10);
+  const params = new URLSearchParams({
+    userId: ownerId,
+    tab: opts?.tab || "analytics",
+    from: toYmd(start),
+    to: toYmd(today),
+  });
+  if (opts?.aTab) params.set("aTab", opts.aTab);
+  return `/user-analytics?${params.toString()}`;
+}
+
+function InterestCell({ item }: { item: MyListingItem }) {
+  const views = item.viewCount ?? 0;
+  const leads = item.leadCount ?? item.interestCount ?? 0;
+  const viewersHref = ownerAnalyticsHref(item, { aTab: "listingViewers" });
+
+  return (
+    <div className="flex items-center gap-2" onPointerDown={stopRowClick}>
+      <div className="flex flex-col items-start text-left text-xs leading-snug text-gray-700">
+        <span>View {views}</span>
+        <span>Lead {leads}</span>
+      </div>
+      {viewersHref ? (
+        <Link
+          href={viewersHref}
+          title="Owner analytics — Listing viewers"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-primary"
+          onPointerDown={stopRowClick}
+          onClick={stopRowClick}
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+function DetailField({
+  label,
+  value,
+}: {
+  label: string;
+  value?: React.ReactNode;
+}) {
+  return (
+    <div>
+      <p className="text-xs uppercase tracking-wide text-gray-400">{label}</p>
+      <div className="text-sm font-medium text-gray-900">{value || "—"}</div>
+    </div>
+  );
+}
+
+function InterestPlanBadge({ planCode }: { planCode?: string | null }) {
+  const chip = resolvePlanChip(null, planCode);
+  if (!chip && !planCode) return null;
+  return (
+    <span
+      className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${
+        chip?.className || "bg-slate-100 text-slate-700"
+      }`}
+    >
+      {chip?.label ||
+        planLabelFromCode(planCode) ||
+        String(planCode).replace(/_/g, " ")}
+    </span>
+  );
+}
+
+type StatusFilter = "all" | "active" | "expired" | "inactive";
+
+function listingExpiryLabel(item: {
+  status?: string | null;
+  daysLeft?: number | null;
+  expiresAt?: string | null;
+}): string {
+  const days =
+    typeof item.daysLeft === "number" && Number.isFinite(item.daysLeft)
+      ? item.daysLeft
+      : null;
+  const expired =
+    item.status === "expired" ||
+    (days != null && days < 0) ||
+    (!!item.expiresAt &&
+      days == null &&
+      !Number.isNaN(new Date(item.expiresAt).getTime()) &&
+      new Date(item.expiresAt).getTime() < Date.now());
+  if (expired) return "Expired";
+  if (days === 0) return "Expiring today";
+  if (days != null && days > 0) {
+    return `Expiring in ${days} day${days === 1 ? "" : "s"}`;
+  }
+  return "—";
+}
+
+function statusBadge(item: MyListingItem) {
+  if (item.status === "expired") return "Expired";
+  if (!item.isActive) return "Inactive";
+  if (item.expiringSoon) return listingExpiryLabel(item);
+  return "Active";
+}
+
+export function MyListingsPanel() {
+  const user = useAuthStore((s) => s.user);
+  const permissions = useAuthStore((s) => s.permissions);
+  const activeRole = useAuthStore((s) => s.activeRole);
+  const accessToken = useAuthStore((s) => s.accessToken);
+
+  const superAdmin = useMemo(
+    () => isSuperAdmin({ user, permissions, activeRole, accessToken }),
+    [user, permissions, activeRole, accessToken],
+  );
+
+  const {
+    filters: urlFilters,
+    setFilters: setUrlFilters,
+    resetFilters,
+  } = useUrlFilters({
+    tab: "all",
+    status: "all",
+    companyName: "",
+    username: "",
+    lead: "",
+    listingId: "",
+    focus: "",
+    categoryId: "",
+    buildingTypeId: "",
+    propertyTypeId: "__ALL__",
+  });
+
+  const tab = (
+    urlFilters.tab === "app_postings"
+      ? "app_postings"
+      : urlFilters.tab === "admin_verified"
+        ? "admin_verified"
+        : "all"
+  ) as MyListingsTab;
+
+  useEffect(() => {
+    if (tab === "app_postings" && !superAdmin) {
+      setUrlFilters({ tab: "all" });
+    }
+  }, [tab, superAdmin, setUrlFilters]);
+  const statusFilter = (
+    ["all", "active", "expired", "inactive"].includes(urlFilters.status)
+      ? urlFilters.status
+      : "all"
+  ) as StatusFilter;
+  const companyNameFilter = urlFilters.companyName;
+  const usernameFilter = urlFilters.username;
+  const leadFilter = urlFilters.lead;
+  const listingIdFilter = (urlFilters.listingId || urlFilters.focus).trim();
+  const selectedCategoryId = urlFilters.categoryId;
+  const selectedBuildingTypeId = urlFilters.buildingTypeId;
+  const selectedPropertyTypeId = urlFilters.propertyTypeId || "__ALL__";
+
+  const setTab = (value: MyListingsTab) => setUrlFilters({ tab: value });
+  const setStatusFilter = (value: StatusFilter) =>
+    setUrlFilters({ status: value });
+  const setCompanyNameFilter = (value: string) =>
+    setUrlFilters({ companyName: value });
+  const setUsernameFilter = (value: string) =>
+    setUrlFilters({ username: value });
+  const setLeadFilter = (value: string) => setUrlFilters({ lead: value });
+  const clearListingIdFilter = () =>
+    setUrlFilters({ listingId: "", focus: "" });
+  const setSelectedCategoryId = (value: string) =>
+    setUrlFilters({ categoryId: value });
+  const setSelectedBuildingTypeId = (value: string) =>
+    setUrlFilters({ buildingTypeId: value });
+  const setSelectedPropertyTypeId = (value: string) =>
+    setUrlFilters({ propertyTypeId: value });
+
+  const [companyNameInput, setCompanyNameInput] = useState(companyNameFilter);
+  const [usernameInput, setUsernameInput] = useState(usernameFilter);
+  const [leadInput, setLeadInput] = useState(leadFilter);
+  const [items, setItems] = useState<MyListingItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
+  const [filters, setFilters] = useState<{
+    categories: Array<{ id: string; name: string; total: number }>;
+    buildingTypes: Array<{ id: string; name: string; total: number }>;
+    propertyTypes: Array<{ id: string; name: string; total: number }>;
+  }>({
+    categories: [],
+    buildingTypes: [],
+    propertyTypes: [],
+  });
+  const [loading, setLoading] = useState(true);
+  const [actionId, setActionId] = useState<string | null>(null);
+  const [remarksOpen, setRemarksOpen] = useState(false);
+  const [remarksListing, setRemarksListing] = useState<MyListingItem | null>(
+    null,
+  );
+  const [remarks, setRemarks] = useState<
+    Array<{
+      id: string;
+      body: string;
+      author: { id: string; name: string } | null;
+      createdAt: string;
+    }>
+  >([]);
+  const [remarkText, setRemarkText] = useState("");
+  const [remarksLoading, setRemarksLoading] = useState(false);
+  const {
+    requestClose: requestRemarksClose,
+    dialog: remarksUnsavedDialog,
+  } = useDialogUnsavedGuard(remarkText.trim().length > 0);
+  const [interestOpen, setInterestOpen] = useState(false);
+  const interestDismissLock = useRef(false);
+  const [interestListing, setInterestListing] = useState<MyListingItem | null>(
+    null,
+  );
+  const [interestDetails, setInterestDetails] =
+    useState<ListingInterestDetails | null>(null);
+  const [interestLoading, setInterestLoading] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailListing, setDetailListing] = useState<MyListingItem | null>(
+    null,
+  );
+  const [listingDetail, setListingDetail] = useState<MyListingDetail | null>(
+    null,
+  );
+  const [detailLoading, setDetailLoading] = useState(false);
+  const buildingTypesRef = useRef(filters.buildingTypes);
+  buildingTypesRef.current = filters.buildingTypes;
+  const commercialBuildingTypeId =
+    filters.buildingTypes.find((row) => isCommercialName(row.name))?.id || "";
+
+  useEffect(() => {
+    const match = filters.buildingTypes.find(
+      (row) => row.id === selectedBuildingTypeId,
+    );
+    if (match && isPreLeasedName(match.name)) {
+      setSelectedBuildingTypeId(PRE_LEASED_FILTER_ID);
+    }
+  }, [filters.buildingTypes, selectedBuildingTypeId, setSelectedBuildingTypeId]);
+
+  const fetchList = useCallback(async () => {
+    setLoading(true);
+    try {
+      const knownTypes = buildingTypesRef.current;
+      const buildingTypeQuery = listingBuildingTypeQuery(selectedBuildingTypeId, [
+        ...knownTypes,
+        ...(commercialBuildingTypeId
+          ? [{ id: commercialBuildingTypeId, name: "Commercial" }]
+          : []),
+      ]);
+      const result = await listingsService.getMyListings({
+        tab,
+        page: listingIdFilter ? 1 : page,
+        limit: listingIdFilter ? 100 : pageSize,
+        categoryId: selectedCategoryId || undefined,
+        buildingTypeId: buildingTypeQuery.buildingTypeId,
+        leasingStatus: buildingTypeQuery.leasingStatus,
+        excludeLeasingStatus: buildingTypeQuery.excludeLeasingStatus,
+        propertyTypeId:
+          selectedPropertyTypeId === "__ALL__"
+            ? undefined
+            : selectedPropertyTypeId,
+        status: statusFilter === "all" ? undefined : statusFilter,
+        companyName:
+          tab === "app_postings" || tab === "all"
+            ? companyNameFilter || undefined
+            : undefined,
+        username:
+          tab === "app_postings" || tab === "all"
+            ? usernameFilter || undefined
+            : undefined,
+        lead:
+          tab === "admin_verified" || tab === "all"
+            ? leadFilter || undefined
+            : undefined,
+        listingId: listingIdFilter || undefined,
+      });
+      let rows = result.items;
+      if (listingIdFilter) {
+        rows = rows.filter((item) => item.id === listingIdFilter);
+        if (rows.length === 0) {
+          try {
+            const detail =
+              await listingsService.getMyListingDetail(listingIdFilter);
+            rows = [detail];
+          } catch {
+            rows = [];
+          }
+        }
+        setItems(rows);
+        setTotal(rows.length);
+        setTotalPages(1);
+      } else {
+        setItems(rows);
+        setTotal(result.total);
+        setTotalPages(result.totalPages);
+      }
+      setFilters(result.filters);
+    } catch (err) {
+      console.error(err);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    tab,
+    page,
+    pageSize,
+    selectedCategoryId,
+    selectedBuildingTypeId,
+    selectedPropertyTypeId,
+    statusFilter,
+    companyNameFilter,
+    usernameFilter,
+    leadFilter,
+    listingIdFilter,
+    commercialBuildingTypeId,
+  ]);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setCompanyNameFilter(companyNameInput.trim());
+      setUsernameFilter(usernameInput.trim());
+      setLeadFilter(leadInput.trim());
+    }, 350);
+    return () => window.clearTimeout(handle);
+  }, [companyNameInput, usernameInput, leadInput]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [companyNameFilter, usernameFilter, leadFilter]);
+
+  useEffect(() => {
+    void fetchList();
+  }, [fetchList]);
+
+  const openRemarks = async (item: MyListingItem) => {
+    setRemarksListing(item);
+    setRemarksOpen(true);
+    setRemarksLoading(true);
+    setRemarkText("");
+    try {
+      const rows = await listingsService.getAdminListingRemarks(item.id);
+      setRemarks(rows);
+    } catch (err) {
+      console.error(err);
+      setRemarks([]);
+    } finally {
+      setRemarksLoading(false);
+    }
+  };
+
+  const openInterestDetails = (item: MyListingItem) => {
+    const leads = item.leadCount ?? item.interestCount ?? 0;
+    if (leads <= 0) return;
+    setDetailOpen(false);
+    setRemarksOpen(false);
+    setInterestListing(item);
+    setInterestLoading(true);
+    setInterestDetails(null);
+    interestDismissLock.current = true;
+    window.setTimeout(() => {
+      setInterestOpen(true);
+      window.setTimeout(() => {
+        interestDismissLock.current = false;
+      }, 400);
+    }, 0);
+    void listingsService
+      .getListingInterestDetails(item.id)
+      .then(async (details) => {
+        setInterestDetails(details);
+        await listingsService.markMyListingInterestSeen(item.id);
+      })
+      .catch((err) => {
+        console.error(err);
+      })
+      .finally(() => {
+        setInterestLoading(false);
+      });
+  };
+
+  const openListingDetail = async (item: MyListingItem) => {
+    setDetailListing(item);
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setListingDetail(null);
+    try {
+      const detail = await listingsService.getMyListingDetail(item.id);
+      setListingDetail(detail);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const detailRows = useMemo(() => {
+    if (!listingDetail) return [];
+    return getListingDetailRows({
+      id: listingDetail.id,
+      form: listingDetail.form,
+      building_type: listingDetail.buildingType,
+      property_type: listingDetail.propertyType,
+    } as ListingReviewItem);
+  }, [listingDetail]);
+
+  const submitRemark = async () => {
+    if (!remarksListing || !remarkText.trim()) return;
+    setActionId(remarksListing.id);
+    try {
+      await listingsService.addAdminListingRemark(
+        remarksListing.id,
+        remarkText.trim(),
+      );
+      setRemarkText("");
+      const rows = await listingsService.getAdminListingRemarks(
+        remarksListing.id,
+      );
+      setRemarks(rows);
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const toggleActive = async (item: MyListingItem) => {
+    setActionId(item.id);
+    try {
+      await listingsService.setMyListingActive(item.id, !item.isActive);
+      await fetchList();
+      if (detailOpen && detailListing?.id === item.id) {
+        const detail = await listingsService.getMyListingDetail(item.id);
+        setListingDetail(detail);
+      }
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const renewListing = async (item: MyListingItem) => {
+    setActionId(item.id);
+    try {
+      await listingsService.renewMyListing(item.id);
+      await fetchList();
+      if (detailOpen && detailListing?.id === item.id) {
+        const detail = await listingsService.getMyListingDetail(item.id);
+        setListingDetail(detail);
+      }
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const handleResetFilters = () => {
+    resetFilters();
+    setCompanyNameInput("");
+    setUsernameInput("");
+    setLeadInput("");
+    setPage(1);
+  };
+
+  const buildingTypeOptions = withVirtualPreLeasedOption(filters.buildingTypes);
+  const categorySum = filters.categories.reduce((a, c) => a + c.total, 0);
+  const buildingSum = buildingTypeOptions.reduce((a, c) => a + c.total, 0);
+  const propertySum = filters.propertyTypes.reduce((a, c) => a + c.total, 0);
+  const selectedCategory = filters.categories.find(
+    (c) => c.id === selectedCategoryId,
+  );
+  const selectedBuildingType = buildingTypeOptions.find(
+    (b) => b.id === selectedBuildingTypeId,
+  );
+  const selectedPropertyType =
+    selectedPropertyTypeId === "__ALL__"
+      ? { name: "All", total: total }
+      : filters.propertyTypes.find((p) => p.id === selectedPropertyTypeId);
+  const statusLabels: Record<StatusFilter, string> = {
+    all: "All",
+    active: "Active",
+    inactive: "Inactive",
+    expired: "Expired",
+  };
+
+  return (
+    <PermissionGuard
+      permission="admin_my_listings:read"
+      fallback={
+        <div className="p-12 text-center text-gray-500">
+          You do not have permission to view Property listing.
+        </div>
+      }
+    >
+      <div className="space-y-6 pb-12">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+              Property listing
+            </h1>
+            <p className="mt-1 text-gray-500">
+              Verified admin posts assigned to you
+              {superAdmin ? ", plus all admin posts and user listings." : "."}
+            </p>
+          </div>
+          <AdminListToolbar
+            onRefresh={() => void fetchList()}
+            refreshBusy={loading}
+            onReset={handleResetFilters}
+          >
+            <Link
+              href="/add-post"
+              className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Add Internal post
+            </Link>
+          </AdminListToolbar>
+        </div>
+
+        <Tabs
+          value={tab}
+          onValueChange={(v) => {
+            setTab(v as MyListingsTab);
+            setPage(1);
+          }}
+        >
+          <TabsList className="mb-4 h-auto border bg-white p-1 shadow-sm">
+            <TabsTrigger value="all" className="rounded-md px-6 text-sm">
+              All
+            </TabsTrigger>
+            {superAdmin ? (
+              <TabsTrigger
+                value="app_postings"
+                className="rounded-md px-6 text-sm"
+              >
+                User listing
+              </TabsTrigger>
+            ) : null}
+            <TabsTrigger
+              value="admin_verified"
+              className="rounded-md px-6 text-sm"
+            >
+              Verified listing
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent
+            value={tab}
+            className="space-y-4 focus-visible:outline-none"
+          >
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="min-w-[200px]">
+                <p className="mb-1 text-xs text-gray-500">
+                  Category ({categorySum})
+                </p>
+                <Select
+                  value={selectedCategoryId}
+                  onValueChange={(v) => {
+                    if (!v) return;
+                    setSelectedCategoryId(v);
+                    setSelectedBuildingTypeId("");
+                    setSelectedPropertyTypeId("__ALL__");
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger>
+                    {selectedCategory ? (
+                      <span>
+                        {selectedCategory.name} ({selectedCategory.total})
+                      </span>
+                    ) : (
+                      <SelectValue placeholder="Category" />
+                    )}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filters.categories.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name} ({c.total})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-[200px]">
+                <p className="mb-1 text-xs text-gray-500">
+                  Building type ({buildingSum})
+                </p>
+                <Select
+                  value={selectedBuildingTypeId}
+                  disabled={!selectedCategoryId}
+                  onValueChange={(v) => {
+                    if (!v) return;
+                    setSelectedBuildingTypeId(v);
+                    setSelectedPropertyTypeId("__ALL__");
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger>
+                    {selectedBuildingType ? (
+                      <span>
+                        {selectedBuildingType.name} (
+                        {selectedBuildingType.total})
+                      </span>
+                    ) : (
+                      <SelectValue placeholder="Building type" />
+                    )}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {buildingTypeOptions.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.name} ({b.total})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-[220px]">
+                <p className="mb-1 text-xs text-gray-500">
+                  Property type ({propertySum})
+                </p>
+                <Select
+                  value={selectedPropertyTypeId}
+                  disabled={!selectedBuildingTypeId}
+                  onValueChange={(v) => {
+                    if (!v) return;
+                    setSelectedPropertyTypeId(v);
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger>
+                    {selectedPropertyType ? (
+                      <span>
+                        {selectedPropertyType.name} (
+                        {selectedPropertyType.total})
+                      </span>
+                    ) : (
+                      <SelectValue placeholder="Property type" />
+                    )}
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__ALL__">All ({total})</SelectItem>
+                    {filters.propertyTypes.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name} ({p.total})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-[160px]">
+                <p className="mb-1 text-xs text-gray-500">Status</p>
+                <Select
+                  value={statusFilter}
+                  onValueChange={(v) => {
+                    setStatusFilter(v as StatusFilter);
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger>
+                    <span>{statusLabels[statusFilter]}</span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                    <SelectItem value="expired">Expired</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {tab === "admin_verified" ? (
+                <div className="min-w-[200px]">
+                  <p className="mb-1 text-xs text-gray-500">Lead</p>
+                  <Input
+                    value={leadInput}
+                    placeholder="Search lead name or phone"
+                    onChange={(e) => setLeadInput(e.target.value)}
+                  />
+                </div>
+              ) : null}
+              {tab === "app_postings" || tab === "all" ? (
+                <>
+                  <div className="min-w-[180px]">
+                    <p className="mb-1 text-xs text-gray-500">Company name</p>
+                    <Input
+                      value={companyNameInput}
+                      placeholder="Search company"
+                      onChange={(e) => setCompanyNameInput(e.target.value)}
+                    />
+                  </div>
+                  <div className="min-w-[180px]">
+                    <p className="mb-1 text-xs text-gray-500">Username</p>
+                    <Input
+                      value={usernameInput}
+                      placeholder="Search username"
+                      onChange={(e) => setUsernameInput(e.target.value)}
+                    />
+                  </div>
+                </>
+              ) : null}
+              {tab === "all" ? (
+                <div className="min-w-[200px]">
+                  <p className="mb-1 text-xs text-gray-500">Lead</p>
+                  <Input
+                    value={leadInput}
+                    placeholder="Search lead name or phone"
+                    onChange={(e) => setLeadInput(e.target.value)}
+                  />
+                </div>
+              ) : null}
+            </div>
+
+            {listingIdFilter ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/20 bg-primary-light px-3 py-2 text-sm text-gray-800">
+                <span>Showing the selected listing only.</span>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-white"
+                  onClick={clearListingIdFilter}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Clear
+                </button>
+              </div>
+            ) : null}
+
+            <AdminDataTable
+              page={page}
+              limit={pageSize}
+              total={total}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                setPage(1);
+              }}
+              loading={loading}
+              isEmpty={!items.length}
+              emptyMessage="No listings match your filters."
+              syncKey={items.length}
+            >
+              <table className="min-w-full text-sm">
+                  <thead className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
+                    <tr>
+                      <th className="px-4 py-3">Project name</th>
+                      <th className="px-4 py-3">Category</th>
+                      <th className="px-4 py-3">Price</th>
+                      {tab === "app_postings" ? (
+                        <th className="px-4 py-3">Owner</th>
+                      ) : (
+                        <>
+                          <th className="px-4 py-3">Owner detail</th>
+                          <th className="px-4 py-3">Unit No</th>
+                          <th className="px-4 py-3">Team member</th>
+                          <th className="px-4 py-3">Remark added by</th>
+                        </>
+                      )}
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Interest</th>
+                      {tab !== "app_postings" ? (
+                        <th className="px-4 py-3 text-right">Actions</th>
+                      ) : null}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => {
+                      const verifiedStyle =
+                        tab !== "app_postings" &&
+                        (tab === "admin_verified" || isAdminVerifiedRow(item));
+                      return (
+                      <tr
+                        key={item.id}
+                        className={`cursor-pointer border-b transition-colors last:border-0 hover:bg-gray-50/80 ${
+                          listingIdFilter && item.id === listingIdFilter
+                            ? "bg-primary-light/40"
+                            : ""
+                        }`}
+                        onClick={() => void openListingDetail(item)}
+                      >
+                        <td
+                          className={
+                            verifiedStyle
+                              ? newFirstCellClass(item.isNew, "px-4 py-3")
+                              : "px-4 py-3"
+                          }
+                        >
+                          <div className="flex items-start gap-1.5">
+                            {verifiedStyle ? (
+                              <NewTag show={item.isNew} />
+                            ) : null}
+                            <div>
+                              <div className="font-medium text-gray-900">
+                                {item.title}
+                              </div>
+                              {verifiedStyle ? (
+                                <div className="text-xs text-gray-500">
+                                  {listingExpiryLabel(item)}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">
+                          {item.categoryName || "—"}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">
+                          {item.priceLabel}
+                        </td>
+                        {tab === "app_postings" ? (
+                          <td className="px-4 py-3 text-gray-600">
+                            <div className="font-medium text-gray-900">
+                              {item.ownerUser?.companyName?.trim() || "—"}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {item.ownerUser?.name?.trim() || "—"}
+                            </div>
+                          </td>
+                        ) : (
+                          <>
+                            <td className="px-4 py-3 text-gray-600">
+                              {verifiedStyle ? (
+                                <>
+                                  {item.leadContactName || "—"}
+                                  <br />
+                                  <MaskedContact
+                                    value={item.leadContactPhone}
+                                    revealKey={`my-listings:${item.id}:owner`}
+                                    className="text-xs"
+                                    empty=""
+                                  />
+                                </>
+                              ) : (
+                                <>
+                                  <div className="font-medium text-gray-900">
+                                    {item.ownerUser?.companyName?.trim() ||
+                                      "—"}
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    {item.ownerUser?.name?.trim() || "—"}
+                                  </div>
+                                </>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-gray-600">
+                              {item.leadUnitNo?.trim() || "—"}
+                            </td>
+                            <td className="px-4 py-3 text-gray-600">
+                              {item.connectedStaff?.name || "—"}
+                            </td>
+                            <td className="px-4 py-3 text-gray-600">
+                              {item.remarksAddedBy || "—"}
+                            </td>
+                          </>
+                        )}
+                        <td className="px-4 py-3">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs ${
+                              item.expiringSoon
+                                ? "bg-amber-100 text-amber-800"
+                                : item.status === "expired"
+                                  ? "bg-gray-100 text-gray-700"
+                                  : !item.isActive
+                                    ? "bg-slate-100 text-slate-700"
+                                    : "bg-green-100 text-green-800"
+                            }`}
+                          >
+                            {statusBadge(item)}
+                          </span>
+                        </td>
+                        <td
+                          className="px-4 py-3"
+                          onPointerDown={stopRowClick}
+                          onClick={stopRowClick}
+                        >
+                          <InterestCell item={item} />
+                        </td>
+                        {tab !== "app_postings" ? (
+                          <td
+                            className="px-4 py-3"
+                            onPointerDown={stopRowClick}
+                            onClick={stopRowClick}
+                          >
+                            {verifiedStyle ? (
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => void openRemarks(item)}
+                                >
+                                  <MessageSquare className="mr-1 h-3.5 w-3.5" />
+                                  Remarks
+                                </Button>
+                                {item.actions.canToggleActive ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={actionId === item.id}
+                                    onClick={() => void toggleActive(item)}
+                                  >
+                                    {item.isActive ? "Inactive" : "Active"}
+                                  </Button>
+                                ) : null}
+                                {item.actions.canRenew ? (
+                                  <Button
+                                    size="sm"
+                                    disabled={actionId === item.id}
+                                    onClick={() => void renewListing(item)}
+                                  >
+                                    Renew
+                                  </Button>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-400">—</span>
+                            )}
+                          </td>
+                        ) : null}
+                      </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+            </AdminDataTable>
+          </TabsContent>
+        </Tabs>
+
+        <Dialog
+          open={remarksOpen}
+          onOpenChange={(open) => {
+            if (open) {
+              setRemarksOpen(true);
+              return;
+            }
+            void requestRemarksClose().then((ok) => {
+              if (ok) {
+                setRemarksOpen(false);
+                setRemarkText("");
+              }
+            });
+          }}
+        >
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Remarks — {remarksListing?.title}</DialogTitle>
+            </DialogHeader>
+            {remarksLoading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="max-h-64 space-y-2 overflow-y-auto">
+                  {remarks.length === 0 ? (
+                    <p className="text-sm text-gray-500">No remarks yet.</p>
+                  ) : (
+                    remarks.map((r) => (
+                      <div
+                        key={r.id}
+                        className="rounded-lg border border-gray-100 p-3 text-sm"
+                      >
+                        <p className="text-gray-800">{r.body}</p>
+                        <p className="mt-1 text-xs text-gray-400">
+                          {r.author?.name || "Staff"} ·{" "}
+                          {formatDateTime(r.createdAt)}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={remarkText}
+                    onChange={(e) => setRemarkText(e.target.value)}
+                    placeholder="Add a remark…"
+                  />
+                  <Button
+                    onClick={() => void submitRemark()}
+                    disabled={
+                      !remarkText.trim() || actionId === remarksListing?.id
+                    }
+                  >
+                    Add
+                  </Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+          <DialogContent className="flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden sm:max-w-3xl">
+            <DialogHeader className="shrink-0">
+              <DialogTitle>
+                {listingDetail?.title ||
+                  detailListing?.title ||
+                  "Property details"}
+              </DialogTitle>
+            </DialogHeader>
+            {detailLoading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : listingDetail ? (
+              <>
+                <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <DetailField
+                      label="Category"
+                      value={listingDetail.categoryName}
+                    />
+                    <DetailField
+                      label="Building type"
+                      value={listingDetail.buildingTypeName}
+                    />
+                    <DetailField
+                      label="Property type"
+                      value={listingDetail.propertyTypeName}
+                    />
+                    <DetailField
+                      label="Price"
+                      value={listingDetail.priceLabel}
+                    />
+                    <DetailField
+                      label="Project / property name"
+                      value={listingDetail.propertyName}
+                    />
+                    <DetailField label="City" value={listingDetail.cityName} />
+                    <DetailField
+                      label="Micro market"
+                      value={listingDetail.microMarketName}
+                    />
+                    <DetailField
+                      label="Location"
+                      value={listingDetail.locationName}
+                    />
+                    <DetailField
+                      label="Status"
+                      value={statusBadge(listingDetail)}
+                    />
+                    {tab !== "app_postings" ? (
+                      <DetailField
+                        label="Expiry"
+                        value={listingExpiryLabel(listingDetail)}
+                      />
+                    ) : null}
+                    {tab !== "app_postings" &&
+                    isAdminVerifiedRow(listingDetail) ? (
+                      <>
+                        <DetailField
+                          label="Owner detail"
+                          value={
+                            listingDetail.leadContactName ||
+                            listingDetail.leadContactPhone ? (
+                              <span className="inline-flex flex-wrap items-center gap-1.5">
+                                {listingDetail.leadContactName || null}
+                                {listingDetail.leadContactName &&
+                                listingDetail.leadContactPhone
+                                  ? " · "
+                                  : null}
+                                <MaskedContact
+                                  value={listingDetail.leadContactPhone}
+                                  revealKey={`my-listings-detail:${listingDetail.id}:owner`}
+                                  empty=""
+                                />
+                              </span>
+                            ) : null
+                          }
+                        />
+                        <DetailField
+                          label="Unit No"
+                          value={listingDetail.leadUnitNo}
+                        />
+                        <DetailField
+                          label="Team member"
+                          value={
+                            listingDetail.connectedStaff
+                              ? `${listingDetail.connectedStaff.name} (${listingDetail.connectedStaff.contact})`
+                              : null
+                          }
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <DetailField
+                          label="Company name"
+                          value={listingDetail.ownerUser?.companyName}
+                        />
+                        <DetailField
+                          label="Username"
+                          value={listingDetail.ownerUser?.name}
+                        />
+                        <DetailField
+                          label="Owner phone"
+                          value={
+                            listingDetail.ownerUser?.contact ? (
+                              <MaskedContact
+                                value={listingDetail.ownerUser.contact}
+                                revealKey={`my-listings-detail:${listingDetail.id}:owner-user`}
+                              />
+                            ) : null
+                          }
+                        />
+                      </>
+                    )}
+                  </div>
+
+                  {detailRows.length > 0 ? (
+                    <div className="border-t border-gray-100 pt-4">
+                      <h3 className="mb-3 text-sm font-semibold text-gray-900">
+                        Property details
+                      </h3>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {detailRows.map((row) => (
+                          <DetailField
+                            key={row.key}
+                            label={row.label}
+                            value={row.value}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="flex shrink-0 flex-wrap gap-2 border-t border-gray-100 pt-4">
+                  <div onPointerDown={stopRowClick} onClick={stopRowClick}>
+                    <InterestCell item={listingDetail} />
+                  </div>
+                  {tab !== "app_postings" &&
+                  isAdminVerifiedRow(listingDetail) ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setDetailOpen(false);
+                          void openRemarks(listingDetail);
+                        }}
+                      >
+                        <MessageSquare className="mr-1.5 h-4 w-4" />
+                        Remarks
+                      </Button>
+                      {listingDetail.actions.canToggleActive ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={actionId === listingDetail.id}
+                          onClick={() => void toggleActive(listingDetail)}
+                        >
+                          {listingDetail.isActive
+                            ? "Mark inactive"
+                            : "Mark active"}
+                        </Button>
+                      ) : null}
+                      {listingDetail.actions.canRenew ? (
+                        <Button
+                          type="button"
+                          disabled={actionId === listingDetail.id}
+                          onClick={() => void renewListing(listingDetail)}
+                        >
+                          Renew
+                        </Button>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <p className="py-8 text-center text-sm text-gray-500">
+                Could not load property details.
+              </p>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={interestOpen}
+          onOpenChange={(open) => {
+            if (!open && interestDismissLock.current) return;
+            setInterestOpen(open);
+          }}
+        >
+          <DialogContent className="w-full max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-6xl">
+            <DialogHeader>
+              <DialogTitle>Interest — {interestListing?.title}</DialogTitle>
+            </DialogHeader>
+            {interestLoading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : interestDetails ? (
+              <div className="space-y-6">
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold text-gray-900">
+                      Interested users ({interestDetails.interestedUsers.length}
+                      )
+                    </h3>
+                    {interestDetails.interestedUsers.length === 0 ? (
+                      <p className="text-sm text-gray-500">
+                        No interested users yet.
+                      </p>
+                    ) : (
+                      <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
+                        {interestDetails.interestedUsers.map((user) => (
+                          <div
+                            key={user.id}
+                            className="rounded-lg border border-gray-100 bg-gray-50/80 p-3"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="font-medium text-gray-900">
+                                    {user.name}
+                                  </p>
+                                  {user.actorPlanCodeAtEvent ? (
+                                    <InterestPlanBadge
+                                      planCode={user.actorPlanCodeAtEvent}
+                                    />
+                                  ) : null}
+                                </div>
+                                {user.contact ? (
+                                  <p className="text-sm text-gray-600">
+                                    <MaskedContact
+                                      value={user.contact}
+                                      revealKey={`my-listings-interest:${user.id}:viewer`}
+                                    />
+                                  </p>
+                                ) : null}
+                                {user.email ? (
+                                  <p className="text-xs text-gray-500">
+                                    {user.email}
+                                  </p>
+                                ) : null}
+                              </div>
+                              <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                                {user.kinds.map((kind) => (
+                                  <span
+                                    key={kind}
+                                    className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-800"
+                                  >
+                                    {kind}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            <p className="mt-2 text-xs text-gray-400">
+                              {formatDateTime(user.lastInterestedAt)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold text-gray-900">
+                      {tab !== "app_postings" &&
+                      interestListing &&
+                      isAdminVerifiedRow(interestListing)
+                        ? "Owner detail (form)"
+                        : "Listing owner"}
+                    </h3>
+                    <div className="rounded-lg border border-gray-100 bg-gray-50/80 p-4 space-y-3">
+                      {tab !== "app_postings" &&
+                      interestListing &&
+                      isAdminVerifiedRow(interestListing) ? (
+                        <>
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-gray-400">
+                              Name
+                            </p>
+                            <p className="text-sm font-medium text-gray-900">
+                              {interestDetails.lead.name ||
+                                interestListing?.leadContactName ||
+                                "—"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-gray-400">
+                              Phone
+                            </p>
+                            <p className="text-sm font-medium text-gray-900">
+                              <MaskedContact
+                                value={
+                                  interestDetails.lead.phone ||
+                                  interestListing?.leadContactPhone
+                                }
+                                revealKey={`my-listings-interest:${interestListing?.id}:seller`}
+                              />
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-gray-400">
+                              Unit No
+                            </p>
+                            <p className="text-sm font-medium text-gray-900">
+                              {interestDetails.lead.unitNo ||
+                                interestListing?.leadUnitNo ||
+                                "—"}
+                            </p>
+                          </div>
+                          {interestDetails.connectedStaff ? (
+                            <div>
+                              <p className="text-xs uppercase tracking-wide text-gray-400">
+                                Team member
+                              </p>
+                              <p className="text-sm font-medium text-gray-900">
+                                {interestDetails.connectedStaff.name}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {interestDetails.connectedStaff.contact}
+                              </p>
+                            </div>
+                          ) : null}
+                        </>
+                      ) : (
+                        <>
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-gray-400">
+                              Company name
+                            </p>
+                            <p className="text-sm font-medium text-gray-900">
+                              {interestListing?.ownerUser?.companyName || "—"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-gray-400">
+                              Username
+                            </p>
+                            <p className="text-sm font-medium text-gray-900">
+                              {interestListing?.ownerUser?.name || "—"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-gray-400">
+                              Phone
+                            </p>
+                            <p className="text-sm font-medium text-gray-900">
+                              <MaskedContact
+                                value={interestListing?.ownerUser?.contact}
+                                revealKey={`my-listings-interest:${interestListing?.id}:owner`}
+                              />
+                            </p>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-100 pt-4">
+                  <h3 className="mb-3 text-sm font-semibold text-gray-900">
+                    All remarks
+                  </h3>
+                  {interestDetails.remarks.length === 0 ? (
+                    <p className="text-sm text-gray-500">No remarks yet.</p>
+                  ) : (
+                    <div className="flex gap-3 overflow-x-auto pb-2">
+                      {interestDetails.remarks.map((remark) => (
+                        <div
+                          key={remark.id}
+                          className="min-w-[240px] max-w-[280px] shrink-0 rounded-lg border border-gray-100 bg-white p-3 shadow-sm"
+                        >
+                          <p className="text-sm text-gray-800">{remark.body}</p>
+                          <p className="mt-2 text-xs text-gray-400">
+                            {remark.author?.name || "Staff"} ·{" "}
+                            {formatDateTime(remark.createdAt)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="py-8 text-center text-sm text-gray-500">
+                Could not load interest details.
+              </p>
+            )}
+          </DialogContent>
+        </Dialog>
+        {remarksUnsavedDialog}
+      </div>
+    </PermissionGuard>
+  );
+}

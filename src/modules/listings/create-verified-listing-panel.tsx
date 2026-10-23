@@ -24,6 +24,7 @@ import {
   showsCommercialLeasingStatus,
   type CreateFormField,
   type CreateFormOption,
+  type CreateFormPlaceLocation,
   type CreateFormPrefill,
   type CreateFormProperty,
   type CreateFormSchema,
@@ -227,6 +228,13 @@ export function CreateVerifiedListingPanel() {
   const [microMarketId, setMicroMarketId] = useState("");
   const [microMarketName, setMicroMarketName] = useState("");
   const [customMicroMarket, setCustomMicroMarket] = useState("");
+  const [cityLocations, setCityLocations] = useState<CreateFormPlaceLocation[]>(
+    [],
+  );
+  const [cityMicroMarkets, setCityMicroMarkets] = useState<
+    { id: string; name: string }[]
+  >([]);
+  const [loadingPlaces, setLoadingPlaces] = useState(false);
   const [price, setPrice] = useState("");
   const [priceOnRequest, setPriceOnRequest] = useState(false);
   const [details, setDetails] = useState<Record<string, string>>({});
@@ -538,6 +546,39 @@ export function CreateVerifiedListingPanel() {
     };
   }, [propertyNameId]);
 
+  const isCustomProperty =
+    !propertyNameId && customPropertyName.trim().length >= 2;
+
+  useEffect(() => {
+    if (!isCustomProperty || !cityId) {
+      setCityLocations([]);
+      setCityMicroMarkets([]);
+      setLoadingPlaces(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingPlaces(true);
+    void listingsService
+      .getCreateFormPlaces(cityId)
+      .then((places) => {
+        if (cancelled) return;
+        setCityLocations(places.locations);
+        setCityMicroMarkets(places.microMarkets);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setCityLocations([]);
+        setCityMicroMarkets([]);
+        setError(listingCreateApiError(err, "Failed to load locations."));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPlaces(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isCustomProperty, cityId]);
+
   const showLeasingStatus = showsCommercialLeasingStatus(
     categories.find((row) => row.id === categoryId)?.name,
     buildingTypes.find((row) => row.id === buildingTypeId)?.name,
@@ -666,8 +707,6 @@ export function CreateVerifiedListingPanel() {
     [salesTeam, selfId, authUser?.name, authUser?.email, authUser?.contact],
   );
   const selectedProperty = properties.find((p) => p.id === propertyNameId);
-  const isCustomProperty =
-    !propertyNameId && customPropertyName.trim().length >= 2;
   const selectedLocation =
     prefill?.locations.find((l) => l.id === locationId) ||
     (locationId
@@ -1215,33 +1254,91 @@ export function CreateVerifiedListingPanel() {
             </>
           ) : isCustomProperty ? (
             <>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Location <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  value={customLocation}
-                  onChange={(e) => {
-                    setCustomLocation(e.target.value);
-                    setLocationId("");
-                  }}
-                  placeholder="Type location (goes to review if new)"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Micro market <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  value={customMicroMarket}
-                  onChange={(e) => {
-                    setCustomMicroMarket(e.target.value);
-                    setMicroMarketId("");
-                    setMicroMarketName(e.target.value);
-                  }}
-                  placeholder="Type micro market (goes to review if new)"
-                />
-              </div>
+              {!cityId ? (
+                <p className="text-sm text-amber-700">
+                  Select a city to load location and micro market options, or to
+                  type a new one.
+                </p>
+              ) : loadingPlaces ? (
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading locations…
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Location <span className="text-red-500">*</span>
+                    </label>
+                    <SearchableSelect
+                      options={cityLocations.map((loc) => ({
+                        value: loc.id,
+                        label: loc.name,
+                      }))}
+                      value={locationId}
+                      onValueChange={(v) => {
+                        setLocationId(v);
+                        setCustomLocation("");
+                        const loc = cityLocations.find((row) => row.id === v);
+                        if (loc?.microMarketId) {
+                          setMicroMarketId(loc.microMarketId);
+                          setMicroMarketName(loc.microMarketName || "");
+                          setCustomMicroMarket("");
+                        }
+                      }}
+                      onInputChange={(text) => {
+                        setLocationId("");
+                        setCustomLocation(text);
+                      }}
+                      onCreate={(q) => {
+                        setLocationId("");
+                        setCustomLocation(q);
+                      }}
+                      allowCreate
+                      editable
+                      placeholder="Search location or type a new one"
+                      emptyText="No saved locations. Type a name to send it for review."
+                      selectedLabel={customLocation || undefined}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Micro market <span className="text-red-500">*</span>
+                    </label>
+                    <SearchableSelect
+                      options={cityMicroMarkets.map((mm) => ({
+                        value: mm.id,
+                        label: mm.name,
+                      }))}
+                      value={microMarketId}
+                      onValueChange={(v) => {
+                        setMicroMarketId(v);
+                        setCustomMicroMarket("");
+                        setMicroMarketName(
+                          cityMicroMarkets.find((row) => row.id === v)?.name ||
+                            "",
+                        );
+                      }}
+                      onInputChange={(text) => {
+                        setMicroMarketId("");
+                        setCustomMicroMarket(text);
+                        setMicroMarketName(text);
+                      }}
+                      onCreate={(q) => {
+                        setMicroMarketId("");
+                        setCustomMicroMarket(q);
+                        setMicroMarketName(q);
+                      }}
+                      allowCreate
+                      editable
+                      placeholder="Search micro market or type a new one"
+                      emptyText="No saved micro markets. Type a name to send it for review."
+                      selectedLabel={
+                        customMicroMarket || microMarketName || undefined
+                      }
+                    />
+                  </div>
+                </>
+              )}
             </>
           ) : null}
 

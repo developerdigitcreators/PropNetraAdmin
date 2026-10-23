@@ -30,6 +30,7 @@ import {
   dbfFeaturedApiError,
   dbfFeaturedService,
   type DbfSection,
+  type DbfTopBuilderList,
   type DbfTopBuilderRow,
 } from '@/services/dbf-featured.service';
 import {
@@ -753,6 +754,8 @@ function TopBuildersTab() {
   const canDelete = hasPermission('dbf_featured', 'delete');
 
   const [rows, setRows] = useState<DbfTopBuilderRow[]>([]);
+  const [autoslide, setAutoslide] = useState('00:00:05');
+  const [savingTimer, setSavingTimer] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState('');
@@ -760,18 +763,23 @@ function TopBuildersTab() {
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState('');
 
+  const applyList = useCallback((list: DbfTopBuilderList) => {
+    setRows(list.items);
+    setAutoslide(list.autoslide || '00:00:05');
+  }, []);
+
   const fetchRows = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      setRows(await dbfFeaturedService.listTopBuilders());
+      applyList(await dbfFeaturedService.listTopBuilders());
     } catch (err) {
       setRows([]);
       setError(dbfFeaturedApiError(err, 'Failed to load top builders.'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyList]);
 
   useEffect(() => {
     void fetchRows();
@@ -795,7 +803,7 @@ function TopBuildersTab() {
     setAdding(true);
     setAddError('');
     try {
-      setRows(await dbfFeaturedService.addTopBuilder(builderUserId));
+      applyList(await dbfFeaturedService.addTopBuilder(builderUserId));
       setPickOpen(false);
     } catch (err) {
       setAddError(dbfFeaturedApiError(err, 'Failed to add builder.'));
@@ -808,7 +816,7 @@ function TopBuildersTab() {
     const previous = rows;
     setRows(ordered);
     try {
-      setRows(await dbfFeaturedService.reorderTopBuilders(ordered.map((r) => r.id)));
+      applyList(await dbfFeaturedService.reorderTopBuilders(ordered.map((r) => r.id)));
     } catch (err) {
       setRows(previous);
       setError(dbfFeaturedApiError(err, 'Failed to reorder builders.'));
@@ -818,7 +826,7 @@ function TopBuildersTab() {
   const handleToggle = async (row: DbfTopBuilderRow, next: boolean) => {
     setBusyId(row.id);
     try {
-      setRows(await dbfFeaturedService.setTopBuilderActive(row.id, next));
+      applyList(await dbfFeaturedService.setTopBuilderActive(row.id, next));
     } catch (err) {
       setError(dbfFeaturedApiError(err, 'Failed to update builder.'));
     } finally {
@@ -829,7 +837,7 @@ function TopBuildersTab() {
   const handleRemove = async (row: DbfTopBuilderRow) => {
     setBusyId(row.id);
     try {
-      setRows(await dbfFeaturedService.removeTopBuilder(row.id));
+      applyList(await dbfFeaturedService.removeTopBuilder(row.id));
     } catch (err) {
       setError(dbfFeaturedApiError(err, 'Failed to remove builder.'));
     } finally {
@@ -837,8 +845,47 @@ function TopBuildersTab() {
     }
   };
 
+  const saveTimer = async (next: string) => {
+    if (!canUpdate || next === autoslide) return;
+    const [hh = NaN, mm = NaN, ss = NaN] = next.split(':').map((part) => Number(part));
+    const total = hh * 3600 + mm * 60 + ss;
+    if ([hh, mm, ss].some((n) => !Number.isInteger(n) || n < 0) || mm > 59 || ss > 59 || total < 1) {
+      setError('Auto-slide must be HH:MM:SS, with minutes and seconds 00–59, and at least 00:00:01.');
+      return;
+    }
+    const prev = autoslide;
+    setAutoslide(next);
+    setSavingTimer(true);
+    setError('');
+    try {
+      applyList(await dbfFeaturedService.updateTopBuilderSettings(next));
+    } catch (err) {
+      setAutoslide(prev);
+      setError(dbfFeaturedApiError(err, 'Failed to save auto-slide.'));
+    } finally {
+      setSavingTimer(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white px-5 py-4">
+        <div>
+          <p className="text-sm font-medium text-gray-900">Auto-slide</p>
+          <p className="text-xs text-gray-500">
+            One time for the whole list, all cities. Runs in the app when there are 4 builders, or a row fills the screen.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <AutoslideTimePicker
+            value={autoslide}
+            onChange={(next) => void saveTimer(next)}
+            disabled={!canUpdate || savingTimer}
+          />
+          {savingTimer ? <Loader2 className="h-4 w-4 animate-spin text-gray-400" /> : null}
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-gray-500">
           One list for all cities, shown in this order. If empty, app shows auto-ranked builders.

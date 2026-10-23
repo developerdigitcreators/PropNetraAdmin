@@ -45,6 +45,13 @@ export type DbfTopBuilderRow = {
   builder: DbfBuilderPreview | null;
 };
 
+export type DbfTopBuilderList = {
+  autoslide: string;
+  items: DbfTopBuilderRow[];
+};
+
+const DEFAULT_TOP_BUILDER_AUTOSLIDE = '00:00:05';
+
 export const DBF_FEATURED_FILTER_KEY = 'dbf-featured-filters';
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -135,17 +142,23 @@ function normalizeBuilder(raw: unknown): DbfBuilderPreview | null {
   };
 }
 
-function normalizeTopBuilders(data: unknown): DbfTopBuilderRow[] {
-  return asArray(data)
-    .map((raw) => asRecord(raw))
-    .filter((row): row is Record<string, unknown> => Boolean(row && str(row.id)))
-    .map((row) => ({
-      id: str(row.id),
-      builderUserId: str(row.builderUserId),
-      sortOrder: Number(row.sortOrder) || 0,
-      isActive: row.isActive !== false,
-      builder: normalizeBuilder(row.builder),
-    }));
+function normalizeTopBuilderList(data: unknown): DbfTopBuilderList {
+  const value = unwrap(data);
+  const obj = asRecord(value);
+  const rawItems = Array.isArray(value) ? value : obj && Array.isArray(obj.items) ? obj.items : [];
+  return {
+    autoslide: (obj && str(obj.autoslide)) || DEFAULT_TOP_BUILDER_AUTOSLIDE,
+    items: rawItems
+      .map((raw) => asRecord(raw))
+      .filter((row): row is Record<string, unknown> => Boolean(row && str(row.id)))
+      .map((row) => ({
+        id: str(row.id),
+        builderUserId: str(row.builderUserId),
+        sortOrder: Number(row.sortOrder) || 0,
+        isActive: row.isActive !== false,
+        builder: normalizeBuilder(row.builder),
+      })),
+  };
 }
 
 const BASE = '/admin/dbf-featured';
@@ -210,29 +223,34 @@ export const dbfFeaturedService = {
       .filter((row): row is DbfListingPreview => !!row);
   },
 
-  listTopBuilders: async (): Promise<DbfTopBuilderRow[]> => {
+  listTopBuilders: async (): Promise<DbfTopBuilderList> => {
     const res = await axiosClient.get(`${BASE}/top-builders`);
-    return normalizeTopBuilders(res.data);
+    return normalizeTopBuilderList(res.data);
   },
 
-  addTopBuilder: async (builderUserId: string): Promise<DbfTopBuilderRow[]> => {
+  updateTopBuilderSettings: async (autoslide: string): Promise<DbfTopBuilderList> => {
+    const res = await axiosClient.put(`${BASE}/top-builders/settings`, { autoslide });
+    return normalizeTopBuilderList(res.data);
+  },
+
+  addTopBuilder: async (builderUserId: string): Promise<DbfTopBuilderList> => {
     const res = await axiosClient.post(`${BASE}/top-builders`, { builderUserId });
-    return normalizeTopBuilders(res.data);
+    return normalizeTopBuilderList(res.data);
   },
 
-  setTopBuilderActive: async (id: string, isActive: boolean): Promise<DbfTopBuilderRow[]> => {
+  setTopBuilderActive: async (id: string, isActive: boolean): Promise<DbfTopBuilderList> => {
     const res = await axiosClient.put(`${BASE}/top-builders/${id}`, { isActive });
-    return normalizeTopBuilders(res.data);
+    return normalizeTopBuilderList(res.data);
   },
 
-  removeTopBuilder: async (id: string): Promise<DbfTopBuilderRow[]> => {
+  removeTopBuilder: async (id: string): Promise<DbfTopBuilderList> => {
     const res = await axiosClient.delete(`${BASE}/top-builders/${id}`);
-    return normalizeTopBuilders(res.data);
+    return normalizeTopBuilderList(res.data);
   },
 
-  reorderTopBuilders: async (orderedIds: string[]): Promise<DbfTopBuilderRow[]> => {
+  reorderTopBuilders: async (orderedIds: string[]): Promise<DbfTopBuilderList> => {
     const res = await axiosClient.put(`${BASE}/top-builders/reorder`, { orderedIds });
-    return normalizeTopBuilders(res.data);
+    return normalizeTopBuilderList(res.data);
   },
 
   searchBuilders: async (q?: string): Promise<DbfBuilderPreview[]> => {

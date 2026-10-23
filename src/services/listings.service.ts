@@ -1678,6 +1678,16 @@ export const listingsService = {
     await axiosClient.put(`/admin/listings/review/${id}/active`, { active });
   },
 
+  getMasterUserListings: async (
+    userId: string,
+    params?: {
+      tab?: "active" | "inactive" | "in_approval" | "rejected" | "expired";
+      categoryGroup?: "resale_rent" | "buy_requirement";
+      page?: number;
+      limit?: number;
+    },
+  ) => listingsService.getAdminUserListings(userId, params),
+
   getAdminUserListings: async (
     userId: string,
     params?: {

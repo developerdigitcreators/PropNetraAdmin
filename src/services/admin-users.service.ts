@@ -91,6 +91,202 @@ export type UserDeviceLock = {
   isDeviceLockExempt: boolean;
 };
 
+export type MasterAppRole = 'developer' | 'floor' | 'agent';
+export type MasterListingTab = 'active' | 'inactive' | 'in_approval' | 'rejected' | 'expired';
+export type MasterCategoryGroup = 'resale_rent' | 'buy_requirement';
+
+export type MasterProfileUser = {
+  id?: string;
+  name?: string;
+  status?: string;
+  contact?: string;
+  email?: string;
+  companyName?: string;
+  companyLogoUrl?: string;
+  address?: string;
+  city?: string;
+  cityName?: string;
+  roleName?: string;
+  subscription?: string;
+  subscriptionStatus?: string;
+  planCode?: string;
+  badge?: string;
+  documentsStatus?: string;
+  documentsStatusLabel?: string;
+};
+
+export type MasterCompany = {
+  name?: string;
+  gst?: string;
+  companyRole?: string;
+  prefix: string;
+  logo?: string;
+};
+
+export type MasterBuilderProfile = {
+  name?: string;
+  displayName?: string;
+  about?: string;
+  address?: string;
+  photo?: string;
+  banner?: string;
+  experience?: string;
+  years?: string | number;
+  months?: string | number;
+  projectCount?: number;
+  cityCount?: number;
+  citiesLabel?: string;
+  banners: Array<{ kind: 'video' | 'image'; url: string }>;
+  projects: { total?: number; delivered?: number; underDevelopment?: number };
+  associatedDevelopers: Array<{ id: string; name: string }>;
+  associatedDeveloperIds: string[];
+};
+
+export type MasterProfile = {
+  user: MasterProfileUser;
+  appRole: MasterAppRole | null;
+  companyLogoEditable?: boolean;
+  company?: MasterCompany | null;
+  builderProfile?: MasterBuilderProfile | null;
+  sections: {
+    company?: boolean;
+    builderProfile?: boolean;
+    salesTeam?: boolean;
+    listings?: boolean;
+  };
+  listings: {
+    defaultCategoryGroup: MasterCategoryGroup;
+    defaultTab: MasterListingTab;
+  };
+};
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+}
+
+function str(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  const text = String(value).trim();
+  return text || undefined;
+}
+
+function normalizeMasterProfile(body: unknown, userId: string): MasterProfile {
+  const outer = asRecord(body);
+  const raw = asRecord(outer.data ?? outer.profile ?? outer);
+  const user = asRecord(raw.user ?? raw);
+  const companyRaw = raw.company == null ? null : asRecord(raw.company);
+  const builderRaw = raw.builderProfile == null ? null : asRecord(raw.builderProfile);
+  const sections = asRecord(raw.sections);
+  const listings = asRecord(raw.listings);
+  const roleRaw = String(raw.appRole || user.appRole || '').toLowerCase();
+  const appRole: MasterAppRole | null =
+    roleRaw === 'developer' || roleRaw === 'floor' || roleRaw === 'agent' ? roleRaw : null;
+
+  const banners = Array.isArray(builderRaw?.banners)
+    ? builderRaw.banners
+        .map((item) => {
+          const row = asRecord(item);
+          const url = str(row.url);
+          if (!url) return null;
+          return { kind: row.kind === 'video' ? ('video' as const) : ('image' as const), url };
+        })
+        .filter((item): item is { kind: 'video' | 'image'; url: string } => !!item)
+    : [];
+
+  const associated = Array.isArray(builderRaw?.associatedDevelopers)
+    ? builderRaw.associatedDevelopers
+        .map((item, index) => {
+          if (typeof item === 'string') return { id: item, name: item };
+          const row = asRecord(item);
+          const name = str(row.name);
+          if (!name) return null;
+          return { id: str(row.id) || String(index), name };
+        })
+        .filter((item): item is { id: string; name: string } => !!item)
+    : [];
+
+  const ids = Array.isArray(builderRaw?.associatedDeveloperIds)
+    ? builderRaw.associatedDeveloperIds.map((id) => String(id)).filter(Boolean)
+    : associated.map((row) => row.id);
+
+  const projects = asRecord(builderRaw?.projects);
+  const defaultGroup = listings.defaultCategoryGroup === 'buy_requirement' ? 'buy_requirement' : 'resale_rent';
+  const tabRaw = String(listings.defaultTab || 'active');
+  const defaultTab: MasterListingTab = (
+    ['active', 'inactive', 'in_approval', 'rejected', 'expired'] as const
+  ).includes(tabRaw as MasterListingTab)
+    ? (tabRaw as MasterListingTab)
+    : 'active';
+
+  return {
+    user: {
+      id: str(user.id) || userId,
+      name: str(user.name),
+      status: str(user.status),
+      contact: str(user.contact || user.phone),
+      email: str(user.email),
+      companyName: str(user.companyName),
+      companyLogoUrl: str(user.companyLogoUrl),
+      address: str(user.address),
+      city: str(user.city),
+      cityName: str(user.cityName),
+      roleName: str(user.roleName),
+      subscription: str(user.subscription),
+      subscriptionStatus: str(user.subscriptionStatus),
+      planCode: str(user.planCode),
+      badge: str(user.badge),
+      documentsStatus: str(user.documentsStatus),
+      documentsStatusLabel: str(user.documentsStatusLabel),
+    },
+    appRole,
+    companyLogoEditable: raw.companyLogoEditable === true,
+    company: companyRaw
+      ? {
+          name: str(companyRaw.name),
+          gst: str(companyRaw.gst),
+          companyRole: str(companyRaw.companyRole),
+          prefix: str(companyRaw.prefix) || '',
+          logo: str(companyRaw.logo),
+        }
+      : null,
+    builderProfile: builderRaw
+      ? {
+          name: str(builderRaw.name),
+          displayName: str(builderRaw.displayName),
+          about: str(builderRaw.about),
+          address: str(builderRaw.address),
+          photo: str(builderRaw.photo),
+          banner: str(builderRaw.banner),
+          experience: str(builderRaw.experience),
+          years: (builderRaw.years as string | number | undefined) ?? undefined,
+          months: (builderRaw.months as string | number | undefined) ?? undefined,
+          projectCount: typeof builderRaw.projectCount === 'number' ? builderRaw.projectCount : undefined,
+          cityCount: typeof builderRaw.cityCount === 'number' ? builderRaw.cityCount : undefined,
+          citiesLabel: str(builderRaw.citiesLabel),
+          banners,
+          projects: {
+            total: typeof projects.total === 'number' ? projects.total : undefined,
+            delivered: typeof projects.delivered === 'number' ? projects.delivered : undefined,
+            underDevelopment:
+              typeof projects.underDevelopment === 'number' ? projects.underDevelopment : undefined,
+          },
+          associatedDevelopers: associated,
+          associatedDeveloperIds: ids,
+        }
+      : null,
+    sections: {
+      company: sections.company === true || !!companyRaw,
+      builderProfile: sections.builderProfile === true || !!builderRaw,
+      salesTeam: sections.salesTeam === true || appRole === 'developer',
+      listings: sections.listings !== false,
+    },
+    listings: {
+      defaultCategoryGroup: defaultGroup,
+      defaultTab,
+    },
+  };
+}
+
 function toDeviceLock(body: unknown, fallbackUserId: string): UserDeviceLock {
   const outer = (body ?? {}) as { data?: unknown };
   const raw = (outer.data && typeof outer.data === 'object' ? outer.data : outer) as Record<
@@ -144,6 +340,13 @@ export const adminUsersService = {
   getUserById: async (id: string) => {
     const response = await axiosClient.get(`/admin/users/${id}`);
     return response.data;
+  },
+
+  getMasterProfile: async (id: string): Promise<MasterProfile> => {
+    const response = await axiosClient.get(
+      `/admin/users/${encodeURIComponent(id)}/master-profile`,
+    );
+    return normalizeMasterProfile(response.data, id);
   },
 
   createUser: async (data: any) => {

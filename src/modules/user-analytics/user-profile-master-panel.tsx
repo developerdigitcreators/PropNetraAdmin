@@ -47,7 +47,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { UserFormModal } from "@/modules/rbac/user-form-modal";
-import { MasterProfileDialog } from "@/modules/user-analytics/master-profile-dialog";
+import { RegisteredUserViewModal } from "@/modules/app-users/registered-user-view-modal";
 import { SetupPendingBadge } from "@/modules/app-users/company-logo-field";
 import { rbacService } from "@/services/rbac.service";
 import { resolvePlanChip } from "@/lib/plan-labels";
@@ -367,7 +367,7 @@ export function UserProfileMasterPanel() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
 
-  const [viewUserId, setViewUserId] = useState<string | null>(null);
+  const [viewUser, setViewUser] = useState<any>(null);
   const [viewOpen, setViewOpen] = useState(false);
   const [formUser, setFormUser] = useState<any>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -1044,7 +1044,7 @@ export function UserProfileMasterPanel() {
                           variant="ghost"
                           size="sm"
                           onClick={() => {
-                            setViewUserId(String(user.id));
+                            setViewUser(user);
                             setViewOpen(true);
                           }}
                           className="h-8 w-8 p-0 text-gray-500 hover:text-gray-800"
@@ -1245,10 +1245,10 @@ export function UserProfileMasterPanel() {
       </Dialog>
       {rejectUnsavedDialog}
 
-      <MasterProfileDialog
+      <RegisteredUserViewModal
         open={viewOpen}
         onOpenChange={setViewOpen}
-        userId={viewUserId}
+        user={viewUser}
       />
 
       {canUpdate ? (

@@ -359,6 +359,8 @@ export type CreateFormField = {
   required?: boolean;
   options?: CreateFormFieldOption[];
   placeholder?: string;
+  suffix?: string;
+  dependsOn?: { field: string; value: unknown };
   moduleKey?: string;
   slot?: string;
   bannerPlacement?: unknown;
@@ -799,6 +801,13 @@ function applyPossessionFieldControls(
   return field;
 }
 
+function normalizeDependsOn(raw: unknown): { field: string; value: unknown } | undefined {
+  const row = asObject(raw);
+  const field = pickStr(row.field, row.fieldKey, row.field_key, row.key);
+  if (!field || !("value" in row)) return undefined;
+  return { field, value: row.value };
+}
+
 function normalizeCreateField(
   raw: unknown,
   moduleKey = "",
@@ -855,6 +864,8 @@ function normalizeCreateField(
         row.moduleOptions,
     ),
     placeholder: pickStr(row.placeholder, row.hint) || undefined,
+    suffix: pickStr(row.suffix) || undefined,
+    dependsOn: normalizeDependsOn(row.dependsOn ?? row.depends_on),
     moduleKey: moduleKey || pickStr(row.module_key, row.moduleKey) || undefined,
     raw: fieldId ? { ...row, id: fieldId } : row,
   };
@@ -2213,6 +2224,43 @@ function formatAreaDisplay(sizeRaw: unknown, unitRaw: unknown): string {
   return unitText ? `${sizeText} ${unitText}` : sizeText;
 }
 
+function isDetailFlagOn(value: unknown): boolean {
+  return value === true || value === 1 || value === "1" || value === "true" || value === "yes";
+}
+
+function isDetailPercentKey(norm: string): boolean {
+  return (
+    (norm.startsWith("brokerage_share") || norm.startsWith("mandate_deal") || norm.startsWith("brokerage") || norm.startsWith("mandate")) &&
+    norm.includes("percent")
+  );
+}
+
+function detailPercentForFlag(
+  byNorm: Map<string, { originalKey: string; value: unknown }>,
+  flag: string,
+): number | null {
+  const candidates = [`${flag}_percent`, `${flag}_percentage`, `${flag}percent`];
+  for (const key of candidates) {
+    const parsed = parseDetailPercent(byNorm.get(key)?.value);
+    if (parsed != null) return parsed;
+  }
+  for (const [norm, entry] of byNorm) {
+    if (!norm.startsWith(flag) || !norm.includes("percent")) continue;
+    const parsed = parseDetailPercent(entry.value);
+    if (parsed != null) return parsed;
+  }
+  return null;
+}
+
+function parseDetailPercent(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value.replace("%", "").trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 function detailSortIndex(normalizedKey: string): number {
   const idx = DETAIL_FIELD_ORDER.indexOf(normalizedKey);
   return idx === -1 ? 1000 + normalizedKey.charCodeAt(0) : idx;
@@ -2225,11 +2273,21 @@ export function getListingDetailRows(
   item: ListingReviewItem,
 ): ListingDetailRow[] {
   const form = (item.form || {}) as Record<string, unknown>;
+  const extra = item as ListingReviewItem & {
+    dynamicData?: Record<string, unknown>;
+    dynamic_data?: Record<string, unknown>;
+  };
   const dynamic =
     form.dynamicData && typeof form.dynamicData === "object"
       ? (form.dynamicData as Record<string, unknown>)
-      : {};
-  const merged: Record<string, unknown> = { ...dynamic };
+      : form.dynamic_data && typeof form.dynamic_data === "object"
+        ? (form.dynamic_data as Record<string, unknown>)
+        : {};
+  const merged: Record<string, unknown> = {
+    ...(extra.dynamic_data || {}),
+    ...(extra.dynamicData || {}),
+    ...dynamic,
+  };
 
   for (const [key, value] of Object.entries(form)) {
     if (key === "dynamicData" || key === "submittedBy") continue;
@@ -2293,6 +2351,13 @@ export function getListingDetailRows(
       value = Number.isFinite(num)
         ? `₹ ${num.toLocaleString("en-IN")}`
         : formatDetailValue(entry.value);
+    } else if (norm === "brokerage_share" || norm === "mandate_deal") {
+      if (!isDetailFlagOn(entry.value)) continue;
+      const percent = detailPercentForFlag(byNorm, norm);
+      if (percent == null) continue;
+      value = `${percent}%`;
+    } else if (isDetailPercentKey(norm)) {
+      continue;
     } else {
       value = formatDetailValue(entry.value);
     }

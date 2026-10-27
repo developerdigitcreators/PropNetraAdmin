@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
+  LayoutGrid,
   Users,
   Shield,
   MapPin,
@@ -105,6 +106,12 @@ const MENU_ITEMS: MenuItem[] = [
     permission: "listings:read",
   },
   {
+    name: "Card features",
+    path: "/listings/card-features",
+    icon: LayoutGrid,
+    permission: "form_modules:read",
+  },
+  {
     name: "Review Listing",
     path: "/moderation",
     icon: MapPin,
@@ -160,6 +167,12 @@ const MENU_ITEMS: MenuItem[] = [
     path: "/search-suggestions",
     icon: Search,
     permission: "search_suggestions:read",
+  },
+  {
+    name: "Resale Hotspots",
+    path: "/resale-hotspots",
+    icon: MapPin,
+    permission: "resale_hotspots:read",
   },
   {
     name: "Direct Builder Floor Featured",

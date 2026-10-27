@@ -473,7 +473,13 @@ export function MyListingsPanel() {
     if (!listingDetail) return [];
     return getListingDetailRows({
       id: listingDetail.id,
-      form: listingDetail.form,
+      form: {
+        dynamicData: {
+          ...(listingDetail.dynamicData || {}),
+          ...(listingDetail.form?.dynamicData || {}),
+        },
+      },
+      dynamicData: listingDetail.dynamicData,
       building_type: listingDetail.buildingType,
       property_type: listingDetail.propertyType,
     } as ListingReviewItem);

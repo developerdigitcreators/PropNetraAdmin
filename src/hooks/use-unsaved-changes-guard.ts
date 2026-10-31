@@ -5,10 +5,15 @@ import { usePathname, useRouter } from 'next/navigation';
 import { UnsavedChangesDialog } from '@/components/common/unsaved-changes-dialog';
 import { createElement } from 'react';
 
-type UseUnsavedChangesGuardOptions = {
-  dirty: boolean;
+export type UnsavedGuardOptions = {
   /** When provided, dialog shows Save and runs this before leaving. */
   onSave?: () => void | Promise<void>;
+  /** Runs when the user chooses Leave without saving (reset local draft). */
+  onLeaveWithoutSave?: () => void;
+};
+
+type UseUnsavedChangesGuardOptions = UnsavedGuardOptions & {
+  dirty: boolean;
 };
 
 /**
@@ -19,6 +24,7 @@ type UseUnsavedChangesGuardOptions = {
 export function useUnsavedChangesGuard({
   dirty,
   onSave,
+  onLeaveWithoutSave,
 }: UseUnsavedChangesGuardOptions): {
   dialog: ReactNode;
   /** For in-page switches (tabs, filters): resolves true when it is safe to drop the draft. */
@@ -98,6 +104,7 @@ export function useUnsavedChangesGuard({
   }, []);
 
   const leave = useCallback(() => {
+    onLeaveWithoutSave?.();
     allowLeave.current = true;
     setOpen(false);
     const href = pendingHref.current;
@@ -109,7 +116,7 @@ export function useUnsavedChangesGuard({
     window.setTimeout(() => {
       allowLeave.current = false;
     }, 0);
-  }, [router]);
+  }, [onLeaveWithoutSave, router]);
 
   const saveAndLeave = useCallback(async () => {
     if (!onSave) {
@@ -146,8 +153,13 @@ export function useUnsavedChangesGuard({
  * Guard closing a modal/dialog when local draft is dirty.
  * Returns true if the caller may proceed with close.
  */
-export function useDialogUnsavedGuard(dirty: boolean) {
+export function useDialogUnsavedGuard(
+  dirty: boolean,
+  options?: UnsavedGuardOptions,
+) {
+  const { onSave, onLeaveWithoutSave } = options ?? {};
   const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const resolveRef = useRef<((ok: boolean) => void) | null>(null);
 
   const requestClose = useCallback((): Promise<boolean> => {
@@ -164,13 +176,36 @@ export function useDialogUnsavedGuard(dirty: boolean) {
     resolveRef.current = null;
   }, []);
 
+  const leave = useCallback(() => {
+    onLeaveWithoutSave?.();
+    finish(true);
+  }, [finish, onLeaveWithoutSave]);
+
+  const saveAndClose = useCallback(async () => {
+    if (!onSave) {
+      leave();
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave();
+      leave();
+    } catch {
+      // Stay open if save fails.
+    } finally {
+      setSaving(false);
+    }
+  }, [leave, onSave]);
+
   const dialog = createElement(UnsavedChangesDialog, {
     open,
     onOpenChange: (next: boolean) => {
       if (!next) finish(false);
     },
-    onLeave: () => finish(true),
+    onSave: onSave ? () => void saveAndClose() : undefined,
+    onLeave: leave,
     onCancel: () => finish(false),
+    saving,
   });
 
   return { requestClose, dialog };

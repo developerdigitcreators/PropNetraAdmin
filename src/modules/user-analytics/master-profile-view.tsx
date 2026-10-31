@@ -18,6 +18,9 @@ import {
 import { humanizeRoleName } from '@/lib/role-label';
 import { COMPANY_LOGO_HINT } from '@/modules/app-users/company-logo-field';
 import { DeviceLockSection } from '@/modules/user-analytics/device-lock-section';
+import { ProfileStatsSection, DeveloperShowcaseReadonly } from '@/modules/user-analytics/profile-stats-section';
+import { DeveloperUserProfileEditor } from '@/modules/developer-user/developer-user-profile-editor';
+import { canUpdateDeveloperUserHub } from '@/modules/app-users/app-users-access';
 import {
   adminUsersService,
   type MasterAppRole,
@@ -30,6 +33,7 @@ import { developerHomeService, type AdminTeamMember } from '@/services/developer
 import { listingsService } from '@/services/listings.service';
 import { uploadAdminMedia } from '@/services/media.service';
 import { apiErrorInfo } from '@/services/password-reset.service';
+import { resolveProjectPrefixError } from '@/lib/project-prefix-error';
 import { useAuthStore } from '@/store/use-auth-store';
 
 const ROLE_LABEL: Record<MasterAppRole, string> = {
@@ -108,6 +112,21 @@ export function MasterProfilePage({ userId }: { userId: string }) {
   );
 }
 
+export function MasterProfileBodyForHub(props: {
+  userId: string;
+  active?: boolean;
+  onProfileUpdated?: (profile: MasterProfile) => void;
+}) {
+  return (
+    <MasterProfileBody
+      userId={props.userId}
+      active={props.active ?? true}
+      omitHubSections
+      onProfileUpdated={props.onProfileUpdated}
+    />
+  );
+}
+
 export function MasterProfileDialog({
   open,
   onOpenChange,
@@ -130,8 +149,23 @@ export function MasterProfileDialog({
   );
 }
 
-function MasterProfileBody({ userId, active }: { userId: string | null; active: boolean }) {
+function MasterProfileBody({
+  userId,
+  active,
+  omitHubSections = false,
+  onProfileUpdated,
+}: {
+  userId: string | null;
+  active: boolean;
+  /** Hide sales team and listings when shown in Developer User hub tabs. */
+  omitHubSections?: boolean;
+  onProfileUpdated?: (profile: MasterProfile) => void;
+}) {
   const canReadTeam = useAuthStore((s) => s.hasPermission('developer_team', 'read'));
+  const canUpdateMaster = useAuthStore((s) => s.hasPermission('app_users_master', 'update'));
+  const hasPermission = useAuthStore((s) => s.hasPermission);
+  const canEditDeveloperProfile =
+    canUpdateMaster || canUpdateDeveloperUserHub(hasPermission);
   const [profile, setProfile] = useState<MasterProfile | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -145,7 +179,10 @@ function MasterProfileBody({ userId, active }: { userId: string | null; active: 
     adminUsersService
       .getMasterProfile(userId)
       .then((next) => {
-        if (!cancelled) setProfile(next);
+        if (!cancelled) {
+          setProfile(next);
+          onProfileUpdated?.(next);
+        }
       })
       .catch((err) => {
         if (!cancelled) {
@@ -180,69 +217,132 @@ function MasterProfileBody({ userId, active }: { userId: string | null; active: 
 
   return (
     <div className="space-y-4">
-      <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">{user.name || '—'}</h2>
-            <p className="text-sm text-gray-500">{roleLabel}</p>
+      {omitHubSections ? (
+        <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">{user.name || '—'}</h2>
+              <p className="text-sm text-gray-500">{roleLabel}</p>
+            </div>
+            <Badge variant="outline" className="capitalize">
+              {String(user.status || '—').replace(/_/g, ' ')}
+            </Badge>
           </div>
-          <Badge variant="outline" className="capitalize">
-            {String(user.status || '—').replace(/_/g, ' ')}
-          </Badge>
-        </div>
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <div>
-            <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Phone</p>
-            <p className="mt-0.5 text-sm text-gray-800">
-              <MaskedContact value={user.contact} revealKey={`master-profile:${user.id || userId}:contact`} />
-            </p>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Phone</p>
+              <p className="mt-0.5 text-sm text-gray-800">
+                <MaskedContact
+                  value={user.contact}
+                  revealKey={`master-profile:${user.id || userId}:contact`}
+                />
+              </p>
+            </div>
+            <Field label="Email" value={user.email} />
+            <Field label="Company name" value={user.companyName || profile.company?.name} />
           </div>
-          <Field label="Email" value={user.email} />
-          <Field label="Company name" value={user.companyName} />
-          <Field label="Address" value={user.address} />
-          <Field label="City" value={user.city || user.cityName} />
-          <Field label="Role" value={roleLabel} />
-          <Field label="Plan" value={user.subscription || user.subscriptionStatus} />
-          <Field label="Badge" value={user.badge} />
-          <div>
-            <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Documents</p>
-            <div className="mt-1">
-              {!user.documentsStatus || user.documentsStatus === 'none' ? (
-                <span className="text-sm text-gray-400">—</span>
-              ) : (
-                <Badge
-                  variant="outline"
-                  className={
-                    DOC_STATUS[user.documentsStatus] || 'border-gray-200 bg-gray-50 text-gray-700'
-                  }
-                >
-                  {user.documentsStatusLabel || user.documentsStatus}
-                </Badge>
-              )}
+        </section>
+      ) : null}
+
+      {!omitHubSections ? (
+        <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">{user.name || '—'}</h2>
+              <p className="text-sm text-gray-500">{roleLabel}</p>
+            </div>
+            <Badge variant="outline" className="capitalize">
+              {String(user.status || '—').replace(/_/g, ' ')}
+            </Badge>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Phone</p>
+              <p className="mt-0.5 text-sm text-gray-800">
+                <MaskedContact value={user.contact} revealKey={`master-profile:${user.id || userId}:contact`} />
+              </p>
+            </div>
+            <Field label="Email" value={user.email} />
+            <Field label="Company name" value={user.companyName} />
+            <Field label="Address" value={user.address} />
+            <Field label="City" value={user.city || user.cityName} />
+            <Field label="Role" value={roleLabel} />
+            <Field label="Plan" value={user.subscription || user.subscriptionStatus} />
+            <Field label="Badge" value={user.badge} />
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Documents</p>
+              <div className="mt-1">
+                {!user.documentsStatus || user.documentsStatus === 'none' ? (
+                  <span className="text-sm text-gray-400">—</span>
+                ) : (
+                  <Badge
+                    variant="outline"
+                    className={
+                      DOC_STATUS[user.documentsStatus] || 'border-gray-200 bg-gray-50 text-gray-700'
+                    }
+                  >
+                    {user.documentsStatusLabel || user.documentsStatus}
+                  </Badge>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      ) : null}
 
       <DeviceLockSection userId={userId} />
 
-      {profile.sections.company && profile.company ? (
-        <CompanySection
+      {profile.appRole === 'developer' &&
+      profile.company &&
+      profile.builderProfile &&
+      canEditDeveloperProfile ? (
+        <DeveloperUserProfileEditor
           userId={userId}
           profile={profile}
+          profileRevision={reloadKey}
+          canUpdate={canEditDeveloperProfile}
           onSaved={() => setReloadKey((n) => n + 1)}
         />
       ) : null}
 
-      {profile.sections.builderProfile && profile.builderProfile ? (
-        <BuilderSection role={role} builder={profile.builderProfile} />
+      {profile.appRole === 'developer' && canEditDeveloperProfile ? null : (
+        <>
+          {profile.sections.company && profile.company ? (
+            <CompanySection
+              userId={userId}
+              profile={profile}
+              onSaved={() => setReloadKey((n) => n + 1)}
+            />
+          ) : null}
+        </>
+      )}
+
+      {profile.sections.profileStats && profile.profileStats ? (
+        <ProfileStatsSection
+          userId={userId}
+          stats={profile.profileStats}
+          canUpdate={canUpdateMaster}
+          onSaved={() => setReloadKey((n) => n + 1)}
+        />
       ) : null}
 
-      {profile.sections.salesTeam ? (
+      {profile.appRole === 'developer' && canEditDeveloperProfile ? null : (
+        <>
+          {profile.sections.developerShowcase !== false && profile.appRole === 'developer' ? (
+            <DeveloperShowcaseReadonly items={profile.developerShowcase ?? []} />
+          ) : null}
+
+          {profile.sections.builderProfile && profile.builderProfile ? (
+            <BuilderSection role={role} builder={profile.builderProfile} />
+          ) : null}
+        </>
+      )}
+
+      {profile.sections.salesTeam && !omitHubSections ? (
         <SalesTeamSection userId={userId} enabled={active} canRead={canReadTeam} />
       ) : null}
 
-      {profile.sections.listings && role ? (
+      {profile.sections.listings && role && !omitHubSections ? (
         <ProfileListings userId={userId} role={role} profile={profile} />
       ) : null}
     </div>
@@ -263,6 +363,7 @@ function CompanySection({
   const [logoBusy, setLogoBusy] = useState(false);
   const [prefix, setPrefix] = useState(company.prefix);
   const [prefixBusy, setPrefixBusy] = useState(false);
+  const [prefixError, setPrefixError] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -300,12 +401,18 @@ function CompanySection({
 
   const savePrefix = async () => {
     setPrefixBusy(true);
+    setPrefixError('');
     setError('');
     try {
       await adminUsersService.updateUser(userId, { projectPrefix: prefix.trim() });
       onSaved();
     } catch (err) {
-      setError(apiErrorInfo(err, 'Could not update project prefix.').message);
+      const { message, isPrefixConflict } = resolveProjectPrefixError(
+        err,
+        'Could not update project prefix.',
+      );
+      if (isPrefixConflict) setPrefixError(message);
+      else setError(message);
     } finally {
       setPrefixBusy(false);
     }
@@ -317,15 +424,25 @@ function CompanySection({
         <Field label="Company name" value={company.name} />
         <Field label="GST" value={company.gst} />
         <Field label="Company role" value={company.companyRole} />
+        <Field label="Website" value={company.websiteUrl} />
       </div>
       <div className="max-w-sm space-y-2">
         <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Project prefix</p>
         <div className="flex gap-2">
-          <Input value={prefix} onChange={(e) => setPrefix(e.target.value)} disabled={prefixBusy} />
+          <Input
+            value={prefix}
+            onChange={(e) => {
+              setPrefix(e.target.value);
+              setPrefixError('');
+            }}
+            disabled={prefixBusy}
+            className={prefixError ? 'border-red-500' : undefined}
+          />
           <Button type="button" size="sm" disabled={prefixBusy} onClick={() => void savePrefix()}>
             {prefixBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
           </Button>
         </div>
+        {prefixError ? <p className="text-xs text-red-600">{prefixError}</p> : null}
       </div>
       <div>
         <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Logo</p>

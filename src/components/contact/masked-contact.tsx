@@ -1,40 +1,83 @@
 'use client';
 
-import { Eye, EyeOff } from 'lucide-react';
+import { useCallback } from 'react';
+import { Eye } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { maskContact } from '@/lib/contact-mask';
+import { maskContact, maskSecret } from '@/lib/contact-mask';
 import { contactReveal, useRevealedKey } from '@/components/contact/contact-reveal-store';
 
 type MaskedContactProps = {
   value?: string | null;
-  /** Unique per number, e.g. `leads:${rowId}:buyer`. */
+  /** Unique per value, e.g. `leads:${rowId}:buyer`. */
   revealKey: string;
   label?: string;
   className?: string;
   /** Rendered when there is no number. */
   empty?: string;
+  /** `contact` masks digits only; `secret` masks full string (unit no, etc.). */
+  variant?: 'contact' | 'secret';
 };
 
-export function MaskedContact({ value, revealKey, label, className, empty = '—' }: MaskedContactProps) {
+export function MaskedContact({
+  value,
+  revealKey,
+  label,
+  className,
+  empty = '—',
+  variant = 'contact',
+}: MaskedContactProps) {
   const open = useRevealedKey() === revealKey;
   const text = String(value ?? '').trim();
+  const mask = variant === 'secret' ? maskSecret : maskContact;
+
+  const reveal = useCallback(() => {
+    contactReveal.show(revealKey);
+  }, [revealKey]);
+
+  const conceal = useCallback(() => {
+    if (contactReveal.get() === revealKey) contactReveal.hideAll();
+  }, [revealKey]);
+
+  const holdProps = {
+    onPointerDown: (e: React.PointerEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      reveal();
+    },
+    onPointerUp: (e: React.PointerEvent) => {
+      e.stopPropagation();
+      conceal();
+    },
+    onPointerLeave: (e: React.PointerEvent) => {
+      e.stopPropagation();
+      conceal();
+    },
+    onPointerCancel: (e: React.PointerEvent) => {
+      e.stopPropagation();
+      conceal();
+    },
+  };
+
   if (!text) return empty ? <span className={className}>{empty}</span> : null;
+
   return (
     <span className={cn('inline-flex items-center gap-1.5 font-mono', className)}>
       {label ? <span className="font-sans text-gray-400">{label}:</span> : null}
-      <span>{open ? text : maskContact(text)}</span>
+      <span
+        className={cn('select-none', open ? 'text-gray-900' : 'text-gray-600')}
+        {...holdProps}
+        title="Hold to reveal"
+      >
+        {open ? text : mask(text)}
+      </span>
       <button
         type="button"
-        className="inline-flex shrink-0 items-center text-gray-400 hover:text-gray-700"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          contactReveal.toggle(revealKey);
-        }}
-        aria-label={open ? 'Hide number' : 'Show number'}
-        title={open ? 'Hide number' : 'Show number'}
+        className="inline-flex shrink-0 touch-none items-center text-gray-400 hover:text-gray-700"
+        {...holdProps}
+        aria-label="Hold to show value"
+        title="Hold to reveal"
       >
-        {open ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+        <Eye className="h-3.5 w-3.5" />
       </button>
     </span>
   );

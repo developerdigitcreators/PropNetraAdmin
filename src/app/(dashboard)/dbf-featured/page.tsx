@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
@@ -63,8 +63,24 @@ function DbfFeaturedPageInner() {
   const { filters, setFilters } = useUrlFilters({ tab: 'sections', stateId: '', cityId: '' });
   const tab = filters.tab === 'builders' ? 'builders' : 'sections';
   const [dirtyIds, setDirtyIds] = useState<Record<string, boolean>>({});
+  const sectionSaveRef = useRef<Map<string, () => Promise<void>>>(new Map());
+  const registerSectionSave = useCallback((id: string, fn: () => Promise<void>) => {
+    sectionSaveRef.current.set(id, fn);
+  }, []);
+  const unregisterSectionSave = useCallback((id: string) => {
+    sectionSaveRef.current.delete(id);
+  }, []);
+  const saveAllDirtySections = useCallback(async () => {
+    for (const [id, dirty] of Object.entries(dirtyIds)) {
+      if (!dirty) continue;
+      const fn = sectionSaveRef.current.get(id);
+      if (fn) await fn();
+    }
+  }, [dirtyIds]);
+  const canUpdate = useAuthStore((s) => s.hasPermission('dbf_featured', 'update'));
   const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({
     dirty: Object.values(dirtyIds).some(Boolean),
+    onSave: canUpdate ? saveAllDirtySections : undefined,
   });
   const onDirtyChange = useCallback((id: string, dirty: boolean) => {
     setDirtyIds((prev) => (!!prev[id] === dirty ? prev : { ...prev, [id]: dirty }));
@@ -108,6 +124,8 @@ function DbfFeaturedPageInner() {
               cityId={filters.cityId}
               onFiltersChange={guardedFilters}
               onDirtyChange={onDirtyChange}
+              registerSectionSave={registerSectionSave}
+              unregisterSectionSave={unregisterSectionSave}
             />
           </TabsContent>
           <TabsContent value="builders" className="pt-4">
@@ -125,11 +143,15 @@ function SectionsTab({
   cityId,
   onFiltersChange,
   onDirtyChange,
+  registerSectionSave,
+  unregisterSectionSave,
 }: {
   stateId: string;
   cityId: string;
   onFiltersChange: (next: { stateId?: string; cityId?: string }) => Promise<boolean>;
   onDirtyChange: (id: string, dirty: boolean) => void;
+  registerSectionSave: (id: string, fn: () => Promise<void>) => void;
+  unregisterSectionSave: (id: string) => void;
 }) {
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const canCreate = hasPermission('dbf_featured', 'create');
@@ -406,6 +428,8 @@ function SectionsTab({
               canUpdate={canUpdate}
               canDelete={canDelete}
               onDirtyChange={onDirtyChange}
+              registerSectionSave={registerSectionSave}
+              unregisterSectionSave={unregisterSectionSave}
               onChanged={replaceSection}
               onError={setError}
               onDelete={() => void handleDeleteSection(section)}
@@ -483,6 +507,8 @@ function SectionCard({
   canUpdate,
   canDelete,
   onDirtyChange,
+  registerSectionSave,
+  unregisterSectionSave,
   onChanged,
   onError,
   onDelete,
@@ -495,6 +521,8 @@ function SectionCard({
   canUpdate: boolean;
   canDelete: boolean;
   onDirtyChange: (id: string, dirty: boolean) => void;
+  registerSectionSave: (id: string, fn: () => Promise<void>) => void;
+  unregisterSectionSave: (id: string) => void;
   onChanged: (next: DbfSection | null) => void;
   onError: (message: string) => void;
   onDelete: () => void;
@@ -519,10 +547,10 @@ function SectionCard({
 
   useEffect(() => () => onDirtyChange(section.id, false), [section.id, onDirtyChange]);
 
-  const save = async () => {
+  const save = useCallback(async () => {
     if (!name.trim()) {
       onError('Section name is required.');
-      return;
+      throw new Error('validation');
     }
     setSaving(true);
     try {
@@ -531,10 +559,16 @@ function SectionCard({
       );
     } catch (err) {
       onError(dbfFeaturedApiError(err, 'Failed to save section.'));
+      throw err;
     } finally {
       setSaving(false);
     }
-  };
+  }, [autoslide, name, onChanged, onError, section.id]);
+
+  useEffect(() => {
+    registerSectionSave(section.id, save);
+    return () => unregisterSectionSave(section.id);
+  }, [registerSectionSave, save, section.id, unregisterSectionSave]);
 
   const toggleActive = async (next: boolean) => {
     setToggling(true);

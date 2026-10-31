@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { listingConfigApiError, listingConfigService } from '@/services/listing-config.service';
 import { isPreLeasedName } from '@/services/listings.service';
@@ -221,8 +221,14 @@ export default function AttributesPage() {
   const [formData, setFormData] = useState<AttributeFormData>(EMPTY_FORM);
   const [formBaseline, setFormBaseline] = useState('');
   const formDirty = isModalOpen && formBaseline !== '' && JSON.stringify(formData) !== formBaseline;
-  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(formDirty);
-  const { dialog: leaveDialog } = useUnsavedChangesGuard({ dirty: formDirty });
+  const handleSaveRef = useRef<() => Promise<void>>(async () => {});
+  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(formDirty, {
+    onSave: () => handleSaveRef.current(),
+  });
+  const { dialog: leaveDialog } = useUnsavedChangesGuard({
+    dirty: formDirty,
+    onSave: () => handleSaveRef.current(),
+  });
   const closeModal = async () => {
     if (await requestClose()) setIsModalOpen(false);
   };
@@ -430,6 +436,7 @@ export default function AttributesPage() {
       setIsSubmitting(false);
     }
   };
+  handleSaveRef.current = handleSave;
 
   const handleToggleStatus = async (item: ListingAttribute, newValue: boolean) => {
     try {

@@ -385,9 +385,6 @@ export default function ListingFakeStatsPage() {
 
   const savedDrafts = useMemo(() => (settings ? draftsFrom(settings) : {}), [settings]);
   const draftsDirty = sections.some((s) => !sameDraft(drafts[s.role], savedDrafts[s.role]));
-  const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({
-    dirty: draftsDirty || Object.values(sectionDirty).some(Boolean),
-  });
 
   const onSectionDirty = useCallback((r: FakeStatsRole, dirty: boolean) => {
     setSectionDirty((prev) => (Boolean(prev[r]) === dirty ? prev : { ...prev, [r]: dirty }));
@@ -472,6 +469,19 @@ export default function ListingFakeStatsPage() {
       setSavingRole(null);
     }
   };
+
+  const saveAllDirtyDrafts = async () => {
+    for (const s of sections) {
+      if (!sameDraft(drafts[s.role], savedDrafts[s.role])) {
+        await saveRoleSettings(s.role);
+      }
+    }
+  };
+
+  const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({
+    dirty: draftsDirty || Object.values(sectionDirty).some(Boolean),
+    onSave: canUpdate ? () => saveAllDirtyDrafts() : undefined,
+  });
 
   const addSchedule = async () => {
     if (!cityId || !settings || !addRole) return;

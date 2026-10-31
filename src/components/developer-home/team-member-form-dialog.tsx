@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { formatMb, uploadAdminMedia } from '@/services/media.service';
 import { uploadHintText, useAdminImageMaxBytes } from '@/components/image-url-or-upload';
 import {
@@ -47,29 +48,42 @@ function initials(name: string) {
 export function TeamMemberFormDialog({
   open,
   developerId,
+  member = null,
   pages = ['coming_soon'],
   onClose,
   onSaved,
 }: {
   open: boolean;
   developerId: string;
+  /** When set, dialog edits an existing member (PATCH). */
+  member?: AdminTeamMember | null;
   pages?: string[];
   onClose: () => void;
   onSaved: (member: AdminTeamMember) => void;
 }) {
+  const isEdit = Boolean(member?.id);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [designation, setDesignation] = useState('');
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const fileRef = useRef<HTMLInputElement>(null);
   const maxBytes = useAdminImageMaxBytes();
-  const dirty = open && !!(name.trim() || phone.trim() || designation.trim() || photoUrl);
-  const { requestClose, dialog } = useDialogUnsavedGuard(dirty);
-  const { dialog: leaveDialog } = useUnsavedChangesGuard({ dirty });
+  const dirty =
+    open &&
+    (isEdit
+      ? name.trim() !== (member?.name || '').trim() ||
+        phone.replace(/\s+/g, '') !== (member?.phone || '').replace(/\s+/g, '') ||
+        designation.trim() !== (member?.designation || '').trim() ||
+        photoUrl !== (member?.photoUrl ?? null) ||
+        isActive !== (member?.isActive ?? true)
+      : !!(name.trim() || phone.trim() || designation.trim() || photoUrl));
+  const { requestClose, dialog } = useDialogUnsavedGuard(dirty, { onSave: () => save() });
+  const { dialog: leaveDialog } = useUnsavedChangesGuard({ dirty, onSave: () => save() });
 
   const close = async () => {
     if (saving) return;
@@ -78,13 +92,22 @@ export function TeamMemberFormDialog({
 
   useEffect(() => {
     if (!open) return;
-    setName('');
-    setPhone('');
-    setDesignation('');
-    setPhotoUrl(null);
+    if (member) {
+      setName(member.name);
+      setPhone(member.phone);
+      setDesignation(member.designation || '');
+      setPhotoUrl(member.photoUrl);
+      setIsActive(member.isActive);
+    } else {
+      setName('');
+      setPhone('');
+      setDesignation('');
+      setPhotoUrl(null);
+      setIsActive(true);
+    }
     setError('');
     setFieldErrors({});
-  }, [open]);
+  }, [open, member]);
 
   const clearField = (k: keyof FieldErrors) =>
     setFieldErrors((prev) => (prev[k] ? { ...prev, [k]: undefined } : prev));
@@ -116,14 +139,29 @@ export function TeamMemberFormDialog({
     setSaving(true);
     setError('');
     try {
-      const saved = await developerHomeService.createMember(developerId, {
+      const payload = {
         name: name.trim().replace(/\s+/g, ' '),
         phone: cleanPhone,
         designation: designation.trim().replace(/\s+/g, ' '),
-        ...(photoUrl ? { photoUrl } : {}),
-        pages,
-      });
-      onSaved({ ...saved, microMarkets: saved.microMarkets ?? [], assignments: saved.assignments ?? [] });
+        photoUrl: photoUrl || undefined,
+        isActive,
+      };
+      const saved = isEdit && member
+        ? await developerHomeService.updateMember(developerId, member.id, {
+            name: payload.name,
+            phone: payload.phone,
+            designation: payload.designation,
+            photoUrl: payload.photoUrl,
+            isActive: payload.isActive,
+          })
+        : await developerHomeService.createMember(developerId, {
+            name: payload.name,
+            phone: payload.phone,
+            designation: payload.designation,
+            ...(photoUrl ? { photoUrl } : {}),
+            pages,
+          });
+      onSaved({ ...saved, microMarkets: saved.microMarkets ?? member?.microMarkets ?? [], assignments: saved.assignments ?? member?.assignments ?? [] });
     } catch (err) {
       setError(developerHomeApiError(err, 'Could not save team member'));
     } finally {
@@ -136,8 +174,10 @@ export function TeamMemberFormDialog({
     <Dialog open={open} onOpenChange={(v) => !v && void close()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Add team member</DialogTitle>
-          <DialogDescription>The member is added to this developer&apos;s team.</DialogDescription>
+          <DialogTitle>{isEdit ? 'Edit team member' : 'Add team member'}</DialogTitle>
+          <DialogDescription>
+            {isEdit ? 'Update this member’s profile and photo.' : 'The member is added to this developer&apos;s team.'}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col items-center gap-1.5">
@@ -210,6 +250,12 @@ export function TeamMemberFormDialog({
               }}
             />
           </Field>
+          {isEdit && (
+            <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+              <span className="text-sm font-medium text-gray-700">Active</span>
+              <Switch checked={isActive} onCheckedChange={setIsActive} />
+            </div>
+          )}
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}

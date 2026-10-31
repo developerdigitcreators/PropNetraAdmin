@@ -35,8 +35,6 @@ export function PlanPopupBannerDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const dirty = open && !loading && imageUrl.trim() !== savedUrl;
-  const { requestClose, dialog } = useDialogUnsavedGuard(dirty);
-  const { dialog: leaveDialog } = useUnsavedChangesGuard({ dirty });
 
   const handleOpenChange = async (next: boolean) => {
     if (saving) return;
@@ -104,6 +102,14 @@ export function PlanPopupBannerDialog({
       setSaving(false);
     }
   };
+
+  const { requestClose, dialog } = useDialogUnsavedGuard(dirty, {
+    onSave: canUpdate ? () => handleSave() : undefined,
+  });
+  const { dialog: leaveDialog } = useUnsavedChangesGuard({
+    dirty,
+    onSave: canUpdate ? () => handleSave() : undefined,
+  });
 
   return (
     <>

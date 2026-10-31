@@ -161,7 +161,11 @@ export function ReelFormDialog({ open, reel, onOpenChange, onSaved }: ReelFormDi
       hasVideoFile: Boolean(videoFile),
       hasThumbFile: Boolean(thumbnailFile),
     }) !== baselineRef.current;
-  const { requestClose, dialog } = useDialogUnsavedGuard(dirty);
+  const { requestClose, dialog } = useDialogUnsavedGuard(dirty, {
+    onSave: () => {
+      void handleSubmit({ preventDefault: () => {} } as React.FormEvent);
+    },
+  });
 
   const handleOpenChange = async (next: boolean) => {
     if (submitting || uploadingThumb) return;

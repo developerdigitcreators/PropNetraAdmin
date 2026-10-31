@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -13,7 +13,17 @@ import { SearchableSelect } from '@/components/common/searchable-select';
 import { dbfFeaturedApiError } from '@/services/dbf-featured.service';
 import { Loader2 } from 'lucide-react';
 
-export type DbfPickOption = { value: string; label: string; badge?: string | number };
+export type DbfPickOption = {
+  value: string;
+  label: string;
+  badge?: string | number;
+  badgeVariant?: 'default' | 'projectCount';
+};
+
+export type DbfPickPageResult = {
+  options: DbfPickOption[];
+  hasMore: boolean;
+};
 
 type DbfPickDialogProps = {
   open: boolean;
@@ -26,7 +36,10 @@ type DbfPickDialogProps = {
   submitLabel: string;
   submitting: boolean;
   error: string;
-  search: (q: string) => Promise<DbfPickOption[]>;
+  /** Legacy single fetch (posts, DBF). Ignored when searchPage is set. */
+  search?: (q: string) => Promise<DbfPickOption[]>;
+  /** Paginated search: page 1 replaces options; later pages append. */
+  searchPage?: (q: string, page: number) => Promise<DbfPickPageResult>;
   onOpenChange: (open: boolean) => void;
   onSubmit: (value: string) => void;
 };
@@ -43,6 +56,7 @@ export function DbfPickDialog({
   submitting,
   error,
   search,
+  searchPage,
   onOpenChange,
   onSubmit,
 }: DbfPickDialogProps) {
@@ -51,7 +65,12 @@ export function DbfPickDialog({
   const [query, setQuery] = useState('');
   const [options, setOptions] = useState<DbfPickOption[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [localError, setLocalError] = useState('');
+  const pageRef = useRef(1);
+  const queryRef = useRef('');
+  const paginated = Boolean(searchPage);
 
   useEffect(() => {
     if (!open) return;
@@ -59,14 +78,39 @@ export function DbfPickDialog({
     setLabel('');
     setQuery('');
     setLocalError('');
+    setHasMore(false);
+    pageRef.current = 1;
+    queryRef.current = '';
   }, [open]);
 
+  const runPageSearch = useCallback(
+    async (q: string, page: number, append: boolean) => {
+      if (!searchPage) return;
+      if (append) setLoadingMore(true);
+      else setLoading(true);
+      try {
+        const result = await searchPage(q, page);
+        setOptions((prev) => (append ? [...prev, ...result.options] : result.options));
+        setHasMore(result.hasMore);
+        pageRef.current = page;
+      } catch (err) {
+        if (!append) setOptions([]);
+        setHasMore(false);
+        setLocalError(dbfFeaturedApiError(err, 'Failed to search.'));
+      } finally {
+        if (append) setLoadingMore(false);
+        else setLoading(false);
+      }
+    },
+    [searchPage],
+  );
+
   useEffect(() => {
-    if (!open) return;
+    if (!open || paginated) return;
     let cancelled = false;
     setLoading(true);
     const timer = window.setTimeout(() => {
-      search(query)
+      search?.(query)
         .then((rows) => {
           if (!cancelled) setOptions(rows);
         })
@@ -84,7 +128,27 @@ export function DbfPickDialog({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [open, query, search]);
+  }, [open, query, paginated, search]);
+
+  const handleSearch = (q: string) => {
+    setQuery(q);
+    queryRef.current = q;
+    if (paginated) {
+      setLocalError('');
+      void runPageSearch(q, 1, false);
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (!paginated || loadingMore || loading || !hasMore) return;
+    void runPageSearch(queryRef.current, pageRef.current + 1, true);
+  };
+
+  useEffect(() => {
+    if (!open || !paginated) return;
+    void runPageSearch('', 1, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, paginated]);
 
   const handleSubmit = () => {
     if (!value) {
@@ -113,8 +177,12 @@ export function DbfPickDialog({
                 setValue(v);
                 setLabel(options.find((o) => o.value === v)?.label || '');
               }}
-              onSearch={setQuery}
+              onSearch={paginated ? handleSearch : setQuery}
               loading={loading}
+              hasMore={paginated ? hasMore : false}
+              onLoadMore={paginated ? handleLoadMore : undefined}
+              loadingMore={loadingMore}
+              searchDebounceMs={paginated ? 250 : 300}
               placeholder={placeholder}
               searchPlaceholder={searchPlaceholder}
               emptyText={emptyText}

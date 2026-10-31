@@ -227,7 +227,8 @@ export function DeveloperGroupsPanel({
             <div>
               <p className="text-sm font-semibold text-gray-900">Launch Update</p>
               <p className="mt-1 text-xs text-gray-500">
-                When off, the developer page shows only the Propnetra logo and nothing opens on tap.
+                When off, Launch Update and Showcase are hidden in the app (developer page shows only
+                the Propnetra logo). Showcase picks stay saved in the database.
               </p>
             </div>
             <Switch

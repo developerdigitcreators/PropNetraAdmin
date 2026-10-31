@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { humanizeRoleName } from '@/lib/role-label';
 import { COMPANY_LOGO_HINT } from '@/modules/app-users/company-logo-field';
+import { DeveloperShowcaseReadonly } from '@/modules/user-analytics/profile-stats-section';
 import {
   adminUsersService,
   type MasterAppRole,
@@ -260,6 +261,7 @@ export function MasterProfileDialog({
                   <Field label="Project prefix" value={profile.company.prefix} />
                   <Field label="GST" value={profile.company.gst} />
                   <Field label="Company role" value={profile.company.companyRole} />
+                  <Field label="Website" value={profile.company.websiteUrl} />
                 </div>
                 <div>
                   <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Logo</p>
@@ -317,6 +319,10 @@ export function MasterProfileDialog({
                   {logoError ? <p className="mt-1 text-xs text-red-500">{logoError}</p> : null}
                 </div>
               </Section>
+            ) : null}
+
+            {role === 'developer' && profile.sections.developerShowcase !== false ? (
+              <DeveloperShowcaseReadonly items={profile.developerShowcase ?? []} />
             ) : null}
 
             {profile.builderProfile && (role === 'developer' || role === 'floor' || role === 'agent') ? (

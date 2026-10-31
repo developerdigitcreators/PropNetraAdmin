@@ -473,6 +473,8 @@ type TxnDateParams = {
   txnTo?: string;
   startsFrom?: string;
   startsTo?: string;
+  endsFrom?: string;
+  endsTo?: string;
 };
 
 type RenewalDateParams = {
@@ -646,6 +648,8 @@ export const subscriptionTrackingService = {
             currentPlan: str(row.currentPlan) || null,
             planCode: str(row.planCode || row.plan_code) || null,
             planStartedAt: str(row.planStartedAt || row.plan_started_at) || null,
+            currentPeriodEnd:
+              str(row.currentPeriodEnd || row.current_period_end) || null,
             action: str(row.action) || null,
             status: str(row.status) || null,
             transactionAmount: Number(row.transactionAmount) || 0,

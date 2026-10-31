@@ -83,15 +83,27 @@ const DEV_FEATURE_FIELDS: Array<{
   label: string;
   daily: keyof PlanLimits;
   monthly: keyof PlanLimits;
+  fieldNote?: string;
 }> = [
   { label: 'Compare', daily: 'devCompareDaily', monthly: 'devCompareMonthly' },
-  { label: 'Share (without link)', daily: 'devShareDaily', monthly: 'devShareMonthly' },
+  {
+    label: 'Share (without link)',
+    daily: 'devShareDaily',
+    monthly: 'devShareMonthly',
+    fieldNote: 'Not used for share quota anymore.',
+  },
   { label: 'Brochure download', daily: 'devBrochureDaily', monthly: 'devBrochureMonthly' },
   { label: 'Developer contact reveal', daily: 'devContactDaily', monthly: 'devContactMonthly' },
 ];
 
 const AGENT_DEV_FEATURE_FIELDS: typeof DEV_FEATURE_FIELDS = [
-  { label: 'Developer project page views', daily: 'devViewDaily', monthly: 'devViewMonthly' },
+  {
+    label: 'Developer project views',
+    daily: 'devViewDaily',
+    monthly: 'devViewMonthly',
+    fieldNote:
+      'Counts detail opens, client saves (each new client), and share taps against this limit.',
+  },
   ...DEV_FEATURE_FIELDS,
 ];
 
@@ -264,7 +276,9 @@ export function PlanFormDialog({
   }, [open, plan]);
 
   const dirty = open && baselineRef.current !== '' && snapshot !== baselineRef.current;
-  const { requestClose, dialog } = useDialogUnsavedGuard(dirty);
+  const { requestClose, dialog } = useDialogUnsavedGuard(dirty, {
+    onSave: () => handleSubmit(),
+  });
 
   const handleOpenChange = async (next: boolean) => {
     if (submitting) return;
@@ -768,22 +782,25 @@ export function PlanFormDialog({
 
           <Section
             title="Developer project limits"
-            description="Independent daily and monthly limits for developer projects. A full 3-project compare counts as 1. Repeating the same action on the same project the same day is free. No add-on credits apply."
+            description="Daily and monthly caps on agent plans. Developer project views cover detail opens, client saves (each new client), and share taps. Compare, brochure, and contact use their own limits. A full 3-project compare counts as 1. Repeating the same action on the same project the same day is free. No add-on credits apply."
           >
-            {AGENT_DEV_FEATURE_FIELDS.map(({ label, daily, monthly }) => (
-              <div key={daily} className="grid gap-3 sm:grid-cols-2">
-                <NumField
-                  label={`${label} per day`}
-                  value={limits[daily] == null ? '' : String(limits[daily])}
-                  onChange={(v) => setNullableLimit(daily, v)}
-                  placeholder="Unlimited"
-                />
-                <NumField
-                  label={`${label} per month`}
-                  value={limits[monthly] == null ? '' : String(limits[monthly])}
-                  onChange={(v) => setNullableLimit(monthly, v)}
-                  placeholder="Unlimited"
-                />
+            {AGENT_DEV_FEATURE_FIELDS.map(({ label, daily, monthly, fieldNote }) => (
+              <div key={daily} className="space-y-1">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <NumField
+                    label={`${label} per day`}
+                    value={limits[daily] == null ? '' : String(limits[daily])}
+                    onChange={(v) => setNullableLimit(daily, v)}
+                    placeholder="Unlimited"
+                  />
+                  <NumField
+                    label={`${label} per month`}
+                    value={limits[monthly] == null ? '' : String(limits[monthly])}
+                    onChange={(v) => setNullableLimit(monthly, v)}
+                    placeholder="Unlimited"
+                  />
+                </div>
+                {fieldNote ? <p className="text-xs text-gray-500">{fieldNote}</p> : null}
               </div>
             ))}
             <p className="text-xs text-gray-500">Leave empty for unlimited. 0 = feature blocked.</p>

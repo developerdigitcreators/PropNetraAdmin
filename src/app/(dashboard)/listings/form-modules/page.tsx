@@ -37,12 +37,15 @@ export default function FormModulesPage() {
   const [bannerBusy, setBannerBusy] = useState(false);
   const bannerInputRef = useRef<HTMLInputElement>(null);
   const baselineRef = useRef('');
+  const saveRef = useRef<() => Promise<void>>(async () => {});
   const formSnapshot = useMemo(() => JSON.stringify(formData), [formData]);
   const dirty =
     isModalOpen &&
     baselineRef.current !== '' &&
     formSnapshot !== baselineRef.current;
-  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(dirty);
+  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(dirty, {
+    onSave: () => saveRef.current(),
+  });
 
   const handleModalOpenChange = async (next: boolean) => {
     if (isSubmitting) return;
@@ -160,6 +163,7 @@ export default function FormModulesPage() {
       setIsSubmitting(false);
     }
   };
+  saveRef.current = handleSave;
 
   const handleDelete = async (remark: string) => {
     if (!editingItem) return;

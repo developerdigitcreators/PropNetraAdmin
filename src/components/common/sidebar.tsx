@@ -33,6 +33,7 @@ import {
   TrendingUp,
   Scale,
   Phone,
+  UserRound,
 } from "lucide-react";
 import { useIsSuperAdmin } from "@/hooks/use-is-super-admin";
 import { PermissionGuard } from "@/components/common/permission-guard";
@@ -187,10 +188,22 @@ const MENU_ITEMS: MenuItem[] = [
     permission: "developer_similar_projects:read",
   },
   {
-    name: "Developer Home (Trending / Coming Soon / New Launch / Top Picker)",
+    name: "Developer Home (Trending / Coming Soon / New Launch / Top Real Estate Developers)",
     path: "/developer-home-sections",
     icon: Building2,
     permission: "developer_home_sections:read",
+  },
+  {
+    name: "Developer User",
+    path: "/developer-user",
+    icon: UserRound,
+    permission: [
+      "developer_user:read",
+      "developer_team:read",
+      "developer_home_sections:read",
+      "user_analytics:read",
+      "app_users_master:read",
+    ],
   },
   {
     name: "Developer Team Members",
@@ -412,7 +425,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="w-64 bg-white border-r border-gray-200 flex flex-col hidden md:flex">
+    <aside className="hidden min-h-0 w-64 shrink-0 flex-col overflow-hidden border-r border-gray-200 bg-white md:flex md:flex-col">
       <div className="h-16 flex items-center px-6 border-b border-gray-200">
         <span className="text-xl font-bold text-primary">PropNetra Admin</span>
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, Fragment } from "react";
+import { useState, useEffect, useMemo, useCallback, Fragment, useRef } from "react";
 import { formatDisplayDateTime } from "@/lib/format-date";
 import { MaskedContact } from "@/components/contact/masked-contact";
 import { UserFormModal } from "@/modules/rbac/user-form-modal";
@@ -913,8 +913,10 @@ function RemarksModal({
 }) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const submitRef = useRef<() => Promise<void>>(async () => {});
   const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(
     draft.trim().length > 0,
+    { onSave: canUpdate ? () => submitRef.current() : undefined },
   );
 
   useEffect(() => {
@@ -945,6 +947,7 @@ function RemarksModal({
       setBusy(false);
     }
   };
+  submitRef.current = submit;
 
   const handleOpenChange = async (next: boolean) => {
     if (busy) return;

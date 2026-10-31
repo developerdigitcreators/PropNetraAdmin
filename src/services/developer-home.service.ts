@@ -5,7 +5,7 @@ export const HOME_SECTION_KINDS = [
   { value: 'new_launch_1', label: 'New Launch', items: 'listing', autoslide: true },
   { value: 'new_launch_2', label: 'New Launch – Section 2 (legacy)', items: 'listing', autoslide: true },
   { value: 'coming_soon', label: 'Coming Soon Projects', items: 'developer', autoslide: true },
-  { value: 'top_developers', label: 'Top Picker', items: 'developer', autoslide: false },
+  { value: 'top_developers', label: 'Top Real Estate Developers', items: 'developer', autoslide: false },
   { value: 'handpicked_developers', label: 'Handpicked Developers', items: 'developer', autoslide: true },
 ] as const;
 
@@ -144,6 +144,71 @@ export type AdminTeamMember = {
 
 export type NamedRow = { id: string; name: string; stateId?: string | null; cityName?: string | null };
 
+export type PaginatedDeveloperSearch = {
+  items: HomeDeveloperPreview[];
+  page: number;
+  limit: number;
+  hasMore: boolean;
+};
+
+export type DeveloperSearchParams = {
+  q?: string;
+  page?: number;
+  limit?: number;
+  cityId?: string;
+  /** When set (e.g. 1), only developers with at least N projects in `cityId`. */
+  minProjects?: number;
+};
+
+export type HomePostPreview = {
+  id: string;
+  title: string;
+  location: string | null;
+  priceLabel: string | null;
+  developerName: string | null;
+  developerId?: string | null;
+  imageUrl: string | null;
+};
+
+export type PaginatedPostsSearch = {
+  items: HomePostPreview[];
+  page: number;
+  limit: number;
+  total: number;
+  hasMore: boolean;
+};
+
+export type PostSearchParams = {
+  q?: string;
+  cityId?: string;
+  developerId?: string;
+  page?: number;
+  limit?: number;
+  excludeListingIds?: string[];
+};
+
+function unwrapPaginatedPosts(data: unknown): PaginatedPostsSearch {
+  const v = unwrap<any>(data);
+  const items = Array.isArray(v?.items) ? (v.items as HomePostPreview[]) : asArray<HomePostPreview>(v);
+  const page = Number(v?.page) || 1;
+  const limit = Number(v?.limit) || 20;
+  const total = Number(v?.total) || items.length;
+  const hasMore =
+    v?.hasMore != null ? Boolean(v.hasMore) : page * limit < total;
+  return { items, page, limit, total, hasMore };
+}
+
+function unwrapPaginatedDevelopers(data: unknown): PaginatedDeveloperSearch {
+  const v = unwrap<any>(data);
+  const items = Array.isArray(v?.items) ? (v.items as HomeDeveloperPreview[]) : asArray<HomeDeveloperPreview>(v);
+  return {
+    items,
+    page: Number(v?.page) || 1,
+    limit: Number(v?.limit) || 20,
+    hasMore: Boolean(v?.hasMore),
+  };
+}
+
 function unwrap<T = unknown>(data: unknown): T {
   let cur: any = data;
   while (cur && typeof cur === 'object' && !Array.isArray(cur) && 'data' in cur && cur.data != null) {
@@ -171,6 +236,37 @@ export function developerHomeApiError(err: unknown, fallback: string): string {
 const SECTIONS = '/admin/developer-home-sections';
 const DEVELOPERS = '/admin/developers';
 
+async function fetchSectionDevelopersPaged(params: DeveloperSearchParams = {}) {
+  return unwrapPaginatedDevelopers(
+    (
+      await axiosClient.get(`${SECTIONS}/developers/search`, {
+        params: {
+          page: params.page ?? 1,
+          limit: Math.min(params.limit ?? 20, 20),
+          ...(params.q?.trim() ? { q: params.q.trim() } : {}),
+          ...(params.cityId ? { cityId: params.cityId } : {}),
+          ...(params.minProjects != null ? { minProjects: params.minProjects } : {}),
+        },
+      })
+    ).data,
+  );
+}
+
+async function fetchSectionPosts(params: PostSearchParams = {}) {
+  const exclude = params.excludeListingIds?.filter(Boolean);
+  const response = await axiosClient.get(`${SECTIONS}/posts`, {
+    params: {
+      page: params.page ?? 1,
+      limit: Math.min(params.limit ?? 20, 50),
+      ...(params.q?.trim() ? { q: params.q.trim() } : {}),
+      ...(params.cityId ? { cityId: params.cityId } : {}),
+      ...(params.developerId ? { developerId: params.developerId } : {}),
+      ...(exclude?.length ? { excludeListingIds: exclude.join(',') } : {}),
+    },
+  });
+  return unwrapPaginatedPosts(response.data);
+}
+
 export const developerHomeService = {
   listSections: async (params: { stateId?: string; cityId?: string; kind?: string } = {}) =>
     asArray<HomeSectionSummary>((await axiosClient.get(SECTIONS, { params })).data),
@@ -197,30 +293,48 @@ export const developerHomeService = {
     await axiosClient.delete(`${SECTIONS}/${id}`);
   },
 
-  searchPosts: async (q?: string, cityId?: string) =>
-    asArray<{
-      id: string;
-      title: string;
-      location: string | null;
-      priceLabel: string | null;
-      developerName: string | null;
-      imageUrl: string | null;
-    }>(
-      (
-        await axiosClient.get(`${SECTIONS}/posts`, {
-          params: { limit: 30, ...(q?.trim() ? { q: q.trim() } : {}), ...(cityId ? { cityId } : {}) },
-        })
-      ).data,
-    ),
+  searchPosts: async (
+    paramsOrQ?: PostSearchParams | string,
+    legacyCityId?: string,
+  ): Promise<HomePostPreview[] | PaginatedPostsSearch> => {
+    if (typeof paramsOrQ === 'string' || paramsOrQ == null) {
+      const paged = await fetchSectionPosts({
+        q: typeof paramsOrQ === 'string' ? paramsOrQ : undefined,
+        cityId: legacyCityId,
+        limit: 30,
+        page: 1,
+      });
+      return paged.items;
+    }
+    return fetchSectionPosts(paramsOrQ);
+  },
+
+  searchDevelopersPaged: fetchSectionDevelopersPaged,
 
   searchSectionDevelopers: async (q?: string) =>
     asArray<HomeDeveloperPreview>(
       (await axiosClient.get(`${SECTIONS}/developers`, { params: q?.trim() ? { q: q.trim() } : {} })).data,
     ),
 
+  searchSectionDevelopersPage: fetchSectionDevelopersPaged,
+
   searchDevelopers: async (q?: string) =>
     asArray<HomeDeveloperPreview>(
       (await axiosClient.get(DEVELOPERS, { params: q?.trim() ? { q: q.trim() } : {} })).data,
+    ),
+
+  searchDevelopersPage: async (params: DeveloperSearchParams = {}) =>
+    unwrapPaginatedDevelopers(
+      (
+        await axiosClient.get(`${DEVELOPERS}/search`, {
+          params: {
+            page: params.page ?? 1,
+            limit: Math.min(params.limit ?? 20, 20),
+            ...(params.q?.trim() ? { q: params.q.trim() } : {}),
+            ...(params.cityId ? { cityId: params.cityId } : {}),
+          },
+        })
+      ).data,
     ),
 
   listTeam: async (developerId: string) =>
@@ -289,4 +403,45 @@ export const developerHomeService = {
     asArray<any>((await axiosClient.get('/admin/locations', { params: { cityId } })).data)
       .filter((l) => l.is_active !== false && (!l.status || l.status === 'approved'))
       .map((l) => ({ id: l.id, name: l.name, microMarketId: l.micro_market_id ?? l.micro_market?.id ?? null })),
+};
+
+export type AdminDeveloperComingSoonItem = {
+  homeItemId: string;
+  sectionId: string;
+  cityId: string;
+  cityName: string | null;
+  stateId?: string | null;
+  title: string | null;
+  imageUrl: string | null;
+  bannerUrls: string[];
+  teamGroups: ComingSoonTeamGroupView[];
+  configComplete?: boolean;
+};
+
+export type UpdateAdminComingSoonPayload = {
+  title?: string;
+  bannerUrls?: string[];
+  teamGroups?: ComingSoonTeamGroupInput[];
+};
+
+export const developerComingSoonAdminService = {
+  listForDeveloper: async (developerUserId: string): Promise<AdminDeveloperComingSoonItem[]> => {
+    const response = await axiosClient.get(`${DEVELOPERS}/${developerUserId}/coming-soon`);
+    const raw = unwrap<{ items?: AdminDeveloperComingSoonItem[] } | AdminDeveloperComingSoonItem[]>(
+      response.data,
+    );
+    if (Array.isArray(raw)) return raw;
+    return raw?.items ?? [];
+  },
+
+  updateItem: async (
+    developerUserId: string,
+    homeItemId: string,
+    payload: UpdateAdminComingSoonPayload,
+  ) =>
+    unwrap<AdminDeveloperComingSoonItem>(
+      (
+        await axiosClient.put(`${DEVELOPERS}/${developerUserId}/coming-soon/${homeItemId}`, payload)
+      ).data,
+    ),
 };

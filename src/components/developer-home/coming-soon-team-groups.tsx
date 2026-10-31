@@ -42,9 +42,33 @@ export function toEditorTeamGroups(groups?: ComingSoonTeamGroupView[]): EditorTe
     locationName: g.location?.name || '',
     microMarketId: g.microMarket.id,
     microMarketName: g.microMarket.name,
-    memberIds: g.members.map((m) => m.id),
+    memberIds: (g.members || []).map((m) => m.id),
     display: normalizeDisplay(g.display, !!g.location?.id),
   }));
+}
+
+export function toEditorTeamGroupsFromApi(
+  groups?: Array<{
+    location?: { id: string; name: string } | null;
+    microMarket?: { id: string; name: string };
+    display?: TeamGroupDisplay[];
+    memberIds?: string[];
+    members?: Array<{ id: string }>;
+  }>,
+): EditorTeamGroup[] {
+  return (groups || [])
+    .filter((g) => g.microMarket?.id)
+    .map((g) => ({
+      key: nextKey(),
+      locationId: g.location?.id || '',
+      locationName: g.location?.name || '',
+      microMarketId: g.microMarket!.id,
+      microMarketName: g.microMarket!.name,
+      memberIds: g.memberIds?.length
+        ? g.memberIds
+        : (g.members || []).map((m) => m.id),
+      display: normalizeDisplay(g.display, !!g.location?.id),
+    }));
 }
 
 /** Returns an error message if any section is incomplete. */
@@ -347,6 +371,7 @@ export function ComingSoonTeamGroups({
       <TeamMemberFormDialog
         open={!!addFor}
         developerId={developerId}
+        pages={['coming_soon']}
         onClose={() => setAddFor(null)}
         onSaved={onMemberCreated}
       />

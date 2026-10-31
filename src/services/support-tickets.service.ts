@@ -239,9 +239,14 @@ export const supportTicketsService = {
     return normalizeTicket(response.data);
   },
 
-  removeRemark: async (id: string, remarkId: string): Promise<SupportTicketItem | null> => {
-    const response = await axiosClient.delete(
+  removeRemark: async (
+    id: string,
+    remarkId: string,
+    deleteRemark: string,
+  ): Promise<SupportTicketItem | null> => {
+    const response = await deleteWithRemark(
       `/admin/support-tickets/${id}/remarks/${remarkId}`,
+      deleteRemark,
     );
     return normalizeTicket(response.data);
   },

@@ -23,6 +23,14 @@ function resolveBackHref(
   if (pathname.startsWith('/rbac/app-users')) {
     return '/app-users';
   }
+  if (pathname === '/developer-user' && searchParams.get('editListingId')) {
+    const params = new URLSearchParams();
+    const developerId = searchParams.get('developerId');
+    if (developerId) params.set('developerId', developerId);
+    params.set('tab', 'listings');
+    const qs = params.toString();
+    return qs ? `/developer-user?${qs}` : '/developer-user';
+  }
   return '/';
 }
 

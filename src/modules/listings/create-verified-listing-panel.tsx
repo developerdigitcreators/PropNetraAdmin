@@ -396,10 +396,6 @@ export function CreateVerifiedListingPanel() {
   const [salesTeamDirty, setSalesTeamDirty] = useState(false);
   const [brandingDirty, setBrandingDirty] = useState(false);
 
-  const { dialog } = useUnsavedChangesGuard({
-    dirty: dirty || salesTeamDirty || brandingDirty,
-  });
-
   const applySalesTeam = useCallback(
     (members: StaffAssignee[]) => {
       setSalesTeam(members);
@@ -1104,6 +1100,11 @@ export function CreateVerifiedListingPanel() {
       setSubmitting(false);
     }
   };
+
+  const { dialog } = useUnsavedChangesGuard({
+    dirty: dirty || salesTeamDirty || brandingDirty,
+    onSave: () => handleSubmit(),
+  });
 
   return (
     <PermissionGuard

@@ -82,7 +82,9 @@ export function AddHotspotDialog({
     open &&
     baselineRef.current !== '' &&
     JSON.stringify({ microMarketId }) !== baselineRef.current;
-  const { requestClose, dialog } = useDialogUnsavedGuard(dirty);
+  const { requestClose, dialog } = useDialogUnsavedGuard(dirty, {
+    onSave: () => handleSubmit(),
+  });
 
   const handleOpenChange = async (next: boolean) => {
     if (submitting) return;

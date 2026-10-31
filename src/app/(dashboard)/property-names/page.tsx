@@ -202,6 +202,7 @@ function PropertyNamesPageInner() {
     location_ids: [] as string[],
   });
   const baselineRef = useRef('');
+  const saveRef = useRef<() => Promise<void>>(async () => {});
   const [propertyTypes, setPropertyTypes] = useState<any[]>([]);
   const uniqueTypes = projectNamePropertyTypeOptions(propertyTypes);
 
@@ -210,7 +211,9 @@ function PropertyNamesPageInner() {
     isModalOpen &&
     baselineRef.current !== '' &&
     formSnapshot !== baselineRef.current;
-  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(dirty);
+  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(dirty, {
+    onSave: () => saveRef.current(),
+  });
 
   const handleModalOpenChange = async (next: boolean) => {
     if (isSubmitting) return;
@@ -397,6 +400,7 @@ function PropertyNamesPageInner() {
       setIsSubmitting(false);
     }
   };
+  saveRef.current = save;
 
   const del = async (remark: string) => {
     setIsSubmitting(true);

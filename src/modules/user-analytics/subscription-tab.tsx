@@ -24,6 +24,8 @@ import {
 
 type SubscriptionTabProps = {
   userId: string | null;
+  appRole?: string | null;
+  hideReferralCoins?: boolean;
 };
 
 type HistoryItem = {
@@ -112,7 +114,11 @@ type ProfilePayload = Omit<
 
 type AddonDrillKind = AddonCreditsKind;
 
-export function SubscriptionTab({ userId }: SubscriptionTabProps) {
+export function SubscriptionTab({
+  userId,
+  appRole,
+  hideReferralCoins = false,
+}: SubscriptionTabProps) {
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const canRead = hasPermission("subscriptions", "read");
   const router = useRouter();
@@ -248,6 +254,16 @@ export function SubscriptionTab({ userId }: SubscriptionTabProps) {
   const accountActive = /^(active|trialing|past_due)$/i.test(
     String(data?.subscriptionStatus || ""),
   );
+  const roleKey = String(appRole || "")
+    .trim()
+    .toLowerCase();
+  const isDeveloperRole = roleKey === "developer";
+  const isFloorRole = roleKey === "floor";
+  const isAgentRole = !isDeveloperRole && !isFloorRole;
+  const showBuilderAddon =
+    isFloorRole &&
+    (data?.flags.builderContactsEnabled ||
+      (data?.limits.addonBuilderContactsDaily ?? 0) > 0);
 
   const listingAddon = creditUsedTotal(lots, "listing");
   const buyReqAddon = creditUsedTotal(lots, "buy_req");
@@ -353,11 +369,13 @@ export function SubscriptionTab({ userId }: SubscriptionTabProps) {
                       }
                     />
                   ) : null}
-                  <Info
-                    label="Referral NetraCoins"
-                    value={String(data.referralCoinsBalance ?? 0)}
-                  />
-                  {paid ? (
+                  {!hideReferralCoins ? (
+                    <Info
+                      label="Referral NetraCoins"
+                      value={String(data.referralCoinsBalance ?? 0)}
+                    />
+                  ) : null}
+                  {paid && isAgentRole ? (
                     <>
                       <Info
                         label="Resale / Rent contact credits"
@@ -377,6 +395,8 @@ export function SubscriptionTab({ userId }: SubscriptionTabProps) {
               </div>
 
               <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                {isAgentRole ? (
+                  <>
                 <UsageCard
                   title="Listing contacts"
                   usedToday={data.usage.listingContactsDay}
@@ -461,6 +481,76 @@ export function SubscriptionTab({ userId }: SubscriptionTabProps) {
                       : "View limits from the active plan only."
                   }
                 />
+                  </>
+                ) : null}
+                {isDeveloperRole ? (
+                  <>
+                    <PostLimitCard
+                      title="Active developer posts"
+                      used={data.usage.activeDeveloperPostsUsed ?? 0}
+                      limit={data.limits.activeDeveloperPosts}
+                      hint="Published developer listings vs plan cap."
+                    />
+                    {data.listingViewersDeveloperEnabled ? (
+                      <UsageCard
+                        title="Listing viewer contacts"
+                        usedToday={data.usage.viewerRevealDay ?? 0}
+                        usedMonth={data.usage.viewerRevealMonth ?? 0}
+                        limitDay={data.limits.viewerRevealDaily}
+                        limitMonth={data.limits.viewerRevealMonthly}
+                        addon={null}
+                        unlimitedLabel={
+                          data.limits.viewerRevealMonthly == null
+                            ? "Unlimited"
+                            : undefined
+                        }
+                        hint="Reveals of listing viewer phone numbers vs plan caps."
+                      />
+                    ) : null}
+                  </>
+                ) : null}
+                {isFloorRole ? (
+                  <>
+                    <PostLimitCard
+                      title="Active DBF posts"
+                      used={data.usage.activeDbfPostsUsed ?? 0}
+                      limit={data.limits.activeDbfPosts}
+                      hint="Active DBF listings vs plan cap."
+                    />
+                    {data.listingViewersDbfEnabled ? (
+                      <UsageCard
+                        title="Listing viewer contacts"
+                        usedToday={data.usage.viewerRevealDay ?? 0}
+                        usedMonth={data.usage.viewerRevealMonth ?? 0}
+                        limitDay={data.limits.viewerRevealDaily}
+                        limitMonth={data.limits.viewerRevealMonthly}
+                        addon={null}
+                        unlimitedLabel={
+                          data.limits.viewerRevealMonthly == null
+                            ? "Unlimited"
+                            : undefined
+                        }
+                        hint="Reveals of listing viewer phone numbers vs plan caps."
+                      />
+                    ) : null}
+                    {showBuilderAddon ? (
+                      <UsageCard
+                        title="Builder / Direct builder floor"
+                        usedToday={null}
+                        usedMonth={null}
+                        limitDay={null}
+                        limitMonth={null}
+                        addon={{
+                          used: builderAddon.used,
+                          total: builderAddon.total,
+                          remaining: data.addonCredits.builderContactCredits || 0,
+                        }}
+                        onAddonClick={() => openAddonDrill("builder")}
+                        hint="Click addon credits for payment source + expiry."
+                      />
+                    ) : null}
+                  </>
+                ) : null}
               </div>
             </>
           ) : null}
@@ -900,7 +990,7 @@ function PostLimitCard({
 }: {
   title: string;
   used: number;
-  limit: number;
+  limit: number | null;
   hint: string;
 }) {
   return (
@@ -918,7 +1008,7 @@ function PostLimitCard({
             {used}
             <span className="text-sm font-medium text-gray-500">
               {" "}
-              / {limit}
+              / {limit == null ? "Unlimited" : limit}
             </span>
           </p>
         </div>

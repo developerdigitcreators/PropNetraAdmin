@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MaskedContact } from "@/components/contact/masked-contact";
 import Link from "next/link";
 import { formatDisplayDateTime } from "@/lib/format-date";
@@ -359,8 +359,11 @@ export function UserProfileMasterPanel() {
   const [rejectTarget, setRejectTarget] = useState<any>(null);
   const [rejectRemark, setRejectRemark] = useState("");
   const [rejectBusy, setRejectBusy] = useState(false);
+  const submitRejectRef = useRef<() => Promise<void>>(async () => {});
   const { requestClose: requestRejectClose, dialog: rejectUnsavedDialog } =
-    useDialogUnsavedGuard(rejectRemark.trim().length > 0);
+    useDialogUnsavedGuard(rejectRemark.trim().length > 0, {
+      onSave: () => submitRejectRef.current(),
+    });
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsRequired, setSettingsRequired] = useState(false);
@@ -556,6 +559,7 @@ export function UserProfileMasterPanel() {
       setRejectingId(null);
     }
   };
+  submitRejectRef.current = submitReject;
 
   const handleToggleActive = async (user: any, active: boolean) => {
     setTogglingActiveId(user.id);

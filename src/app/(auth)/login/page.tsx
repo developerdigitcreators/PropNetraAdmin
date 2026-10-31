@@ -253,7 +253,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#FAFEED]">
+    <div className="flex h-dvh min-h-0 items-center justify-center overflow-y-auto bg-[#FAFEED]">
       <div className="w-full max-w-md p-8 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold tracking-tight text-gray-900 mb-2">PropNetra</h1>

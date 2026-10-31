@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { AssignRoleSchema, AssignRoleFormData } from '@/validators/rbac.schema';
@@ -49,7 +49,10 @@ export function AssignRoleModal({ user, roles, open, onOpenChange, onSuccess }: 
   });
 
   const selectedRoleId = watch('roleId');
-  const { requestClose, dialog } = useDialogUnsavedGuard(open && isDirty);
+  const submitAssignRef = useRef<() => Promise<void>>(async () => {});
+  const { requestClose, dialog } = useDialogUnsavedGuard(open && isDirty, {
+    onSave: () => submitAssignRef.current(),
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -107,6 +110,20 @@ export function AssignRoleModal({ user, roles, open, onOpenChange, onSuccess }: 
       setIsSubmitting(false);
     }
   };
+  submitAssignRef.current = () =>
+    new Promise<void>((resolve, reject) => {
+      handleSubmit(
+        async (data) => {
+          try {
+            await onSubmit(data);
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        },
+        () => reject(new Error('validation')),
+      )();
+    });
 
   return (
     <>

@@ -85,7 +85,12 @@ export function DeveloperProjectPickDialog({
     for (const p of available) counts.set(developerOf(p), (counts.get(developerOf(p)) || 0) + 1);
     return [...counts.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([name, count]) => ({ value: name, label: name, badge: count }));
+      .map(([name, count]) => ({
+        value: name,
+        label: name,
+        badge: count,
+        badgeVariant: 'projectCount' as const,
+      }));
   }, [available]);
 
   const projectOptions = useMemo(

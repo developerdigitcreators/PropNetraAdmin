@@ -10,6 +10,18 @@ import {
   type MyListingDetail,
 } from "@/services/listings.service";
 import { subscriptionApiError } from "@/services/subscriptions.service";
+import {
+  isPublisherAppRole,
+  publisherTrackFromAppRole,
+  userAnalyticsService,
+  type PublisherListingRow,
+  type PublisherMetricKey,
+} from "@/services/user-analytics.service";
+import {
+  PublisherListingEventsDialog,
+  PublisherListingMetricChips,
+  publisherRowFromCounts,
+} from "@/modules/user-analytics/publisher-listing-metrics-ui";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,13 +32,29 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatDisplayDateTime } from "@/lib/format-date";
-import { Loader2, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import {
+  canReadUserAnalyticsFeatures,
+  canDeleteUserAnalyticsListing,
+  canUpdateDeveloperUserListings,
+  canCreateDeveloperUserListings,
+  userAnalyticsReadPermissionHint,
+  userAnalyticsDeletePermissionHint,
+} from "@/modules/app-users/app-users-access";
+import { MyListingAnalyticsConfigPanel } from "@/modules/user-analytics/my-listing-analytics-config-panel";
+import { DeveloperUserListingEditDialog } from "@/modules/developer-user/developer-user-listing-edit-dialog";
 
 type UserListingsTabProps = {
   userId: string | null;
+  appRole?: string | null;
+  refreshKey?: number;
+  /** Developer User hub: show Edit on active/inactive developer listings. */
+  enableDeveloperListingEdit?: boolean;
+  /** Navigate to full-page editor instead of modal. */
+  onEditListing?: (listingId: string) => void;
 };
 
-type CategoryGroupKey = "resale_rent" | "buy_requirement";
+type CategoryGroupKey = "resale_rent" | "buy_requirement" | "developer";
 
 type ListingTabKey =
   | "active"
@@ -81,13 +109,29 @@ function hardDeleteAt(item: Record<string, unknown>): string {
   );
 }
 
-export function UserListingsTab({ userId }: UserListingsTabProps) {
+export function UserListingsTab({ userId, appRole, refreshKey = 0, enableDeveloperListingEdit = false, onEditListing }: UserListingsTabProps) {
   const hasPermission = useAuthStore((s) => s.hasPermission);
-  const canRead = hasPermission("subscriptions", "read");
-  const canWrite = hasPermission("subscriptions", "write");
+  const canRead = canReadUserAnalyticsFeatures(hasPermission);
+  const canDeleteListing = canDeleteUserAnalyticsListing(hasPermission);
+  const appRoleKey = String(appRole || "")
+    .trim()
+    .toLowerCase();
+  const isDeveloperRole = appRoleKey === "developer";
+  const canEditDeveloperListing =
+    enableDeveloperListingEdit && canUpdateDeveloperUserListings(hasPermission);
+  const canCreateDeveloperListing =
+    enableDeveloperListingEdit &&
+    canCreateDeveloperUserListings(hasPermission) &&
+    isDeveloperRole;
+  const isPublisherListings = isPublisherAppRole(appRole);
+  const publisherTrack = publisherTrackFromAppRole(appRole);
+  const isFloorRole = appRoleKey === "floor";
+  const isAgentRole = appRoleKey === "agent";
+  const showListingMetrics = isPublisherListings || isAgentRole;
 
-  const [categoryGroup, setCategoryGroup] =
-    useState<CategoryGroupKey>("resale_rent");
+  const [categoryGroup, setCategoryGroup] = useState<CategoryGroupKey>(
+    "resale_rent",
+  );
   const [listingTab, setListingTab] = useState<ListingTabKey>("active");
   const [listingsLoading, setListingsLoading] = useState(false);
   const [listingsError, setListingsError] = useState("");
@@ -106,6 +150,30 @@ export function UserListingsTab({ userId }: UserListingsTabProps) {
   const [hardDeleteId, setHardDeleteId] = useState<string | null>(null);
   const [hardDeleteBusy, setHardDeleteBusy] = useState(false);
   const [hardDeleteError, setHardDeleteError] = useState("");
+  const [editListingId, setEditListingId] = useState<string | null>(null);
+
+  const [metricsByListingId, setMetricsByListingId] = useState<
+    Map<string, PublisherListingRow["counts"]>
+  >(new Map());
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [eventsOpen, setEventsOpen] = useState(false);
+  const [eventsListingId, setEventsListingId] = useState("");
+  const [eventsMetric, setEventsMetric] = useState<PublisherMetricKey>("views");
+  const [eventsTitle, setEventsTitle] = useState("");
+
+  const listingsCategoryGroup = useMemo((): CategoryGroupKey | "dbf" => {
+    if (isPublisherListings) {
+      return isFloorRole ? "dbf" : "developer";
+    }
+    return categoryGroup;
+  }, [isPublisherListings, isFloorRole, categoryGroup]);
+
+  const metricsTabActive =
+    listingTab === "active" || listingTab === "inactive";
+  const metricSet = isDeveloperRole ? "full" : "contact_funnel";
+  const listingEventsApi = isAgentRole ? "agent" : "publisher";
+  const agentMetricsCategoryGroup =
+    categoryGroup === "buy_requirement" ? "buy_requirement" : "resale_rent";
 
   useEffect(() => {
     if (!userId || !canRead) {
@@ -118,7 +186,7 @@ export function UserListingsTab({ userId }: UserListingsTabProps) {
     listingsService
       .getAdminUserListings(userId, {
         tab: listingTab,
-        categoryGroup,
+        categoryGroup: listingsCategoryGroup,
         page: 1,
         limit: 50,
       })
@@ -148,7 +216,78 @@ export function UserListingsTab({ userId }: UserListingsTabProps) {
     return () => {
       cancelled = true;
     };
-  }, [userId, canRead, listingTab, categoryGroup, reloadKey]);
+  }, [userId, canRead, listingTab, listingsCategoryGroup, reloadKey]);
+
+  useEffect(() => {
+    if (!userId || !canRead || !showListingMetrics || !metricsTabActive) {
+      setMetricsByListingId(new Map());
+      return;
+    }
+    let cancelled = false;
+    setMetricsLoading(true);
+    const status = listingTab as "active" | "inactive";
+    const loadMetrics = isAgentRole
+      ? userAnalyticsService.fetchAgentListings(userId, {
+          status,
+          categoryGroup: agentMetricsCategoryGroup,
+          page: 1,
+          limit: 100,
+        })
+      : userAnalyticsService.fetchPublisherListings(
+          userId,
+          { status, page: 1, limit: 100 },
+          appRole,
+        );
+    loadMetrics
+      .then((res) => {
+        if (cancelled) return;
+        const map = new Map<string, PublisherListingRow["counts"]>();
+        for (const row of res.items) {
+          map.set(row.listingId, row.counts);
+        }
+        setMetricsByListingId(map);
+      })
+      .catch(() => {
+        if (!cancelled) setMetricsByListingId(new Map());
+      })
+      .finally(() => {
+        if (!cancelled) setMetricsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    userId,
+    canRead,
+    showListingMetrics,
+    metricsTabActive,
+    isAgentRole,
+    listingTab,
+    appRole,
+    agentMetricsCategoryGroup,
+    reloadKey,
+  ]);
+
+  useEffect(() => {
+    if (isPublisherListings && listingTab !== "active" && listingTab !== "inactive") {
+      setListingTab("active");
+    }
+  }, [isPublisherListings, listingTab]);
+
+  const visibleListingTabs = isPublisherListings
+    ? LISTING_TABS.filter((t) => t.id === "active" || t.id === "inactive")
+    : LISTING_TABS;
+
+  const openMetricEvents = (
+    listingId: string,
+    title: string,
+    metric: PublisherMetricKey,
+  ) => {
+    setEventsListingId(listingId);
+    setEventsTitle(title);
+    setEventsMetric(metric);
+    setEventsOpen(true);
+  };
 
   const detailRows = useMemo(() => {
     if (!listingDetail) return [];
@@ -194,9 +333,16 @@ export function UserListingsTab({ userId }: UserListingsTabProps) {
       setHardDeleteId(null);
       setReloadKey((k) => k + 1);
     } catch (err) {
-      setHardDeleteError(
-        subscriptionApiError(err, "Failed to hard delete listing."),
-      );
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 403) {
+        setHardDeleteError(
+          `Delete denied. Assign ${userAnalyticsDeletePermissionHint()} on the staff role, then logout and login again.`,
+        );
+      } else {
+        setHardDeleteError(
+          subscriptionApiError(err, "Failed to hard delete listing."),
+        );
+      }
     } finally {
       setHardDeleteBusy(false);
     }
@@ -213,19 +359,46 @@ export function UserListingsTab({ userId }: UserListingsTabProps) {
   if (!canRead) {
     return (
       <div className="rounded-xl border bg-white p-8 text-center text-sm text-gray-500 shadow-sm">
-        You need <code>subscriptions:read</code> to view this tab.
+        You need <code>{userAnalyticsReadPermissionHint()}</code> to view this tab.
       </div>
     );
   }
 
   return (
     <div className="rounded-xl border bg-white p-5 shadow-sm">
-      <h4 className="font-semibold text-gray-900">Listings</h4>
-      <p className="mt-1 text-xs text-gray-500">
-        Filter by Resale/Rental or Buy Requirement, then by status. Click a row
-        for full details.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h4 className="font-semibold text-gray-900">Listings</h4>
+          <p className="mt-1 text-xs text-gray-500">
+            {isPublisherListings
+              ? isFloorRole
+                ? "DBF listings. Active and inactive only. Metrics: views, reveal, call, WA (lifetime)."
+                : "Developer listings. Active and inactive only. Metrics are lifetime totals."
+              : isAgentRole
+                ? "Resale/rent or buy requirement. Active and inactive tabs include views, reveal, call, and WA metrics."
+                : "Filter by Resale/Rental or Buy Requirement, then by status. Click a row for full details."}
+          </p>
+        </div>
+        {canCreateDeveloperListing && onEditListing ? (
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => onEditListing("new")}
+          >
+            <Plus className="mr-1.5 h-4 w-4" />
+            Add listing
+          </Button>
+        ) : null}
+      </div>
 
+      {userId ? (
+        <MyListingAnalyticsConfigPanel
+          userId={userId}
+          refreshKey={refreshKey}
+        />
+      ) : null}
+
+      {!isPublisherListings ? (
       <div className="mt-3 flex flex-wrap gap-2">
         {CATEGORY_GROUPS.map((group) => (
           <button
@@ -245,9 +418,10 @@ export function UserListingsTab({ userId }: UserListingsTabProps) {
           </button>
         ))}
       </div>
+      ) : null}
 
       <div className="mt-3 flex flex-wrap gap-2">
-        {LISTING_TABS.map((tab) => {
+        {visibleListingTabs.map((tab) => {
           const count = listingsPayload?.tabs?.[tab.id];
           return (
             <button
@@ -283,12 +457,23 @@ export function UserListingsTab({ userId }: UserListingsTabProps) {
             <thead className="border-b border-gray-100 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-2 py-2">Title</th>
-                <th className="px-2 py-2">Category</th>
-                <th className="px-2 py-2">Location</th>
-                <th className="px-2 py-2">Expires</th>
+                {!isPublisherListings ? (
+                  <>
+                    <th className="px-2 py-2">Category</th>
+                    <th className="px-2 py-2">Location</th>
+                    <th className="px-2 py-2">Expires</th>
+                  </>
+                ) : (
+                  <th className="px-2 py-2">Location</th>
+                )}
+                {showListingMetrics && metricsTabActive ? (
+                  <th className="px-2 py-2">Metrics</th>
+                ) : null}
                 <th className="px-2 py-2">Created</th>
-                {listingTab === "expired" ? (
-                  <th className="px-2 py-2">Hard delete from system</th>
+                {isPublisherListings || listingTab === "expired" || canEditDeveloperListing ? (
+                  <th className="px-2 py-2">
+                    {isPublisherListings ? "Actions" : listingTab === "expired" ? "Hard delete from system" : "Actions"}
+                  </th>
                 ) : null}
               </tr>
             </thead>
@@ -315,6 +500,10 @@ export function UserListingsTab({ userId }: UserListingsTabProps) {
                 const created = String(
                   item.createdAt || item.created_at || "",
                 );
+                const counts = metricsByListingId.get(id);
+                const metricRow = counts
+                  ? publisherRowFromCounts(id, title, location, listingTab, counts)
+                  : null;
                 return (
                   <tr
                     key={id}
@@ -324,21 +513,89 @@ export function UserListingsTab({ userId }: UserListingsTabProps) {
                     <td className="px-2 py-2.5 font-medium text-gray-900">
                       {title}
                     </td>
-                    <td className="px-2 py-2.5 text-gray-600">{category}</td>
-                    <td className="px-2 py-2.5 text-gray-600">{location}</td>
-                    <td className="px-2 py-2.5 text-gray-600">
-                      {expiryForTab(listingTab, item)}
-                    </td>
+                    {!isPublisherListings ? (
+                      <>
+                        <td className="px-2 py-2.5 text-gray-600">{category}</td>
+                        <td className="px-2 py-2.5 text-gray-600">{location}</td>
+                        <td className="px-2 py-2.5 text-gray-600">
+                          {expiryForTab(listingTab, item)}
+                        </td>
+                      </>
+                    ) : (
+                      <td className="px-2 py-2.5 text-gray-600">{location}</td>
+                    )}
+                    {showListingMetrics && metricsTabActive ? (
+                      <td
+                        className="px-2 py-2.5"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {metricsLoading && !counts ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                        ) : metricRow ? (
+                          <PublisherListingMetricChips
+                            row={metricRow}
+                            track={isAgentRole ? "developer" : publisherTrack}
+                            metricSet={metricSet}
+                            onMetric={(metric) =>
+                              openMetricEvents(id, title, metric)
+                            }
+                          />
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
+                      </td>
+                    ) : null}
                     <td className="px-2 py-2.5 text-gray-600">
                       {fmtDateTime(created)}
                     </td>
-                    {listingTab === "expired" ? (
+                    {isPublisherListings || listingTab === "expired" || canEditDeveloperListing ? (
                       <td className="px-2 py-2.5">
                         <div className="flex flex-col gap-1.5">
-                          <span className="text-gray-600">
-                            {hardDeleteAt(item)}
-                          </span>
-                          {canWrite ? (
+                          {!isPublisherListings ? (
+                            <span className="text-gray-600">
+                              {hardDeleteAt(item)}
+                            </span>
+                          ) : null}
+                          {canEditDeveloperListing &&
+                          isDeveloperRole &&
+                          metricsTabActive ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="w-fit"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (onEditListing) onEditListing(id);
+                                else setEditListingId(id);
+                              }}
+                            >
+                              <Pencil className="mr-1 h-3.5 w-3.5" />
+                              Edit
+                            </Button>
+                          ) : null}
+                          {isPublisherListings ? (
+                            canDeleteListing ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="w-fit border-red-200 text-red-700 hover:bg-red-50"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setHardDeleteError("");
+                                  setHardDeleteId(id);
+                                }}
+                              >
+                                <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                Delete
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-gray-400">
+                                No delete permission
+                              </span>
+                            )
+                          ) : canDeleteListing ? (
                             <Button
                               type="button"
                               variant="outline"
@@ -351,7 +608,7 @@ export function UserListingsTab({ userId }: UserListingsTabProps) {
                               }}
                             >
                               <Trash2 className="mr-1 h-3.5 w-3.5" />
-                              Hard delete
+                              Delete
                             </Button>
                           ) : null}
                         </div>
@@ -468,10 +725,15 @@ export function UserListingsTab({ userId }: UserListingsTabProps) {
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Hard delete expired listing?</DialogTitle>
+            <DialogTitle>
+              {isPublisherListings
+                ? "Delete listing permanently?"
+                : "Hard delete expired listing?"}
+            </DialogTitle>
             <DialogDescription>
-              This permanently removes the listing from the database. An
-              analytics snapshot is kept. This cannot be undone.
+              {isPublisherListings
+                ? "Permanent delete from the app. Analytics stats are retained. This cannot be undone."
+                : "This permanently removes the listing from the database. An analytics snapshot is kept. This cannot be undone."}
             </DialogDescription>
           </DialogHeader>
           {hardDeleteError ? (
@@ -503,6 +765,31 @@ export function UserListingsTab({ userId }: UserListingsTabProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {userId && editListingId && enableDeveloperListingEdit && !onEditListing ? (
+        <DeveloperUserListingEditDialog
+          open={Boolean(editListingId)}
+          onOpenChange={(open) => !open && setEditListingId(null)}
+          userId={userId}
+          listingId={editListingId}
+          onSaved={() => setReloadKey((n) => n + 1)}
+        />
+      ) : null}
+
+      {userId && showListingMetrics ? (
+        <PublisherListingEventsDialog
+          userId={userId}
+          open={eventsOpen}
+          onOpenChange={setEventsOpen}
+          listingId={eventsListingId}
+          metric={eventsMetric}
+          title={eventsTitle}
+          eventsApi={listingEventsApi}
+          categoryGroup={
+            listingEventsApi === "agent" ? agentMetricsCategoryGroup : undefined
+          }
+        />
+      ) : null}
     </div>
   );
 }

@@ -60,7 +60,9 @@ export function FaqFormDialog({
     [question, answer, isActive],
   );
   const dirty = open && baselineRef.current !== '' && snapshot !== baselineRef.current;
-  const { requestClose, dialog } = useDialogUnsavedGuard(dirty);
+  const { requestClose, dialog } = useDialogUnsavedGuard(dirty, {
+    onSave: () => handleSubmit(),
+  });
 
   const handleOpenChange = async (next: boolean) => {
     if (submitting) return;

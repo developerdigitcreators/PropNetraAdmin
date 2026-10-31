@@ -884,10 +884,13 @@ export function ListingReviewTable({
         rejectCatalogDraft?.microMarket.name.trim(),
     );
   }, [confirm?.action, rejectCatalogDraft, rejectRemarksDraft]);
+  const rejectConfirmRef = useRef<() => Promise<void>>(async () => {});
   const {
     requestClose: requestRejectClose,
     dialog: rejectUnsavedDialog,
-  } = useDialogUnsavedGuard(rejectDirty);
+  } = useDialogUnsavedGuard(rejectDirty, {
+    onSave: () => rejectConfirmRef.current(),
+  });
   const [saveOpen, setSaveOpen] = useState<{ id: string } | null>(null);
   const [saveDraft, setSaveDraft] = useState<SaveDraft | null>(null);
   const [fieldEdit, setFieldEdit] = useState<{
@@ -1273,13 +1276,19 @@ export function ListingReviewTable({
     } catch (err) {
       console.error(err);
       alert(
-        action === "reject"
-          ? "Failed to reject listing."
-          : "Failed to approve listing.",
+        apiErrorMessage(
+          err,
+          action === "reject"
+            ? "Failed to reject listing."
+            : "Failed to approve listing.",
+        ),
       );
     } finally {
       setBusyId(null);
     }
+  };
+  rejectConfirmRef.current = async () => {
+    if (confirm?.action === "reject") await handleConfirmAction();
   };
 
   const apiErrorMessage = (err: unknown, fallback: string) => {
@@ -1864,7 +1873,7 @@ export function ListingReviewTable({
       await reloadCatalog();
     } catch (err) {
       console.error(err);
-      alert("Failed to save field.");
+      alert(apiErrorMessage(err, "Failed to save field."));
     } finally {
       setBusyId(null);
     }

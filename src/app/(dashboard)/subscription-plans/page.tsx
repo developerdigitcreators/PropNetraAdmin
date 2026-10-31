@@ -7,6 +7,7 @@ import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { PlanFormDialog } from '@/modules/subscriptions/plan-form-dialog';
 import { PlanPopupBannerDialog } from '@/modules/subscriptions/plan-popup-banner-dialog';
 import { DbfModeCard } from '@/modules/subscriptions/dbf-mode-card';
@@ -57,6 +58,27 @@ function FeatureChip({ enabled, label }: { enabled: boolean; label: string }) {
   );
 }
 
+function ActiveToggle({
+  checked,
+  disabled,
+  onChange,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
+      <span>{checked ? 'Active' : 'Inactive'}</span>
+      <Switch
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={(next) => onChange(Boolean(next))}
+      />
+    </label>
+  );
+}
+
 function DummyPriceLine({ paise }: { paise: number | null }) {
   return (
     <p className="mt-1 text-sm text-gray-500">
@@ -69,10 +91,14 @@ function DummyPriceLine({ paise }: { paise: number | null }) {
 function PlanCard({
   plan,
   canUpdate,
+  activeBusy,
+  onToggleActive,
   onEdit,
 }: {
   plan: SubscriptionPlanItem;
   canUpdate: boolean;
+  activeBusy: boolean;
+  onToggleActive: (next: boolean) => void;
   onEdit: () => void;
 }) {
   const limits = plan.limits;
@@ -89,9 +115,11 @@ function PlanCard({
         <div className="flex flex-col items-end gap-1">
           {plan.code !== 'FREE_LIFETIME' ? (
             <>
-              <Badge variant={plan.isActive ? 'default' : 'outline'}>
-                {plan.isActive ? 'Active' : 'Inactive'}
-              </Badge>
+              <ActiveToggle
+                checked={plan.isActive}
+                disabled={!canUpdate || activeBusy}
+                onChange={onToggleActive}
+              />
               <Badge variant={plan.showOnApp ? 'secondary' : 'outline'}>
                 {plan.showOnApp ? 'Show on app' : 'Hidden on app'}
               </Badge>
@@ -165,19 +193,21 @@ function PlanCard({
                   : `${limits.listingViewsDaily ?? 0} per day · ${limits.listingViewsMonthly ?? 0} per month`
               }
             />
-            <LimitRow
-              label="Developer projects"
-              hint="Page views · Compare · Share · Brochure · Contact (per day / per month)"
-              value={[
-                [limits.devViewDaily, limits.devViewMonthly],
-                [limits.devCompareDaily, limits.devCompareMonthly],
-                [limits.devShareDaily, limits.devShareMonthly],
-                [limits.devBrochureDaily, limits.devBrochureMonthly],
-                [limits.devContactDaily, limits.devContactMonthly],
-              ]
-                .map(([d, m]) => `${d ?? '∞'}/${m ?? '∞'}`)
-                .join(' · ')}
-            />
+            {(
+              [
+                ['Compare', limits.devCompareDaily, limits.devCompareMonthly],
+                ['Share', limits.devShareDaily, limits.devShareMonthly],
+                ['Brochure', limits.devBrochureDaily, limits.devBrochureMonthly],
+                ['Contact', limits.devContactDaily, limits.devContactMonthly],
+              ] as const
+            ).map(([label, daily, monthly]) => (
+              <LimitRow
+                key={label}
+                label={label}
+                hint="per day / per month. Empty is unlimited, 0 is blocked."
+                value={`${daily == null ? 'Unlimited' : daily === 0 ? 'Blocked' : daily} / ${monthly == null ? 'Unlimited' : monthly === 0 ? 'Blocked' : monthly}`}
+              />
+            ))}
           </div>
         ) : (
           <p className="text-sm text-gray-500">No limits configured.</p>
@@ -217,17 +247,19 @@ function DbfPlanCard({
   plan,
   canUpdate,
   showViewerContacts,
+  activeBusy,
+  onToggleActive,
   onEdit,
 }: {
   plan: SubscriptionPlanItem;
   canUpdate: boolean;
   showViewerContacts: boolean;
+  activeBusy: boolean;
+  onToggleActive: (next: boolean) => void;
   onEdit: () => void;
 }) {
   const limits = plan.limits;
   const isFree = plan.code === 'DBF_FREE';
-  const viewsUnlimited =
-    limits?.listingViewsDaily == null && limits?.listingViewsMonthly == null;
 
   return (
     <div className="flex h-full flex-col rounded-xl border bg-white p-5 shadow-sm">
@@ -245,9 +277,11 @@ function DbfPlanCard({
         </div>
         {!isFree ? (
           <div className="flex flex-col items-end gap-1">
-            <Badge variant={plan.isActive ? 'default' : 'outline'}>
-              {plan.isActive ? 'Active' : 'Inactive'}
-            </Badge>
+            <ActiveToggle
+              checked={plan.isActive}
+              disabled={!canUpdate || activeBusy}
+              onChange={onToggleActive}
+            />
             <Badge variant={plan.showOnApp ? 'secondary' : 'outline'}>
               {plan.showOnApp ? 'Show on app' : 'Hidden on app'}
             </Badge>
@@ -290,22 +324,9 @@ function DbfPlanCard({
         {limits ? (
           <div>
             <LimitRow
-              label="Direct Builder Floor posts"
-              hint="New posts a user can publish"
-              value={`${limits.dbfPostsDaily} per day · ${limits.dbfPostsMonthly} per month`}
-            />
-            <LimitRow
-              label="Active posts"
-              hint="Max live listings at once"
+              label="Project posts"
+              hint="Max live listings. Empty on edit means no cap."
               value={limits.activeDbfPosts == null ? 'No cap' : String(limits.activeDbfPosts)}
-            />
-            <LimitRow
-              label="Listing views"
-              value={
-                viewsUnlimited
-                  ? 'Unlimited'
-                  : `${limits.listingViewsDaily ?? 0} per day · ${limits.listingViewsMonthly ?? 0} per month`
-              }
             />
             {showViewerContacts ? (
               <LimitRow
@@ -348,9 +369,9 @@ export default function SubscriptionPlansPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [resyncing, setResyncing] = useState(false);
+  const [activeBusyCode, setActiveBusyCode] = useState<string | null>(null);
   const [tab, setTab] = useState<'agent' | 'dbf' | 'developer'>('agent');
-  const [cityAddonDirty, setCityAddonDirty] = useState(false);
-  const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({ dirty: cityAddonDirty });
+  const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({ dirty: false });
   const viewerSwitches = useViewerSwitches();
   const agentPlans = plans.filter((p) => p.audience === 'agent');
   const dbfPlans = plans.filter((p) => p.audience === 'dbf');
@@ -395,6 +416,33 @@ export default function SubscriptionPlansPage() {
       setFormError(subscriptionApiError(err, 'Failed to save plan.'));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleToggleActive = async (plan: SubscriptionPlanItem, next: boolean) => {
+    if (!canUpdate || activeBusyCode) return;
+    setActiveBusyCode(plan.code);
+    setError('');
+    setPlans((prev) => prev.map((p) => (p.code === plan.code ? { ...p, isActive: next } : p)));
+    setEditing((current) =>
+      current?.code === plan.code ? { ...current, isActive: next } : current,
+    );
+    try {
+      const updated = await subscriptionsService.updatePlan(plan.code, { isActive: next });
+      if (updated) {
+        setPlans((prev) => prev.map((p) => (p.code === updated.code ? updated : p)));
+        setEditing((current) => (current?.code === updated.code ? updated : current));
+      }
+    } catch (err) {
+      setPlans((prev) =>
+        prev.map((p) => (p.code === plan.code ? { ...p, isActive: plan.isActive } : p)),
+      );
+      setEditing((current) =>
+        current?.code === plan.code ? { ...current, isActive: plan.isActive } : current,
+      );
+      setError(subscriptionApiError(err, 'Failed to update plan status.'));
+    } finally {
+      setActiveBusyCode(null);
     }
   };
 
@@ -490,7 +538,6 @@ export default function SubscriptionPlansPage() {
           onValueChange={async (v) => {
             const next = v === 'dbf' || v === 'developer' ? v : 'agent';
             if (next === tab || !(await confirmLeave())) return;
-            setCityAddonDirty(false);
             setTab(next);
           }}
         >
@@ -512,6 +559,8 @@ export default function SubscriptionPlansPage() {
                     key={plan.id}
                     plan={plan}
                     canUpdate={canUpdate}
+                    activeBusy={activeBusyCode === plan.code}
+                    onToggleActive={(next) => void handleToggleActive(plan, next)}
                     onEdit={() => openEdit(plan)}
                   />
                 ))}
@@ -538,6 +587,8 @@ export default function SubscriptionPlansPage() {
                     plan={plan}
                     canUpdate={canUpdate}
                     showViewerContacts={viewerSwitches.dbf}
+                    activeBusy={activeBusyCode === plan.code}
+                    onToggleActive={(next) => void handleToggleActive(plan, next)}
                     onEdit={() => openEdit(plan)}
                   />
                 ))}
@@ -556,8 +607,9 @@ export default function SubscriptionPlansPage() {
               plans={developerPlans}
               loading={loading}
               canUpdate={canUpdate}
+              activeBusyCode={activeBusyCode}
+              onToggleActive={(plan, next) => void handleToggleActive(plan, next)}
               onEdit={openEdit}
-              onDirtyChange={setCityAddonDirty}
             />
           </TabsContent>
         </Tabs>

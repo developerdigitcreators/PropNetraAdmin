@@ -193,7 +193,10 @@ function SimilarSetEditor({
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState('');
   const [pickOpen, setPickOpen] = useState(false);
-  const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({ dirty });
+  const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({
+    dirty,
+    onSave: canUpdate ? () => save() : undefined,
+  });
 
   const goBack = async () => {
     if (await confirmLeave()) onBack();

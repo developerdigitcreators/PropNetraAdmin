@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
@@ -63,8 +63,24 @@ function DbfFeaturedPageInner() {
   const { filters, setFilters } = useUrlFilters({ tab: 'sections', stateId: '', cityId: '' });
   const tab = filters.tab === 'builders' ? 'builders' : 'sections';
   const [dirtyIds, setDirtyIds] = useState<Record<string, boolean>>({});
+  const sectionSaveRef = useRef<Map<string, () => Promise<void>>>(new Map());
+  const registerSectionSave = useCallback((id: string, fn: () => Promise<void>) => {
+    sectionSaveRef.current.set(id, fn);
+  }, []);
+  const unregisterSectionSave = useCallback((id: string) => {
+    sectionSaveRef.current.delete(id);
+  }, []);
+  const saveAllDirtySections = useCallback(async () => {
+    for (const [id, dirty] of Object.entries(dirtyIds)) {
+      if (!dirty) continue;
+      const fn = sectionSaveRef.current.get(id);
+      if (fn) await fn();
+    }
+  }, [dirtyIds]);
+  const canUpdate = useAuthStore((s) => s.hasPermission('dbf_featured', 'update'));
   const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({
     dirty: Object.values(dirtyIds).some(Boolean),
+    onSave: canUpdate ? saveAllDirtySections : undefined,
   });
   const onDirtyChange = useCallback((id: string, dirty: boolean) => {
     setDirtyIds((prev) => (!!prev[id] === dirty ? prev : { ...prev, [id]: dirty }));
@@ -108,6 +124,8 @@ function DbfFeaturedPageInner() {
               cityId={filters.cityId}
               onFiltersChange={guardedFilters}
               onDirtyChange={onDirtyChange}
+              registerSectionSave={registerSectionSave}
+              unregisterSectionSave={unregisterSectionSave}
             />
           </TabsContent>
           <TabsContent value="builders" className="pt-4">
@@ -125,11 +143,15 @@ function SectionsTab({
   cityId,
   onFiltersChange,
   onDirtyChange,
+  registerSectionSave,
+  unregisterSectionSave,
 }: {
   stateId: string;
   cityId: string;
   onFiltersChange: (next: { stateId?: string; cityId?: string }) => Promise<boolean>;
   onDirtyChange: (id: string, dirty: boolean) => void;
+  registerSectionSave: (id: string, fn: () => Promise<void>) => void;
+  unregisterSectionSave: (id: string) => void;
 }) {
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const canCreate = hasPermission('dbf_featured', 'create');
@@ -406,6 +428,8 @@ function SectionsTab({
               canUpdate={canUpdate}
               canDelete={canDelete}
               onDirtyChange={onDirtyChange}
+              registerSectionSave={registerSectionSave}
+              unregisterSectionSave={unregisterSectionSave}
               onChanged={replaceSection}
               onError={setError}
               onDelete={() => void handleDeleteSection(section)}
@@ -483,6 +507,8 @@ function SectionCard({
   canUpdate,
   canDelete,
   onDirtyChange,
+  registerSectionSave,
+  unregisterSectionSave,
   onChanged,
   onError,
   onDelete,
@@ -495,6 +521,8 @@ function SectionCard({
   canUpdate: boolean;
   canDelete: boolean;
   onDirtyChange: (id: string, dirty: boolean) => void;
+  registerSectionSave: (id: string, fn: () => Promise<void>) => void;
+  unregisterSectionSave: (id: string) => void;
   onChanged: (next: DbfSection | null) => void;
   onError: (message: string) => void;
   onDelete: () => void;
@@ -519,10 +547,10 @@ function SectionCard({
 
   useEffect(() => () => onDirtyChange(section.id, false), [section.id, onDirtyChange]);
 
-  const save = async () => {
+  const save = useCallback(async () => {
     if (!name.trim()) {
       onError('Section name is required.');
-      return;
+      throw new Error('validation');
     }
     setSaving(true);
     try {
@@ -531,10 +559,16 @@ function SectionCard({
       );
     } catch (err) {
       onError(dbfFeaturedApiError(err, 'Failed to save section.'));
+      throw err;
     } finally {
       setSaving(false);
     }
-  };
+  }, [autoslide, name, onChanged, onError, section.id]);
+
+  useEffect(() => {
+    registerSectionSave(section.id, save);
+    return () => unregisterSectionSave(section.id);
+  }, [registerSectionSave, save, section.id, unregisterSectionSave]);
 
   const toggleActive = async (next: boolean) => {
     setToggling(true);
@@ -754,8 +788,9 @@ function TopBuildersTab() {
   const canDelete = hasPermission('dbf_featured', 'delete');
 
   const [rows, setRows] = useState<DbfTopBuilderRow[]>([]);
+  const [enabled, setEnabled] = useState(true);
   const [autoslide, setAutoslide] = useState('00:00:05');
-  const [savingTimer, setSavingTimer] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState('');
@@ -765,6 +800,7 @@ function TopBuildersTab() {
 
   const applyList = useCallback((list: DbfTopBuilderList) => {
     setRows(list.items);
+    setEnabled(list.enabled);
     setAutoslide(list.autoslide || '00:00:05');
   }, []);
 
@@ -855,20 +891,54 @@ function TopBuildersTab() {
     }
     const prev = autoslide;
     setAutoslide(next);
-    setSavingTimer(true);
+    setSavingSettings(true);
     setError('');
     try {
-      applyList(await dbfFeaturedService.updateTopBuilderSettings(next));
+      applyList(await dbfFeaturedService.updateTopBuilderSettings({ autoslide: next, enabled }));
     } catch (err) {
       setAutoslide(prev);
       setError(dbfFeaturedApiError(err, 'Failed to save auto-slide.'));
     } finally {
-      setSavingTimer(false);
+      setSavingSettings(false);
+    }
+  };
+
+  const saveEnabled = async (next: boolean) => {
+    if (!canUpdate || next === enabled) return;
+    const prev = enabled;
+    setEnabled(next);
+    setSavingSettings(true);
+    setError('');
+    try {
+      applyList(await dbfFeaturedService.updateTopBuilderSettings({ enabled: next, autoslide }));
+    } catch (err) {
+      setEnabled(prev);
+      setError(dbfFeaturedApiError(err, 'Failed to update Top Builders section.'));
+    } finally {
+      setSavingSettings(false);
     }
   };
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white px-5 py-4">
+        <div>
+          <p className="text-sm font-medium text-gray-900">Top Builders section</p>
+          <p className="text-xs text-gray-500">
+            Off hides the whole section in the app, including auto-picked builders.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={enabled}
+            disabled={!canUpdate || savingSettings}
+            onCheckedChange={(checked) => void saveEnabled(Boolean(checked))}
+          />
+          <span className="text-xs text-gray-500">{enabled ? 'On' : 'Off'}</span>
+          {savingSettings ? <Loader2 className="h-4 w-4 animate-spin text-gray-400" /> : null}
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white px-5 py-4">
         <div>
           <p className="text-sm font-medium text-gray-900">Auto-slide</p>
@@ -880,15 +950,14 @@ function TopBuildersTab() {
           <AutoslideTimePicker
             value={autoslide}
             onChange={(next) => void saveTimer(next)}
-            disabled={!canUpdate || savingTimer}
+            disabled={!canUpdate || savingSettings}
           />
-          {savingTimer ? <Loader2 className="h-4 w-4 animate-spin text-gray-400" /> : null}
         </div>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-gray-500">
-          One list for all cities, shown in this order. If empty, app shows auto-ranked builders.
+          One list for all cities, shown in this order. If the section is on and this list is empty, the app shows auto-ranked builders.
         </p>
         <AdminListToolbar onRefresh={() => void fetchRows()} refreshBusy={loading}>
           {canCreate ? (
@@ -916,7 +985,7 @@ function TopBuildersTab() {
         </div>
       ) : !rows.length ? (
         <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-6 py-16 text-center text-gray-500">
-          No curated builders. The app shows auto-ranked builders.
+          No curated builders. With the section on, the app shows auto-ranked builders.
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">

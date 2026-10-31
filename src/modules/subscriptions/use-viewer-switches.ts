@@ -36,7 +36,13 @@ export function viewerAddonVisible(type: string, _switches: ViewerSwitches) {
   return true;
 }
 
+function quotaPart(value: number | null | undefined) {
+  if (value == null) return 'Unlimited';
+  if (value === 0) return 'Blocked';
+  return String(value);
+}
+
 export function viewerQuotaLabel(daily: number | null | undefined, monthly: number | null | undefined) {
   if (daily == null && monthly == null) return 'Unlimited';
-  return `${daily ?? '∞'} per day · ${monthly ?? '∞'} per month`;
+  return `${quotaPart(daily)} per day · ${quotaPart(monthly)} per month`;
 }

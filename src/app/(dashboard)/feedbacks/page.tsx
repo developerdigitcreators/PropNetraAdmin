@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { MaskedContact } from '@/components/contact/masked-contact';
 import { PermissionGuard } from '@/components/common/permission-guard';
@@ -65,12 +65,15 @@ function FeedbacksPageInner() {
   const [editingRemark, setEditingRemark] = useState<FeedbackRemark | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const [editBusy, setEditBusy] = useState(false);
+  const detailSaveRef = useRef<() => Promise<void>>(async () => {});
+  const detailDraftDirty =
+    remarkDraft.trim().length > 0 || editDraft.trim().length > 0;
   const {
     requestClose: requestDetailClose,
     dialog: detailUnsavedDialog,
-  } = useDialogUnsavedGuard(
-    remarkDraft.trim().length > 0 || editDraft.trim().length > 0,
-  );
+  } = useDialogUnsavedGuard(detailDraftDirty, {
+    onSave: canUpdate ? () => detailSaveRef.current() : undefined,
+  });
   const [toDeleteRemark, setToDeleteRemark] = useState<FeedbackRemark | null>(null);
   const [deletingRemark, setDeletingRemark] = useState(false);
 
@@ -171,6 +174,11 @@ function FeedbacksPageInner() {
     } finally {
       setEditBusy(false);
     }
+  };
+
+  detailSaveRef.current = async () => {
+    if (editingRemark) await handleSaveRemark();
+    else if (remarkDraft.trim()) await handleAddRemark();
   };
 
   const handleDeleteRemark = async () => {

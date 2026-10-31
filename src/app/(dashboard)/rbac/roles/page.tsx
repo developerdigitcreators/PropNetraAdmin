@@ -59,11 +59,6 @@ export default function RolesPage() {
 
   const selectedPermissions = watch('permissions');
   const formDirty = isFormVisible && isDirty;
-  const { dialog: navUnsavedDialog } = useUnsavedChangesGuard({
-    dirty: formDirty,
-  });
-  const { requestClose, dialog: cancelUnsavedDialog } =
-    useDialogUnsavedGuard(formDirty);
 
   const fetchRoles = async () => {
     setIsLoadingRoles(true);
@@ -131,6 +126,28 @@ export default function RolesPage() {
       setIsSubmitting(false);
     }
   };
+
+  const submitRoleForm = () =>
+    new Promise<void>((resolve, reject) => {
+      handleSubmit(
+        async (data) => {
+          try {
+            await onSubmit(data);
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        },
+        () => reject(new Error('validation')),
+      )();
+    });
+  const { dialog: navUnsavedDialog } = useUnsavedChangesGuard({
+    dirty: formDirty,
+    onSave: () => submitRoleForm(),
+  });
+  const { requestClose, dialog: cancelUnsavedDialog } = useDialogUnsavedGuard(formDirty, {
+    onSave: () => submitRoleForm(),
+  });
 
   return (
     <PermissionGuard permission="rbac:read" fallback={<div className="p-12 text-center text-gray-500">You do not have permission to view roles.</div>}>

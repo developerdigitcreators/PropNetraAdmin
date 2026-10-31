@@ -57,12 +57,15 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
   const [optionToDelete, setOptionToDelete] = useState<any>(null);
   const supportsIcons = field.field_type === 'multi_select' || field.field_type === 'select';
   const baselineRef = useRef('');
+  const optionSaveRef = useRef<() => Promise<void>>(async () => {});
   const formSnapshot = useMemo(() => JSON.stringify(formData), [formData]);
   const dirty =
     isFormOpen &&
     baselineRef.current !== '' &&
     formSnapshot !== baselineRef.current;
-  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(dirty);
+  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(dirty, {
+    onSave: () => optionSaveRef.current(),
+  });
 
   const closeOptionForm = async () => {
     if (isSubmitting) return;
@@ -156,6 +159,7 @@ const FieldOptionsRenderer = ({ field, canManageOptions }: { field: any, canMana
       setIsSubmitting(false);
     }
   };
+  optionSaveRef.current = handleSave;
 
   const handleDelete = async (remark: string) => {
     if (!optionToDelete?.id) return;
@@ -316,12 +320,15 @@ export default function FormFieldsPage() {
   // Form State
   const [formData, setFormData] = useState<any>({ key: '', label: '', field_type: 'select', is_required: false });
   const baselineRef = useRef('');
+  const fieldSaveRef = useRef<() => Promise<void>>(async () => {});
   const formSnapshot = useMemo(() => JSON.stringify(formData), [formData]);
   const dirty =
     isModalOpen &&
     baselineRef.current !== '' &&
     formSnapshot !== baselineRef.current;
-  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(dirty);
+  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(dirty, {
+    onSave: () => fieldSaveRef.current(),
+  });
 
   const handleModalOpenChange = async (next: boolean) => {
     if (isSubmitting) return;
@@ -397,6 +404,7 @@ export default function FormFieldsPage() {
       setIsSubmitting(false);
     }
   };
+  fieldSaveRef.current = handleSave;
 
   const handleDelete = async (remark: string) => {
     if (!editingItem) return;

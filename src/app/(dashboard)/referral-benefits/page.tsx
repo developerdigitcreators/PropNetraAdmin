@@ -23,6 +23,7 @@ import {
   Users,
   Wallet,
 } from "lucide-react";
+import { ReferEarnBenefitBannerSection } from "@/modules/referral/refer-earn-benefit-banner-section";
 
 type EditableTier = {
   track: "FREE_REFERRER" | "PAID_REFERRER";
@@ -476,6 +477,11 @@ export default function ReferralBenefitsPage() {
                     ]}
                   />
                 </div>
+
+                <ReferEarnBenefitBannerSection
+                  canUpdate={canUpdate}
+                  initialFromSettings={settings.benefitBanner ?? undefined}
+                />
 
                 {canUpdate ? (
                   <div className="sticky bottom-4 z-10 flex justify-end">

@@ -10,12 +10,12 @@ import { useHideContactsOnRouteChange } from '@/components/contact/contact-revea
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   useHideContactsOnRouteChange();
   return (
-    <div className="h-screen flex overflow-hidden bg-gray-50">
+    <div className="flex h-dvh min-h-0 overflow-hidden bg-gray-50">
       <AuthSessionGuard />
       <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Navbar />
-        <main className="flex-1 min-h-0 p-6 overflow-y-auto flex flex-col">
+        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden p-6">
           <AdminPageBack />
           <div className="flex min-h-0 flex-1 flex-col">{children}</div>
         </main>

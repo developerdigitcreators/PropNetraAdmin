@@ -1,4 +1,5 @@
 import { axiosClient } from "@/lib/axios-client";
+import type { NewLaunchFeaturedResponse } from "@/lib/new-launch-frame";
 
 export type ReviewTab =
   | "unverified"
@@ -359,6 +360,8 @@ export type CreateFormField = {
   required?: boolean;
   options?: CreateFormFieldOption[];
   placeholder?: string;
+  suffix?: string;
+  dependsOn?: { field: string; value: unknown };
   moduleKey?: string;
   slot?: string;
   bannerPlacement?: unknown;
@@ -523,10 +526,22 @@ export type MyListingItem = {
 };
 
 export type MyListingDetail = MyListingItem & {
+  categoryId?: string | null;
+  category?: { id: string; name: string } | null;
+  /** Admin-only: show info icon next to price on developer property detail */
+  showAvailableUnit?: boolean;
   propertyName: string | null;
   locationName: string | null;
   microMarketName: string | null;
   cityName: string | null;
+  cityId?: string | null;
+  micromarketId?: string | null;
+  locationId?: string | null;
+  propertyNameId?: string | null;
+  forSaleInLocation?: boolean;
+  projectPrefix?: string | null;
+  stateId?: string | null;
+  stateName?: string | null;
   publishedAt: string | null;
   dynamicData: Record<string, unknown>;
   buildingType: { id: string; name: string } | null;
@@ -799,6 +814,13 @@ function applyPossessionFieldControls(
   return field;
 }
 
+function normalizeDependsOn(raw: unknown): { field: string; value: unknown } | undefined {
+  const row = asObject(raw);
+  const field = pickStr(row.field, row.fieldKey, row.field_key, row.key);
+  if (!field || !("value" in row)) return undefined;
+  return { field, value: row.value };
+}
+
 function normalizeCreateField(
   raw: unknown,
   moduleKey = "",
@@ -855,6 +877,8 @@ function normalizeCreateField(
         row.moduleOptions,
     ),
     placeholder: pickStr(row.placeholder, row.hint) || undefined,
+    suffix: pickStr(row.suffix) || undefined,
+    dependsOn: normalizeDependsOn(row.dependsOn ?? row.depends_on),
     moduleKey: moduleKey || pickStr(row.module_key, row.moduleKey) || undefined,
     raw: fieldId ? { ...row, id: fieldId } : row,
   };
@@ -1682,7 +1706,7 @@ export const listingsService = {
     userId: string,
     params?: {
       tab?: "active" | "inactive" | "in_approval" | "rejected" | "expired";
-      categoryGroup?: "resale_rent" | "buy_requirement";
+      categoryGroup?: "resale_rent" | "buy_requirement" | "developer" | "dbf";
       page?: number;
       limit?: number;
     },
@@ -1692,7 +1716,7 @@ export const listingsService = {
     userId: string,
     params?: {
       tab?: "active" | "inactive" | "in_approval" | "rejected" | "expired";
-      categoryGroup?: "resale_rent" | "buy_requirement";
+      categoryGroup?: "resale_rent" | "buy_requirement" | "developer" | "dbf";
       page?: number;
       limit?: number;
     },
@@ -1726,7 +1750,14 @@ export const listingsService = {
     const response = await axiosClient.get(
       `/admin/user-analytics/users/${encodeURIComponent(userId)}/listings/${encodeURIComponent(listingId)}`,
     );
-    return response.data as MyListingDetail;
+    const raw = response.data as Record<string, unknown>;
+    const showRaw =
+      raw.showAvailableUnit ??
+      raw.show_available_unit_info ??
+      raw.showAvailableUnitInfo;
+    const showAvailableUnit =
+      typeof showRaw === "boolean" ? showRaw : showRaw == null ? true : Boolean(showRaw);
+    return { ...(response.data as MyListingDetail), showAvailableUnit };
   },
 
   hardDeleteAdminUserListing: async (
@@ -1737,6 +1768,154 @@ export const listingsService = {
       `/admin/user-analytics/users/${encodeURIComponent(userId)}/listings/${encodeURIComponent(listingId)}`,
     );
     return response.data as { deleted: true; archived: true };
+  },
+
+  patchAdminUserListing: async (
+    userId: string,
+    listingId: string,
+    payload: Record<string, unknown>,
+  ): Promise<MyListingDetail> => {
+    const response = await axiosClient.patch(
+      `/admin/user-analytics/users/${encodeURIComponent(userId)}/listings/${encodeURIComponent(listingId)}`,
+      payload,
+    );
+    return response.data as MyListingDetail;
+  },
+
+  postAdminUserListing: async (
+    userId: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ id?: string; listing?: { id?: string } } & Record<string, unknown>> => {
+    const response = await axiosClient.post(
+      `/admin/user-analytics/users/${encodeURIComponent(userId)}/listings`,
+      payload,
+    );
+    return response.data as { id?: string; listing?: { id?: string } } & Record<string, unknown>;
+  },
+
+  getDeveloperUserPostFormCategories: async (
+    userId: string,
+  ): Promise<CreateFormOption[]> => {
+    const response = await axiosClient.get(
+      `/admin/user-analytics/users/${encodeURIComponent(userId)}/listings/post-form/categories`,
+    );
+    return asOptionList(response.data);
+  },
+
+  getDeveloperUserPostFormTypeOptions: async (
+    userId: string,
+    categoryId: string,
+  ): Promise<{
+    buildingTypes: CreateFormOption[];
+    propertyTypes: Array<CreateFormOption & { building_type_id?: string }>;
+  }> => {
+    const response = await axiosClient.get(
+      `/admin/user-analytics/users/${encodeURIComponent(userId)}/listings/post-form/type-options`,
+      { params: { categoryId } },
+    );
+    const data = asObject(response.data);
+    const btRaw = Array.isArray(data.buildingTypes) ? data.buildingTypes : [];
+    const ptRaw = Array.isArray(data.propertyTypes) ? data.propertyTypes : [];
+    const buildingTypes = asOptionList(btRaw);
+    const propertyTypes = ptRaw
+      .map((raw) => {
+        const row = asObject(raw);
+        const id = pickStr(row.id);
+        const name = pickStr(row.name, row.label);
+        if (!id || !name) return null;
+        return {
+          id,
+          name,
+          is_active: true,
+          building_type_id: pickStr(row.building_type_id, row.buildingTypeId),
+        };
+      })
+      .filter(Boolean) as Array<CreateFormOption & { building_type_id?: string }>;
+    return { buildingTypes, propertyTypes };
+  },
+
+  getDeveloperUserPostFormPlaces: async (
+    userId: string,
+    cityId: string,
+  ): Promise<CreateFormPlaces> => {
+    const response = await axiosClient.get(
+      `/admin/user-analytics/users/${encodeURIComponent(userId)}/listings/post-form/places`,
+      { params: { cityId } },
+    );
+    return response.data as CreateFormPlaces;
+  },
+
+  uploadAdminUserListingMedia: async (
+    userId: string,
+    files: File[],
+  ): Promise<{ images: string[] }> => {
+    const form = new FormData();
+    for (const file of files) form.append("files", file);
+    const response = await axiosClient.post(
+      `/admin/user-analytics/users/${encodeURIComponent(userId)}/listings/media/upload`,
+      form,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+    const data = response.data as { images?: string[]; data?: { images?: string[] } };
+    const images = data.images ?? data.data?.images ?? [];
+    return { images };
+  },
+
+  uploadAdminUserListingVideos: async (
+    userId: string,
+    files: File[],
+  ): Promise<{ videos: string[] }> => {
+    const form = new FormData();
+    for (const file of files) form.append("files", file);
+    const response = await axiosClient.post(
+      `/admin/user-analytics/users/${encodeURIComponent(userId)}/listings/media/upload-video`,
+      form,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+    const data = response.data as { videos?: string[]; data?: { videos?: string[] } };
+    return { videos: data.videos ?? data.data?.videos ?? [] };
+  },
+
+  uploadAdminUserListingBrochure: async (
+    userId: string,
+    file: File,
+  ): Promise<{ url: string }> => {
+    const form = new FormData();
+    form.append("file", file);
+    const response = await axiosClient.post(
+      `/admin/user-analytics/users/${encodeURIComponent(userId)}/listings/media/upload-brochure`,
+      form,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+    const data = response.data as { url?: string; data?: { url?: string } };
+    const url = data.url ?? data.data?.url ?? "";
+    return { url };
+  },
+
+  getAdminUserListingNewLaunchFeatured: async (
+    userId: string,
+    listingId: string,
+  ): Promise<NewLaunchFeaturedResponse> => {
+    const response = await axiosClient.get(
+      `/admin/user-analytics/users/${encodeURIComponent(userId)}/listings/${encodeURIComponent(listingId)}/new-launch-featured`,
+    );
+    return response.data as NewLaunchFeaturedResponse;
+  },
+
+  uploadAdminUserNewLaunchFrame: async (
+    userId: string,
+    file: File,
+  ): Promise<{ url: string }> => {
+    const form = new FormData();
+    form.append("file", file);
+    const response = await axiosClient.post(
+      `/admin/user-analytics/users/${encodeURIComponent(userId)}/listings/media/upload-new-launch-frame`,
+      form,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+    const data = response.data as { url?: string; data?: { url?: string } };
+    const url = data.url ?? data.data?.url ?? "";
+    return { url };
   },
 };
 
@@ -2213,6 +2392,43 @@ function formatAreaDisplay(sizeRaw: unknown, unitRaw: unknown): string {
   return unitText ? `${sizeText} ${unitText}` : sizeText;
 }
 
+function isDetailFlagOn(value: unknown): boolean {
+  return value === true || value === 1 || value === "1" || value === "true" || value === "yes";
+}
+
+function isDetailPercentKey(norm: string): boolean {
+  return (
+    (norm.startsWith("brokerage_share") || norm.startsWith("mandate_deal") || norm.startsWith("brokerage") || norm.startsWith("mandate")) &&
+    norm.includes("percent")
+  );
+}
+
+function detailPercentForFlag(
+  byNorm: Map<string, { originalKey: string; value: unknown }>,
+  flag: string,
+): number | null {
+  const candidates = [`${flag}_percent`, `${flag}_percentage`, `${flag}percent`];
+  for (const key of candidates) {
+    const parsed = parseDetailPercent(byNorm.get(key)?.value);
+    if (parsed != null) return parsed;
+  }
+  for (const [norm, entry] of byNorm) {
+    if (!norm.startsWith(flag) || !norm.includes("percent")) continue;
+    const parsed = parseDetailPercent(entry.value);
+    if (parsed != null) return parsed;
+  }
+  return null;
+}
+
+function parseDetailPercent(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value.replace("%", "").trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 function detailSortIndex(normalizedKey: string): number {
   const idx = DETAIL_FIELD_ORDER.indexOf(normalizedKey);
   return idx === -1 ? 1000 + normalizedKey.charCodeAt(0) : idx;
@@ -2225,11 +2441,21 @@ export function getListingDetailRows(
   item: ListingReviewItem,
 ): ListingDetailRow[] {
   const form = (item.form || {}) as Record<string, unknown>;
+  const extra = item as ListingReviewItem & {
+    dynamicData?: Record<string, unknown>;
+    dynamic_data?: Record<string, unknown>;
+  };
   const dynamic =
     form.dynamicData && typeof form.dynamicData === "object"
       ? (form.dynamicData as Record<string, unknown>)
-      : {};
-  const merged: Record<string, unknown> = { ...dynamic };
+      : form.dynamic_data && typeof form.dynamic_data === "object"
+        ? (form.dynamic_data as Record<string, unknown>)
+        : {};
+  const merged: Record<string, unknown> = {
+    ...(extra.dynamic_data || {}),
+    ...(extra.dynamicData || {}),
+    ...dynamic,
+  };
 
   for (const [key, value] of Object.entries(form)) {
     if (key === "dynamicData" || key === "submittedBy") continue;
@@ -2293,6 +2519,13 @@ export function getListingDetailRows(
       value = Number.isFinite(num)
         ? `₹ ${num.toLocaleString("en-IN")}`
         : formatDetailValue(entry.value);
+    } else if (norm === "brokerage_share" || norm === "mandate_deal") {
+      if (!isDetailFlagOn(entry.value)) continue;
+      const percent = detailPercentForFlag(byNorm, norm);
+      if (percent == null) continue;
+      value = `${percent}%`;
+    } else if (isDetailPercentKey(norm)) {
+      continue;
     } else {
       value = formatDetailValue(entry.value);
     }

@@ -21,9 +21,14 @@ import { useUrlFilters } from '@/hooks/use-url-filters';
 
 type Level = 'states' | 'cities' | 'micro_markets' | 'locations';
 
-function useLocationModalGuard(open: boolean, formSnapshot: string, baseline: string) {
+function useLocationModalGuard(
+  open: boolean,
+  formSnapshot: string,
+  baseline: string,
+  onSave?: () => void | Promise<void>,
+) {
   const dirty = open && baseline !== '' && formSnapshot !== baseline;
-  const { requestClose, dialog } = useDialogUnsavedGuard(dirty);
+  const { requestClose, dialog } = useDialogUnsavedGuard(dirty, { onSave });
   const handleOpenChange = async (next: boolean) => {
     if (!next) {
       const ok = await requestClose();
@@ -123,10 +128,12 @@ function StatesView({
   };
 
   const formSnapshot = JSON.stringify(form);
+  const modalSaveRef = useRef<() => Promise<void>>(async () => {});
   const { handleOpenChange, dialog: unsavedDialog } = useLocationModalGuard(
     isModalOpen,
     formSnapshot,
     formBaseline,
+    () => modalSaveRef.current(),
   );
 
   const closeModal = async () => {
@@ -143,6 +150,7 @@ function StatesView({
       setIsModalOpen(false); fetch();
     } catch (e) { console.error(e); } finally { setIsSubmitting(false); }
   };
+  modalSaveRef.current = save;
 
   const del = async (remark: string) => {
     setIsSubmitting(true);
@@ -316,10 +324,12 @@ function CitiesView({
   };
 
   const formSnapshot = JSON.stringify(form);
+  const modalSaveRef = useRef<() => Promise<void>>(async () => {});
   const { handleOpenChange, dialog: unsavedDialog } = useLocationModalGuard(
     isModalOpen,
     formSnapshot,
     formBaseline,
+    () => modalSaveRef.current(),
   );
   const closeModal = async () => {
     const ok = await handleOpenChange(false);
@@ -335,6 +345,7 @@ function CitiesView({
       setIsModalOpen(false); fetch();
     } catch (e) { console.error(e); } finally { setIsSubmitting(false); }
   };
+  modalSaveRef.current = save;
 
   const del = async (remark: string) => {
     setIsSubmitting(true);
@@ -517,10 +528,12 @@ function MicroMarketsView({
   };
 
   const formSnapshot = JSON.stringify(form);
+  const modalSaveRef = useRef<() => Promise<void>>(async () => {});
   const { handleOpenChange, dialog: unsavedDialog } = useLocationModalGuard(
     isModalOpen,
     formSnapshot,
     formBaseline,
+    () => modalSaveRef.current(),
   );
   const closeModal = async () => {
     const ok = await handleOpenChange(false);
@@ -536,6 +549,7 @@ function MicroMarketsView({
       setIsModalOpen(false); fetchAll();
     } catch (e) { console.error(e); } finally { setIsSubmitting(false); }
   };
+  modalSaveRef.current = save;
 
   const del = async (remark: string) => {
     setIsSubmitting(true);
@@ -729,10 +743,12 @@ function LocationsView({
   };
 
   const formSnapshot = JSON.stringify(form);
+  const modalSaveRef = useRef<() => Promise<void>>(async () => {});
   const { handleOpenChange, dialog: unsavedDialog } = useLocationModalGuard(
     isModalOpen,
     formSnapshot,
     formBaseline,
+    () => modalSaveRef.current(),
   );
   const closeModal = async () => {
     const ok = await handleOpenChange(false);
@@ -748,6 +764,7 @@ function LocationsView({
       setIsModalOpen(false); fetchAll();
     } catch (e) { console.error(e); } finally { setIsSubmitting(false); }
   };
+  modalSaveRef.current = save;
 
   const del = async (remark: string) => {
     setIsSubmitting(true);

@@ -5,6 +5,8 @@ export type FeatureControls = {
   listing_viewers_dbf_enabled: boolean;
   listing_viewers_agent_enabled: boolean;
   developer_share_count_enabled: boolean;
+  /** Public developer cards/detail: show eye + viewCount. Off hides count; tracking continues. */
+  developer_view_count_enabled: boolean;
   reels_silent_enabled: boolean;
   reels_share_enabled: boolean;
   reels_views_enabled: boolean;

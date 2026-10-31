@@ -61,7 +61,7 @@ export default function LegalPagesPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-gray-900">Terms & Privacy</h1>
             <p className="mt-1 text-gray-500">
-              Title and HTML body for the app. An unpublished page returns 404 in the app.
+              Page title, publish state, and ordered sections for the app legal screens.
             </p>
           </div>
           <AdminListToolbar onRefresh={() => void fetchPages()} refreshDisabled={loading} />
@@ -86,6 +86,7 @@ export default function LegalPagesPage() {
               <tr>
                 <th className="px-5 py-3 font-semibold text-gray-700">Page</th>
                 <th className="px-5 py-3 font-semibold text-gray-700">Title</th>
+                <th className="px-5 py-3 font-semibold text-gray-700">Sections</th>
                 <th className="px-5 py-3 font-semibold text-gray-700">Status</th>
                 <th className="px-5 py-3 font-semibold text-gray-700">Updated</th>
                 <th className="px-5 py-3 text-right font-semibold text-gray-700">Actions</th>
@@ -96,6 +97,9 @@ export default function LegalPagesPage() {
                 <tr key={page.slug} className="border-b border-gray-50">
                   <td className="px-5 py-4 font-medium text-gray-900">{LABELS[page.slug]}</td>
                   <td className="px-5 py-4 text-gray-700">{page.title || '—'}</td>
+                  <td className="px-5 py-4 text-gray-600">
+                    {page.sectionCount != null ? page.sectionCount : '—'}
+                  </td>
                   <td className="px-5 py-4">
                     <Badge
                       className={
@@ -114,7 +118,7 @@ export default function LegalPagesPage() {
                       className={buttonVariants({ variant: 'outline', size: 'sm' })}
                     >
                       <Edit2 className="mr-1.5 h-4 w-4" />
-                      {canUpdate ? 'Edit' : 'View'}
+                      {canUpdate ? 'Manage sections' : 'View sections'}
                     </Link>
                   </td>
                 </tr>

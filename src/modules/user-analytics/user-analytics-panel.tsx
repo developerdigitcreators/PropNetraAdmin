@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MaskedContact } from "@/components/contact/masked-contact";
 import { useRouter, useSearchParams } from "next/navigation";
 import { formatDisplayDate, formatDisplayDateTime } from "@/lib/format-date";
@@ -25,7 +25,10 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
+  mergeAnalyticsDetail,
+  analyticsTabToApiParam,
   countTabItems,
+  isPublisherAppRole,
   userAnalyticsApiError,
   userAnalyticsService,
   type AnalyticsPlace,
@@ -46,6 +49,8 @@ import { ReferralTab } from "@/modules/user-analytics/referral-tab";
 import { UserListingsTab } from "@/modules/user-analytics/user-listings-tab";
 import { VerificationDocsSection } from "@/modules/user-analytics/verification-docs-section";
 import { DeviceLockSection } from "@/modules/user-analytics/device-lock-section";
+import { DeveloperProfileStatsSection } from "@/modules/user-analytics/profile-stats-section";
+import { PublisherAnalyticsTab } from "@/modules/user-analytics/publisher-analytics-tab";
 import Link from "next/link";
 import {
   BarChart3,
@@ -84,12 +89,13 @@ type ProfileTab =
   | "write"
   | "listings"
   | "listingFeedback";
-type DetailTab = "views" | "contacted" | "leads" | "listingViewers";
+type DetailTab = string;
 
 type ProfileUser = AnalyticsUser & {
   status?: string;
   role?: string;
   state?: string;
+  appRole?: string | null;
 };
 
 type ProfileGridCell = {
@@ -154,6 +160,14 @@ function userLabel(user: Pick<AnalyticsUser, "name" | "contact" | "email">) {
 
 function dash(value?: string | null) {
   return value?.trim() || "—";
+}
+
+function isDeveloperAppRole(role?: string | null) {
+  const r = String(role || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+  return r === "developer";
 }
 
 function pickRoleName(user: Record<string, unknown>): string {
@@ -262,6 +276,7 @@ function PeopleTable({
   showChannels,
   showPlan,
   showStatus,
+  showPublisherExtras,
   onPreviewListing,
   empty,
 }: {
@@ -269,6 +284,7 @@ function PeopleTable({
   showChannels?: boolean;
   showPlan?: boolean;
   showStatus?: boolean;
+  showPublisherExtras?: boolean;
   onPreviewListing?: (listingId: string) => void;
   empty?: string;
 }) {
@@ -293,6 +309,12 @@ function PeopleTable({
             </th>
             <th className="px-4 py-2.5 font-semibold text-gray-700">Project</th>
             <th className="px-4 py-2.5 font-semibold text-gray-700">BHK</th>
+            {showPublisherExtras ? (
+              <>
+                <th className="px-4 py-2.5 font-semibold text-gray-700">Team member</th>
+                <th className="px-4 py-2.5 font-semibold text-gray-700">Source</th>
+              </>
+            ) : null}
             {showStatus ? (
               <th className="px-4 py-2.5 font-semibold text-gray-700">
                 Status
@@ -335,6 +357,12 @@ function PeopleTable({
               </td>
               <td className="px-4 py-3 text-gray-900">{dash(row.project)}</td>
               <td className="px-4 py-3 text-gray-600">{dash(row.bhk)}</td>
+              {showPublisherExtras ? (
+                <>
+                  <td className="px-4 py-3 text-gray-600">{dash(row.teamMemberName)}</td>
+                  <td className="px-4 py-3 text-gray-600">{dash(row.source)}</td>
+                </>
+              ) : null}
               {showStatus ? (
                 <td className="px-4 py-3 text-gray-600 capitalize">
                   {dash(row.listingStatus)}
@@ -370,6 +398,7 @@ function CollapsibleDay({
   showChannels,
   showPlan,
   showStatus,
+  showPublisherExtras,
   onPreviewListing,
   emptyDetail,
 }: {
@@ -377,6 +406,7 @@ function CollapsibleDay({
   showChannels?: boolean;
   showPlan?: boolean;
   showStatus?: boolean;
+  showPublisherExtras?: boolean;
   onPreviewListing?: (listingId: string) => void;
   emptyDetail: string;
 }) {
@@ -406,6 +436,7 @@ function CollapsibleDay({
             showChannels={showChannels}
             showPlan={showPlan}
             showStatus={showStatus}
+            showPublisherExtras={showPublisherExtras}
             onPreviewListing={onPreviewListing}
             empty={emptyDetail}
           />
@@ -427,6 +458,7 @@ function CollapsibleTimeline({
   showChannels,
   showPlan,
   showStatus,
+  showPublisherExtras,
   onPreviewListing,
 }: {
   tab: GroupedTab<PersonRow>;
@@ -436,6 +468,7 @@ function CollapsibleTimeline({
   showChannels?: boolean;
   showPlan?: boolean;
   showStatus?: boolean;
+  showPublisherExtras?: boolean;
   onPreviewListing?: (listingId: string) => void;
 }) {
   const days =
@@ -470,6 +503,7 @@ function CollapsibleTimeline({
                   showChannels={showChannels}
                   showPlan={showPlan}
                   showStatus={showStatus}
+                  showPublisherExtras={showPublisherExtras}
                   onPreviewListing={onPreviewListing}
                   emptyDetail={emptyDetail}
                 />
@@ -490,6 +524,7 @@ function CollapsibleTimeline({
           showChannels={showChannels}
           showPlan={showPlan}
           showStatus={showStatus}
+          showPublisherExtras={showPublisherExtras}
           onPreviewListing={onPreviewListing}
           emptyDetail={emptyDetail}
         />
@@ -574,8 +609,8 @@ function WriteToUsTab({ userId }: { userId: string }) {
               </p>
               <p className="mt-1 text-xs capitalize text-gray-500">
                 Status:{" "}
-                {row.status === "under_process"
-                  ? "Under Process"
+                {row.status === "under_review"
+                  ? "Under review"
                   : row.status === "closed"
                     ? "Closed"
                     : "Pending"}
@@ -629,11 +664,7 @@ export function UserAnalyticsPanel() {
       ? filters.tab
       : "subscription"
   ) as ProfileTab;
-  const analyticsTab = (
-    ["views", "contacted", "leads", "listingViewers"].includes(filters.aTab)
-      ? filters.aTab
-      : "views"
-  ) as DetailTab;
+  const analyticsTab = String(filters.aTab || "views").trim() || "views";
 
   const setFrom = (value: string) => setFilters({ from: value });
   const setTo = (value: string) => setFilters({ to: value });
@@ -646,6 +677,12 @@ export function UserAnalyticsPanel() {
   const userId = String(searchParams.get("userId") || "").trim();
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [refreshBusy, setRefreshBusy] = useState(false);
+  const profileStatsLeaveGuard = useRef<(() => Promise<boolean>) | null>(null);
+
+  const ensureProfileStatsSavedOrDiscarded = useCallback(async () => {
+    if (!profileStatsLeaveGuard.current) return true;
+    return profileStatsLeaveGuard.current();
+  }, []);
 
   const [states, setStates] = useState<AnalyticsPlace[]>([]);
   const [cities, setCities] = useState<AnalyticsPlace[]>([]);
@@ -662,6 +699,13 @@ export function UserAnalyticsPanel() {
   const [preview, setPreview] = useState<MyListingDetail | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
+
+  const appRole =
+    selectedUser?.appRole ??
+    (detail?.user as ProfileUser | undefined)?.appRole ??
+    null;
+  const isPublisherRole = isPublisherAppRole(appRole);
+  const publisherAnalytics = isPublisherRole;
 
   const openListingPreview = useCallback(async (listingId: string) => {
     setPreviewOpen(true);
@@ -697,8 +741,9 @@ export function UserAnalyticsPanel() {
     [router],
   );
 
-  const clearUserFromUrl = useCallback(() => {
+  const clearUserFromUrl = useCallback(async () => {
     if (!userId) return;
+    if (!(await ensureProfileStatsSavedOrDiscarded())) return;
     const params = new URLSearchParams(
       typeof window !== "undefined"
         ? window.location.search
@@ -708,7 +753,12 @@ export function UserAnalyticsPanel() {
     replaceAnalyticsQuery(params);
     setSelectedUser(null);
     setDetail(null);
-  }, [replaceAnalyticsQuery, searchParams, userId]);
+  }, [
+    ensureProfileStatsSavedOrDiscarded,
+    replaceAnalyticsQuery,
+    searchParams,
+    userId,
+  ]);
 
   useEffect(() => {
     if (!userId) {
@@ -752,6 +802,9 @@ export function UserAnalyticsPanel() {
           name: String(user.name || ""),
           contact: String(user.contact || user.phone || ""),
           email: String(user.email || ""),
+          appRole:
+            String(user.appRole || user.app_role || "").trim().toLowerCase() ||
+            null,
           city: String(user.city || "") || undefined,
           companyName:
             String(user.companyName || user.company_name || "") || undefined,
@@ -891,30 +944,50 @@ export function UserAnalyticsPanel() {
   }, [canPickUser, loadUsers]);
 
   useEffect(() => {
-    if (!userId) {
+    if (!userId || !rangeReady) {
       setDetail(null);
       return;
     }
-    const analyticsFrom = "2020-01-01";
-    const analyticsTo = new Date().toISOString().slice(0, 10);
+    if (isPublisherRole) {
+      setDetail(null);
+      setDetailLoading(false);
+      return;
+    }
     let cancelled = false;
     setDetailLoading(true);
     setError("");
+    const apiTab =
+      profileTab === "analytics"
+        ? analyticsTabToApiParam(
+            analyticsTab,
+            detail?.analyticsMode ??
+              (isPublisherAppRole(selectedUser?.appRole)
+                ? selectedUser?.appRole === "floor"
+                  ? "publisher_floor"
+                  : "publisher_developer"
+                : "agent"),
+          )
+        : undefined;
     userAnalyticsService
       .getUserAnalytics({
         userId,
-        from: analyticsFrom,
-        to: analyticsTo,
-        stateId,
-        cityId,
+        from,
+        to,
+        stateId: stateId || undefined,
+        cityId: cityId || undefined,
+        tab: apiTab,
         fallbackUser: selectedUser,
       })
       .then((next) => {
-        if (!cancelled) setDetail(next);
+        if (!cancelled) {
+          setDetail((prev) =>
+            apiTab && prev ? mergeAnalyticsDetail(prev, next, apiTab) : next,
+          );
+        }
       })
       .catch((err) => {
         if (!cancelled) {
-          setDetail(null);
+          if (!apiTab) setDetail(null);
           setError(
             userAnalyticsApiError(
               err,
@@ -929,18 +1002,36 @@ export function UserAnalyticsPanel() {
     return () => {
       cancelled = true;
     };
-  }, [cityId, refreshNonce, selectedUser?.id, stateId, userId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    cityId,
+    from,
+    profileTab,
+    analyticsTab,
+    refreshNonce,
+    rangeReady,
+    selectedUser?.id,
+    stateId,
+    to,
+    userId,
+    isPublisherRole,
+  ]);
 
-  const pickUser = (id: string) => {
+  const pickUser = async (id: string) => {
     if (!id) {
-      clearUserFromUrl();
+      await clearUserFromUrl();
       return;
     }
     if (id === userId) return;
+    if (!(await ensureProfileStatsSavedOrDiscarded())) return;
     const match = users.find((user) => user.id === id) || null;
     setSelectedUser(match as ProfileUser | null);
     setProfileTab("analytics");
-    setAnalyticsTab("views");
+    setAnalyticsTab(
+      isPublisherAppRole((match as ProfileUser | null)?.appRole)
+        ? "listingViewers"
+        : "views",
+    );
     const params = new URLSearchParams(
       typeof window !== "undefined"
         ? window.location.search
@@ -973,6 +1064,9 @@ export function UserAnalyticsPanel() {
           name: String(user.name || ""),
           contact: String(user.contact || user.phone || ""),
           email: String(user.email || ""),
+          appRole:
+            String(user.appRole || user.app_role || "").trim().toLowerCase() ||
+            null,
           city: String(user.city || "") || undefined,
           companyName:
             String(user.companyName || user.company_name || "") || undefined,
@@ -1010,6 +1104,18 @@ export function UserAnalyticsPanel() {
   const leadsCount = detail ? countTabItems(detail.interested) : 0;
   const listingViewersCount = detail ? countTabItems(detail.listingViewers) : 0;
   const usage = detail?.usage;
+
+  useEffect(() => {
+    if (!isPublisherRole || profileTab !== "refer") return;
+    setProfileTab("subscription");
+  }, [isPublisherRole, profileTab, setProfileTab]);
+
+  useEffect(() => {
+    if (!isPublisherRole || profileTab !== "analytics") return;
+    const valid = ["listingViewers", "leads"];
+    if (!valid.includes(analyticsTab)) setAnalyticsTab("listingViewers");
+  }, [analyticsTab, isPublisherRole, profileTab, setAnalyticsTab]);
+
   const profileGridCells = useMemo(
     () =>
       buildProfileGridCells(
@@ -1017,6 +1123,13 @@ export function UserAnalyticsPanel() {
         selectedUser,
       ),
     [detail?.user, selectedUser],
+  );
+  const isDeveloperUser = useMemo(
+    () =>
+      isDeveloperAppRole(appRole) ||
+      isDeveloperAppRole(selectedUser?.role) ||
+      isDeveloperAppRole((detail?.user as ProfileUser | undefined)?.role),
+    [appRole, selectedUser?.role, detail?.user],
   );
 
   return (
@@ -1258,7 +1371,7 @@ export function UserAnalyticsPanel() {
                     })}
                   </div>
                 ) : null}
-                {usage ? (
+                {usage && !isPublisherRole ? (
                   <p className="mt-2 text-xs text-gray-500">
                     This month ({usage.period || "—"}): card views used{" "}
                     {usage.viewsUsed ?? 0}
@@ -1275,20 +1388,34 @@ export function UserAnalyticsPanel() {
 
             <DeviceLockSection key={`device-${userId}-${refreshNonce}`} userId={userId} />
 
+            {isDeveloperUser ? (
+              <DeveloperProfileStatsSection
+                key={`profile-stats-${userId}-${refreshNonce}`}
+                userId={userId}
+                refreshKey={refreshNonce}
+                registerLeaveGuard={(guard) => {
+                  profileStatsLeaveGuard.current = guard;
+                }}
+              />
+            ) : null}
+
             <Tabs
               value={profileTab}
               onValueChange={(value) => {
-                if (value === profileTab) return;
-                if (
-                  value === "subscription" ||
-                  value === "refer" ||
-                  value === "analytics" ||
-                  value === "write" ||
-                  value === "listings" ||
-                  value === "listingFeedback"
-                ) {
-                  setProfileTab(value);
-                }
+                void (async () => {
+                  if (value === profileTab) return;
+                  if (!(await ensureProfileStatsSavedOrDiscarded())) return;
+                  if (
+                    value === "subscription" ||
+                    value === "refer" ||
+                    value === "analytics" ||
+                    value === "write" ||
+                    value === "listings" ||
+                    value === "listingFeedback"
+                  ) {
+                    setProfileTab(value);
+                  }
+                })();
               }}
               className="w-full"
             >
@@ -1300,10 +1427,12 @@ export function UserAnalyticsPanel() {
                   <Sparkles className="h-4 w-4" />
                   Subscription
                 </TabsTrigger>
-                <TabsTrigger value="refer" className="gap-1.5 rounded-md px-4">
-                  <Gift className="h-4 w-4" />
-                  Refer and Earn
-                </TabsTrigger>
+                {!isPublisherRole ? (
+                  <TabsTrigger value="refer" className="gap-1.5 rounded-md px-4">
+                    <Gift className="h-4 w-4" />
+                    Refer and Earn
+                  </TabsTrigger>
+                ) : null}
                 <TabsTrigger
                   value="analytics"
                   className="gap-1.5 rounded-md px-4"
@@ -1340,7 +1469,12 @@ export function UserAnalyticsPanel() {
                     userId={userId}
                   />
                 ) : null}
-                <SubscriptionTab key={`sub-${refreshNonce}`} userId={userId} />
+                <SubscriptionTab
+                  key={`sub-${refreshNonce}`}
+                  userId={userId}
+                  appRole={appRole}
+                  hideReferralCoins={isPublisherRole}
+                />
               </TabsContent>
               <TabsContent value="refer">
                 <ReferralTab key={`ref-${refreshNonce}`} userId={userId} />
@@ -1349,7 +1483,12 @@ export function UserAnalyticsPanel() {
                 <WriteToUsTab key={`write-${refreshNonce}`} userId={userId} />
               </TabsContent>
               <TabsContent value="listings">
-                <UserListingsTab key={`list-${refreshNonce}`} userId={userId} />
+                <UserListingsTab
+                  key={`list-${refreshNonce}`}
+                  userId={userId}
+                  appRole={appRole}
+                  refreshKey={refreshNonce}
+                />
               </TabsContent>
               {canReadListingFeedback ? (
                 <TabsContent value="listingFeedback">
@@ -1364,7 +1503,31 @@ export function UserAnalyticsPanel() {
                 </TabsContent>
               ) : null}
               <TabsContent value="analytics" className="space-y-4">
-                {detailLoading && !detail ? (
+                {publisherAnalytics ? (
+                  <PublisherAnalyticsTab
+                    userId={userId}
+                    appRole={appRole}
+                    analyticsTab={analyticsTab}
+                    onAnalyticsTabChange={setAnalyticsTab}
+                    refreshKey={refreshNonce}
+                    onPreviewListing={(id) => void openListingPreview(id)}
+                    renderTimeline={(props) => (
+                      <CollapsibleTimeline
+                        tab={props.tab}
+                        groupBy={props.groupBy}
+                        empty={props.empty}
+                        emptyDetail={props.emptyDetail}
+                        showChannels={props.showChannels}
+                        showPlan={props.showPlan}
+                        showStatus={props.showStatus}
+                        showPublisherExtras={
+                          props.showPublisherExtras || props.showTeamMember
+                        }
+                        onPreviewListing={props.onPreviewListing}
+                      />
+                    )}
+                  />
+                ) : detailLoading && !detail ? (
                   <div className="flex justify-center py-20">
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
@@ -1372,7 +1535,7 @@ export function UserAnalyticsPanel() {
                   <Tabs
                     value={analyticsTab}
                     onValueChange={(value) => {
-                      if (value === analyticsTab) return;
+                      if (!value || value === analyticsTab) return;
                       if (
                         value === "views" ||
                         value === "contacted" ||
@@ -1495,7 +1658,10 @@ export function UserAnalyticsPanel() {
                                 key={l.listingId || i}
                                 className="rounded-md bg-white px-2.5 py-1 text-xs text-gray-700 shadow-sm"
                               >
-                                {l.name}: <span className="font-semibold text-orange-700">{l.fakeViews}</span>
+                                {l.name}:{" "}
+                                <span className="font-semibold text-orange-700">
+                                  {l.fakeViews}
+                                </span>
                               </li>
                             ))}
                           </ul>
@@ -1529,10 +1695,8 @@ export function UserAnalyticsPanel() {
         <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {preview?.displayTitle ||
-                (typeof preview?.property_name === "object"
-                  ? preview?.property_name?.name
-                  : null) ||
+              {preview?.title ||
+                preview?.propertyName ||
                 "Property details"}
             </DialogTitle>
           </DialogHeader>
@@ -1548,9 +1712,7 @@ export function UserAnalyticsPanel() {
               </p>
               <p>
                 <span className="text-gray-500">Category: </span>
-                {typeof preview.category === "object"
-                  ? preview.category?.name
-                  : String(preview.category || "—")}
+                {preview.categoryName || "—"}
               </p>
               {getListingDetailRows(preview as never)
                 .slice(0, 12)

@@ -7,7 +7,7 @@ import { Breadcrumb } from '@/components/common/breadcrumb';
 import { AdminDataTable } from '@/components/common/admin-data-table';
 import { AdminListToolbar } from '@/components/common/admin-list-toolbar';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { AddonFormDialog } from '@/modules/subscriptions/addon-form-dialog';
 import {
   subscriptionApiError,
@@ -36,6 +36,7 @@ export default function SubscriptionAddonsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [activeBusyType, setActiveBusyType] = useState<string | null>(null);
   const viewerSwitches = useViewerSwitches();
   const visibleAddons = addons.filter((a) => viewerAddonVisible(a.type, viewerSwitches));
 
@@ -65,6 +66,33 @@ export default function SubscriptionAddonsPage() {
   useEffect(() => {
     fetchAddons();
   }, [fetchAddons]);
+
+  const handleToggleEnabled = async (addon: AddonCatalogItem, next: boolean) => {
+    if (!canUpdate || activeBusyType || isAutomaticAddon(addon.type)) return;
+    setActiveBusyType(addon.type);
+    setError('');
+    setAddons((prev) => prev.map((a) => (a.type === addon.type ? { ...a, enabled: next } : a)));
+    setEditing((current) =>
+      current?.type === addon.type ? { ...current, enabled: next } : current,
+    );
+    try {
+      const updated = await subscriptionsService.updateAddon(addon.type, { enabled: next });
+      if (updated) {
+        setAddons((prev) => prev.map((a) => (a.type === updated.type ? updated : a)));
+        setEditing((current) => (current?.type === updated.type ? updated : current));
+      }
+    } catch (err) {
+      setAddons((prev) =>
+        prev.map((a) => (a.type === addon.type ? { ...a, enabled: addon.enabled } : a)),
+      );
+      setEditing((current) =>
+        current?.type === addon.type ? { ...current, enabled: addon.enabled } : current,
+      );
+      setError(subscriptionApiError(err, 'Failed to update add-on status.'));
+    } finally {
+      setActiveBusyType(null);
+    }
+  };
 
   const openEdit = (addon: AddonCatalogItem) => {
     setEditing(addon);
@@ -164,9 +192,18 @@ export default function SubscriptionAddonsPage() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <Badge variant={addon.enabled ? 'default' : 'outline'}>
-                      {addon.enabled ? 'Enabled' : 'Disabled'}
-                    </Badge>
+                    {isAutomaticAddon(addon.type) ? (
+                      <span className="text-xs text-gray-400">Automatic</span>
+                    ) : (
+                      <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
+                        <span>{addon.enabled ? 'Active' : 'Inactive'}</span>
+                        <Switch
+                          checked={addon.enabled}
+                          disabled={!canUpdate || activeBusyType === addon.type}
+                          onCheckedChange={(next) => void handleToggleEnabled(addon, Boolean(next))}
+                        />
+                      </label>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     {canUpdate ? (

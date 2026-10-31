@@ -13,6 +13,7 @@ import {
   sectionsForPlacement,
   sectionLabelForKey,
   isTopOnlyPlacement,
+  DEVELOPER_CONTACT_REVEAL_POPUP_PLACEMENT,
   type AdBanner,
   type AdPageOption,
   type AdPlacementOption,
@@ -383,6 +384,13 @@ export function BannerForm({
         </div>
         )}
       </div>
+
+      {placement === DEVELOPER_CONTACT_REVEAL_POPUP_PLACEMENT ? (
+        <p className="text-sm text-gray-600">
+          Used on developer Call Sales and Contact (sales team) popups. Not Coming Soon or agent
+          contact reveal.
+        </p>
+      ) : null}
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">

@@ -242,7 +242,27 @@ export type UserEntitlements = {
     viewsMonth: number;
     activeResaleRentPostsUsed?: number;
     activeBuyReqPostsUsed?: number;
+    developerPostsDay?: number;
+    developerPostsMonth?: number;
+    activeDeveloperPostsUsed?: number;
+    devViewDay?: number;
+    devViewMonth?: number;
+    devShareDay?: number;
+    devShareMonth?: number;
+    devBrochureDay?: number;
+    devBrochureMonth?: number;
+    devContactDay?: number;
+    devContactMonth?: number;
+    devCompareDay?: number;
+    devCompareMonth?: number;
+    dbfPostsDay?: number;
+    dbfPostsMonth?: number;
+    activeDbfPostsUsed?: number;
+    viewerRevealDay?: number;
+    viewerRevealMonth?: number;
   };
+  listingViewersDeveloperEnabled?: boolean;
+  listingViewersDbfEnabled?: boolean;
   addonCredits: {
     listingContactCredits: number;
     buyReqContactCredits: number;
@@ -537,34 +557,48 @@ export function normalizeAddon(raw: unknown): AddonCatalogItem | null {
 export function normalizeUserEntitlements(raw: unknown): UserEntitlements | null {
   const row = asRecord(raw);
   if (!row) return null;
-  const limits = normalizeLimits(row.limits);
+  const publisherSub = asRecord(row.publisherSubscription ?? row.publisher_subscription);
+  const limits =
+    normalizeLimits(row.limits) ||
+    normalizeLimits(publisherSub?.limits ?? publisherSub?.appLimits);
   if (!limits) return null;
-  const usage = asRecord(row.usage) || {};
-  const credits = asRecord(row.addonCredits) || {};
+  const usage = asRecord(row.usage) || asRecord(publisherSub?.usage) || {};
+  const pubUsage = asRecord(publisherSub?.usage) || {};
+  const credits = asRecord(row.addonCredits) || asRecord(publisherSub?.addonCredits) || {};
+  const listingViewersDeveloperEnabled = asBool(
+    row.listingViewersDeveloperEnabled ?? row.listing_viewers_developer_enabled,
+    false,
+  );
+  const listingViewersDbfEnabled = asBool(
+    row.listingViewersDbfEnabled ?? row.listing_viewers_dbf_enabled,
+    false,
+  );
   return {
-    planCode: pickString(row.planCode),
-    displayName: pickString(row.displayName),
-    planLabel: pickString(row.planLabel, row.plan_label) || null,
-    isSubscribed: asBool(row.isSubscribed, false),
-    trialEndsAt: pickString(row.trialEndsAt) || null,
-    trialStartsAt: pickString(row.trialStartsAt) || null,
-    currentPeriodStart: pickString(row.currentPeriodStart) || null,
-    currentPeriodEnd: pickString(row.currentPeriodEnd) || null,
-    planStartedAt: pickString(row.planStartedAt, row.plan_started_at) || null,
-    planExpiresAt: pickString(row.planExpiresAt, row.plan_expires_at) || null,
+    planCode: pickString(row.planCode, publisherSub?.planCode),
+    displayName: pickString(row.displayName, publisherSub?.displayName),
+    planLabel: pickString(row.planLabel, row.plan_label, publisherSub?.planLabel) || null,
+    isSubscribed: asBool(row.isSubscribed ?? publisherSub?.isSubscribed, false),
+    trialEndsAt: pickString(row.trialEndsAt, publisherSub?.trialEndsAt) || null,
+    trialStartsAt: pickString(row.trialStartsAt, publisherSub?.trialStartsAt) || null,
+    currentPeriodStart: pickString(row.currentPeriodStart, publisherSub?.currentPeriodStart) || null,
+    currentPeriodEnd: pickString(row.currentPeriodEnd, publisherSub?.currentPeriodEnd) || null,
+    planStartedAt: pickString(row.planStartedAt, row.plan_started_at, publisherSub?.planStartedAt) || null,
+    planExpiresAt: pickString(row.planExpiresAt, row.plan_expires_at, publisherSub?.planExpiresAt) || null,
     showTrialEnds:
       row.showTrialEnds == null && row.show_trial_ends == null
         ? undefined
         : asBool(row.showTrialEnds ?? row.show_trial_ends, false),
-    subscriptionStatus: pickString(row.subscriptionStatus),
-    badge: pickString(row.badge) || null,
+    subscriptionStatus: pickString(row.subscriptionStatus, publisherSub?.subscriptionStatus),
+    badge: pickString(row.badge, publisherSub?.badge) || null,
     pendingPlanCode: pickString(row.pendingPlanCode) || null,
     pendingPlanDisplayName: pickString(row.pendingPlanDisplayName) || null,
     limits,
-    flags: normalizeFlags(row.flags),
+    flags: normalizeFlags(row.flags ?? publisherSub?.flags),
+    listingViewersDeveloperEnabled,
+    listingViewersDbfEnabled,
     usage: {
-      periodDay: pickString(usage.periodDay),
-      periodMonth: pickString(usage.periodMonth),
+      periodDay: pickString(usage.periodDay, pubUsage.periodDay),
+      periodMonth: pickString(usage.periodMonth, pubUsage.periodMonth),
       listingContactsDay: asNum(usage.listingContactsDay),
       listingContactsMonth: asNum(usage.listingContactsMonth),
       buyReqContactsDay: asNum(usage.buyReqContactsDay),
@@ -573,6 +607,44 @@ export function normalizeUserEntitlements(raw: unknown): UserEntitlements | null
       viewsMonth: asNum(usage.viewsMonth),
       activeResaleRentPostsUsed: asNum(usage.activeResaleRentPostsUsed),
       activeBuyReqPostsUsed: asNum(usage.activeBuyReqPostsUsed),
+      developerPostsDay: asNum(usage.developerPostsDay ?? usage.developer_posts_day),
+      developerPostsMonth: asNum(
+        usage.developerPostsMonth ?? usage.developer_posts_month,
+      ),
+      activeDeveloperPostsUsed: asNum(
+        usage.activeDeveloperPostsUsed ??
+          usage.active_developer_posts_used ??
+          pubUsage.activeDeveloperPostsUsed,
+      ),
+      devViewDay: asNum(usage.devViewDay ?? usage.dev_view_day),
+      devViewMonth: asNum(usage.devViewMonth ?? usage.dev_view_month),
+      devShareDay: asNum(usage.devShareDay ?? usage.dev_share_day),
+      devShareMonth: asNum(usage.devShareMonth ?? usage.dev_share_month),
+      devBrochureDay: asNum(usage.devBrochureDay ?? usage.dev_brochure_day),
+      devBrochureMonth: asNum(usage.devBrochureMonth ?? usage.dev_brochure_month),
+      devContactDay: asNum(usage.devContactDay ?? usage.dev_contact_day),
+      devContactMonth: asNum(usage.devContactMonth ?? usage.dev_contact_month),
+      devCompareDay: asNum(usage.devCompareDay ?? usage.dev_compare_day),
+      devCompareMonth: asNum(usage.devCompareMonth ?? usage.dev_compare_month),
+      dbfPostsDay: asNum(usage.dbfPostsDay ?? usage.dbf_posts_day),
+      dbfPostsMonth: asNum(usage.dbfPostsMonth ?? usage.dbf_posts_month),
+      activeDbfPostsUsed: asNum(
+        usage.activeDbfPostsUsed ??
+          usage.active_dbf_posts_used ??
+          pubUsage.activeDbfPostsUsed,
+      ),
+      viewerRevealDay: asNum(
+        usage.viewerRevealDay ??
+          usage.viewer_reveal_day ??
+          pubUsage.viewerRevealDay ??
+          pubUsage.viewer_reveal_day,
+      ),
+      viewerRevealMonth: asNum(
+        usage.viewerRevealMonth ??
+          usage.viewer_reveal_month ??
+          pubUsage.viewerRevealMonth ??
+          pubUsage.viewer_reveal_month,
+      ),
     },
     addonCredits: {
       listingContactCredits: asNum(credits.listingContactCredits),

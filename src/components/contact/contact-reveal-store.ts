@@ -15,6 +15,11 @@ export const contactReveal = {
     revealedKey = revealedKey === key ? null : key;
     emit();
   },
+  show: (key: string) => {
+    if (revealedKey === key) return;
+    revealedKey = key;
+    emit();
+  },
   hideAll: () => {
     if (revealedKey === null) return;
     revealedKey = null;

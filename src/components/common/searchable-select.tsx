@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, ChevronsUpDown, Loader2, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
@@ -8,9 +9,23 @@ import { Input } from '@/components/ui/input';
 export type SearchableSelectOption = {
   value: string;
   label: string;
-  /** Shown as a pill on the right of the option row. */
+  /** Shown on the right of the option row. */
   badge?: string | number;
+  /** How to format and style the badge. */
+  badgeVariant?: 'default' | 'projectCount';
 };
+
+export function formatSearchableOptionBadge(
+  option: Pick<SearchableSelectOption, 'badge' | 'badgeVariant'>,
+): string | null {
+  if (option.badge == null || option.badge === '') return null;
+  if (option.badgeVariant === 'projectCount') {
+    const n = Number(option.badge);
+    if (!Number.isFinite(n)) return String(option.badge);
+    return `${n} ${n === 1 ? 'project' : 'projects'}`;
+  }
+  return String(option.badge);
+}
 
 type SearchableSelectProps = {
   options: SearchableSelectOption[];
@@ -30,6 +45,15 @@ type SearchableSelectProps = {
   selectedLabel?: string;
   onCreate?: (query: string) => void;
   onInputChange?: (text: string) => void;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
+  loadingMore?: boolean;
+  /** Debounce for onSearch when dropdown is open (default 300). */
+  searchDebounceMs?: number;
+  /** Render menu in a body portal (use inside modals with overflow). */
+  portalMenu?: boolean;
+  /** Max height class for the options list (default max-h-56). */
+  listMaxHeightClass?: string;
 };
 
 export function SearchableSelect({
@@ -48,15 +72,28 @@ export function SearchableSelect({
   selectedLabel,
   onCreate,
   onInputChange,
+  hasMore = false,
+  onLoadMore,
+  loadingMore = false,
+  searchDebounceMs = 300,
+  portalMenu = false,
+  listMaxHeightClass = 'max-h-56',
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   /** Local draft so typing never gets overwritten by selected option label. */
   const [draft, setDraft] = useState('');
+  const [menuRect, setMenuRect] = useState<{ top: number; left: number; width: number } | null>(
+    null,
+  );
   const focusedRef = useRef(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const onSearchRef = useRef(onSearch);
   onSearchRef.current = onSearch;
+  const onLoadMoreRef = useRef(onLoadMore);
+  onLoadMoreRef.current = onLoadMore;
 
   const selected = useMemo(
     () => options.find((o) => o.value === value),
@@ -87,7 +124,9 @@ export function SearchableSelect({
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (rootRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setOpen(false);
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
@@ -101,13 +140,39 @@ export function SearchableSelect({
   }, [open]);
 
   useEffect(() => {
+    if (!open || !portalMenu) {
+      setMenuRect(null);
+      return;
+    }
+    const update = () => {
+      const el = rootRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setMenuRect({ top: r.bottom + 4, left: r.left, width: r.width });
+    };
+    update();
+    window.addEventListener('scroll', update, true);
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('scroll', update, true);
+      window.removeEventListener('resize', update);
+    };
+  }, [open, portalMenu]);
+
+  useEffect(() => {
     if (!onSearchRef.current || !open) return;
-    const t = setTimeout(
-      () => onSearchRef.current?.(filterText),
-      filterText ? 300 : 0,
-    );
+    const delay = filterText ? searchDebounceMs : 0;
+    const t = setTimeout(() => onSearchRef.current?.(filterText), delay);
     return () => clearTimeout(t);
-  }, [filterText, open]);
+  }, [filterText, open, searchDebounceMs]);
+
+  const handleListScroll = () => {
+    const el = listRef.current;
+    if (!el || !hasMore || loadingMore || loading || !onLoadMoreRef.current) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 48) {
+      onLoadMoreRef.current();
+    }
+  };
 
   const pick = (next: string) => {
     onValueChange(next);
@@ -135,6 +200,114 @@ export function SearchableSelect({
     }
     onInputChange?.(text);
   };
+
+  const menuPanel = (
+    <div
+      ref={menuRef}
+      className={cn(
+        'overflow-hidden rounded-lg border border-input bg-white shadow-md',
+        portalMenu ? 'z-[100]' : 'absolute z-50 mt-1 w-full',
+      )}
+      style={
+        portalMenu && menuRect
+          ? {
+              position: 'fixed',
+              top: menuRect.top,
+              left: menuRect.left,
+              width: menuRect.width,
+            }
+          : undefined
+      }
+    >
+      {!editable && (
+        <div className="relative border-b border-gray-100 p-2">
+          <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={searchPlaceholder}
+            className="pl-8"
+          />
+        </div>
+      )}
+
+      <div
+        ref={listRef}
+        className={cn('overflow-y-auto p-1', listMaxHeightClass)}
+        onScroll={handleListScroll}
+      >
+        {loading && filtered.length === 0 ? (
+          <div className="flex items-center justify-center gap-2 px-3 py-6 text-sm text-gray-500">
+            <Loader2 className="size-4 animate-spin" /> Loading…
+          </div>
+        ) : filtered.length === 0 && !canCreate ? (
+          <div className="px-3 py-6 text-center text-sm text-gray-500">{emptyText}</div>
+        ) : (
+          <>
+            {filtered.map((option) => {
+              const active = option.value === value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pick(option.value);
+                  }}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+                    active ? 'bg-primary-light text-primary' : 'hover:bg-gray-50 text-gray-900',
+                  )}
+                >
+                  <Check className={cn('size-3.5 shrink-0', active ? 'opacity-100' : 'opacity-0')} />
+                  <span className="min-w-0 flex-1 truncate" title={option.label}>
+                    {option.label}
+                  </span>
+                  {formatSearchableOptionBadge(option) ? (
+                    <span
+                      className={cn(
+                        'shrink-0 text-xs font-medium text-gray-700',
+                        option.badgeVariant === 'projectCount'
+                          ? 'rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5'
+                          : 'rounded-full bg-gray-100 px-2 py-0.5',
+                      )}
+                    >
+                      {formatSearchableOptionBadge(option)}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+            {canCreate && onCreate && (
+              <button
+                type="button"
+                onClick={() => {
+                  onCreate(createQuery);
+                  setDraft(createQuery);
+                  setOpen(false);
+                  setQuery('');
+                }}
+                className="mt-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-primary hover:bg-primary-light"
+              >
+                Add “{createQuery}”
+              </button>
+            )}
+            {loadingMore && (
+              <div className="flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-500">
+                <Loader2 className="size-4 animate-spin" /> Loading more…
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  let portaledMenu: ReactNode = null;
+  if (open && portalMenu && menuRect && typeof document !== 'undefined') {
+    portaledMenu = createPortal(menuPanel, document.body);
+  }
 
   return (
     <div ref={rootRef} className={cn('relative w-full', className)}>
@@ -220,74 +393,8 @@ export function SearchableSelect({
         </button>
       )}
 
-      {open && (
-        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-lg border border-input bg-white shadow-md">
-          {!editable && (
-            <div className="relative border-b border-gray-100 p-2">
-              <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                autoFocus
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={searchPlaceholder}
-                className="pl-8"
-              />
-            </div>
-          )}
-
-          <div className="max-h-56 overflow-y-auto p-1">
-            {loading && filtered.length === 0 ? (
-              <div className="flex items-center justify-center gap-2 px-3 py-6 text-sm text-gray-500">
-                <Loader2 className="size-4 animate-spin" /> Loading…
-              </div>
-            ) : filtered.length === 0 && !canCreate ? (
-              <div className="px-3 py-6 text-center text-sm text-gray-500">{emptyText}</div>
-            ) : (
-              <>
-                {filtered.map((option) => {
-                  const active = option.value === value;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        pick(option.value);
-                      }}
-                      className={cn(
-                        'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                        active ? 'bg-primary-light text-primary' : 'hover:bg-gray-50 text-gray-900'
-                      )}
-                    >
-                      <Check className={cn('size-3.5 shrink-0', active ? 'opacity-100' : 'opacity-0')} />
-                      <span className="min-w-0 flex-1 truncate" title={option.label}>{option.label}</span>
-                      {option.badge != null && option.badge !== '' && (
-                        <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
-                          {option.badge}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-                {canCreate && onCreate && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onCreate(createQuery);
-                      setDraft(createQuery);
-                      setOpen(false);
-                      setQuery('');
-                    }}
-                    className="mt-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-primary hover:bg-primary-light"
-                  >
-                    Add “{createQuery}”
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {open && !portalMenu ? menuPanel : null}
+      {portaledMenu}
     </div>
   );
 }

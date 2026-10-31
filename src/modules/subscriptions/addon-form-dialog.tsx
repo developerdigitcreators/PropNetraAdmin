@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
 import {
   Dialog,
   DialogContent,
@@ -38,7 +37,6 @@ export function AddonFormDialog({
   const [displayName, setDisplayName] = useState('');
   const [coinCost, setCoinCost] = useState(0);
   const [quantity, setQuantity] = useState(0);
-  const [enabled, setEnabled] = useState(false);
   const [description, setDescription] = useState('');
   const [localError, setLocalError] = useState('');
   const baselineRef = useRef('');
@@ -49,13 +47,11 @@ export function AddonFormDialog({
     setDisplayName(addon.displayName);
     setCoinCost(addon.coinCost);
     setQuantity(addon.quantity);
-    setEnabled(addon.enabled);
     setDescription(addon.description || '');
     baselineRef.current = JSON.stringify({
       displayName: addon.displayName,
       coinCost: addon.coinCost,
       quantity: addon.quantity,
-      enabled: addon.enabled,
       description: addon.description || '',
     });
   }, [open, addon]);
@@ -66,14 +62,15 @@ export function AddonFormDialog({
         displayName,
         coinCost,
         quantity,
-        enabled,
         description,
       }),
-    [displayName, coinCost, quantity, enabled, description],
+    [displayName, coinCost, quantity, description],
   );
 
   const dirty = open && baselineRef.current !== '' && snapshot !== baselineRef.current;
-  const { requestClose, dialog } = useDialogUnsavedGuard(dirty);
+  const { requestClose, dialog } = useDialogUnsavedGuard(dirty, {
+    onSave: () => handleSubmit(),
+  });
 
   const handleOpenChange = async (next: boolean) => {
     if (submitting) return;
@@ -97,7 +94,7 @@ export function AddonFormDialog({
       displayName: displayName.trim(),
       coinCost: isAutomatic ? 0 : coinCost,
       quantity: isAutomatic ? 0 : quantity,
-      enabled: isAutomatic ? true : enabled,
+      enabled: isAutomatic ? true : Boolean(addon?.enabled),
       description: description.trim() || null,
     });
   };
@@ -153,20 +150,12 @@ export function AddonFormDialog({
                 className="w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               />
             </div>
-            {!isAutomatic ? (
-              <div className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2">
-                <div>
-                  <p className="text-sm font-medium text-gray-800">Enabled in app</p>
-                  <p className="text-xs text-gray-500">Disabled add-ons are hidden from purchase.</p>
-                </div>
-                <Switch checked={enabled} onCheckedChange={(c) => setEnabled(Boolean(c))} />
-              </div>
-            ) : (
+            {isAutomatic ? (
               <div className="rounded-lg border border-dashed border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs text-emerald-800">
                 Enabled automatically for top paid referrers in listing search — not sold as a
                 coin pack.
               </div>
-            )}
+            ) : null}
 
             {(localError || error) && (
               <p className="text-sm text-red-600">{localError || error}</p>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthStore } from "@/store/use-auth-store";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import {
@@ -78,8 +78,10 @@ export default function NotificationsPage() {
   );
   const [panelDirty, setPanelDirty] = useState<Record<string, boolean>>({});
   const composerDirty = composerKey(draft, !!editingId) !== composerBaseline;
+  const savePendingRef = useRef<() => Promise<void>>(async () => {});
   const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({
     dirty: composerDirty || Object.values(panelDirty).some(Boolean),
+    onSave: () => savePendingRef.current(),
   });
   const setPopupsDirty = useCallback(
     (dirty: boolean) => setPanelDirty((p) => (p.popups === dirty ? p : { ...p, popups: dirty })),
@@ -282,6 +284,9 @@ export default function NotificationsPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+  savePendingRef.current = async () => {
+    if (composerDirty) await confirmSubmit();
   };
 
   const isUpdatesChannel = !!activeChannel?.allowAdminBroadcast;

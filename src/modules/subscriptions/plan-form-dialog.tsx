@@ -83,15 +83,27 @@ const DEV_FEATURE_FIELDS: Array<{
   label: string;
   daily: keyof PlanLimits;
   monthly: keyof PlanLimits;
+  fieldNote?: string;
 }> = [
   { label: 'Compare', daily: 'devCompareDaily', monthly: 'devCompareMonthly' },
-  { label: 'Share (without link)', daily: 'devShareDaily', monthly: 'devShareMonthly' },
+  {
+    label: 'Share (without link)',
+    daily: 'devShareDaily',
+    monthly: 'devShareMonthly',
+    fieldNote: 'Not used for share quota anymore.',
+  },
   { label: 'Brochure download', daily: 'devBrochureDaily', monthly: 'devBrochureMonthly' },
   { label: 'Developer contact reveal', daily: 'devContactDaily', monthly: 'devContactMonthly' },
 ];
 
 const AGENT_DEV_FEATURE_FIELDS: typeof DEV_FEATURE_FIELDS = [
-  { label: 'Developer project page views', daily: 'devViewDaily', monthly: 'devViewMonthly' },
+  {
+    label: 'Developer project views',
+    daily: 'devViewDaily',
+    monthly: 'devViewMonthly',
+    fieldNote:
+      'Counts detail opens, client saves (each new client), and share taps against this limit.',
+  },
   ...DEV_FEATURE_FIELDS,
 ];
 
@@ -150,7 +162,6 @@ export function PlanFormDialog({
 }: PlanFormDialogProps) {
   const [displayName, setDisplayName] = useState('');
   const [sortOrder, setSortOrder] = useState(0);
-  const [isActive, setIsActive] = useState(true);
   const [showOnApp, setShowOnApp] = useState(true);
   const [trialDays, setTrialDays] = useState('');
   const [priceRupees, setPriceRupees] = useState('');
@@ -184,7 +195,6 @@ export function PlanFormDialog({
       JSON.stringify({
         displayName,
         sortOrder,
-        isActive,
         showOnApp,
         trialDays,
         priceRupees,
@@ -203,7 +213,6 @@ export function PlanFormDialog({
       dummyPriceRupees,
       displayName,
       sortOrder,
-      isActive,
       showOnApp,
       trialDays,
       priceRupees,
@@ -224,7 +233,6 @@ export function PlanFormDialog({
     setLocalError('');
     setDisplayName(plan.displayName);
     setSortOrder(plan.sortOrder);
-    setIsActive(plan.isActive);
     setShowOnApp(plan.showOnApp);
     setTrialDays(plan.trialDays != null ? String(plan.trialDays) : '');
     setPriceRupees(paiseToRupeesInput(plan.pricePaise));
@@ -250,7 +258,6 @@ export function PlanFormDialog({
     baselineRef.current = JSON.stringify({
       displayName: plan.displayName,
       sortOrder: plan.sortOrder,
-      isActive: plan.isActive,
       showOnApp: plan.showOnApp,
       trialDays: plan.trialDays != null ? String(plan.trialDays) : '',
       priceRupees: paiseToRupeesInput(plan.pricePaise),
@@ -269,7 +276,9 @@ export function PlanFormDialog({
   }, [open, plan]);
 
   const dirty = open && baselineRef.current !== '' && snapshot !== baselineRef.current;
-  const { requestClose, dialog } = useDialogUnsavedGuard(dirty);
+  const { requestClose, dialog } = useDialogUnsavedGuard(dirty, {
+    onSave: () => handleSubmit(),
+  });
 
   const handleOpenChange = async (next: boolean) => {
     if (submitting) return;
@@ -319,8 +328,8 @@ export function PlanFormDialog({
       setLocalError('Monthly post limit cannot be lower than the daily limit.');
       return;
     }
-    if (!isDbf) {
-      const bad = (isDeveloper ? DEV_FEATURE_FIELDS : AGENT_DEV_FEATURE_FIELDS).find(({ daily, monthly }) => {
+    if (!isDbf && !isDeveloper) {
+      const bad = AGENT_DEV_FEATURE_FIELDS.find(({ daily, monthly }) => {
         const d = limits[daily] as number | null;
         const m = limits[monthly] as number | null;
         return d != null && m != null && m < d;
@@ -329,10 +338,6 @@ export function PlanFormDialog({
         setLocalError(`${bad.label}: monthly limit cannot be lower than the daily limit.`);
         return;
       }
-    }
-    if (isDbf && limits.dbfPostsMonthly < limits.dbfPostsDaily) {
-      setLocalError('Monthly post limit cannot be lower than the daily limit.');
-      return;
     }
     if (
       (isDbf || isDeveloper) &&
@@ -350,44 +355,25 @@ export function PlanFormDialog({
       onSubmit({
         displayName: displayName.trim(),
         sortOrder,
-        isActive: isDeveloperFree ? Boolean(plan?.isActive) : isActive,
+        isActive: Boolean(plan?.isActive),
         showOnApp: isDeveloperFree ? Boolean(plan?.showOnApp) : showOnApp,
         pricePaise: showPricing ? rupeesInputToPaise(priceRupees) : null,
         promoPricePaise: showPricing ? rupeesInputToPaise(promoPriceRupees) : null,
         promoWindowDays: showPricing && promoWindowDays !== '' ? Number(promoWindowDays) : null,
         dummyPricePaise,
         entitlements: {
-          developerPostsDaily: limits.developerPostsDaily,
-          developerPostsMonthly: limits.developerPostsMonthly,
           activeDeveloperPosts: limits.activeDeveloperPosts,
-          devCompareDaily: limits.devCompareDaily,
-          devCompareMonthly: limits.devCompareMonthly,
-          devShareDaily: limits.devShareDaily,
-          devShareMonthly: limits.devShareMonthly,
-          devBrochureDaily: limits.devBrochureDaily,
-          devBrochureMonthly: limits.devBrochureMonthly,
-          devContactDaily: limits.devContactDaily,
-          devContactMonthly: limits.devContactMonthly,
           viewerRevealDaily: limits.viewerRevealDaily,
           viewerRevealMonthly: limits.viewerRevealMonthly,
-          includedCities: Math.max(1, Math.floor(limits.includedCities || 1)),
-          developerGroupChatEnabled: limits.developerGroupChatEnabled,
-          launchReelsEnabled: limits.launchReelsEnabled,
-          ...verifiedLimits,
         },
       });
       return;
     }
     const entitlements: UpdatePlanPayload['entitlements'] = isDbf
       ? {
-          dbfPostsDaily: limits.dbfPostsDaily,
-          dbfPostsMonthly: limits.dbfPostsMonthly,
           activeDbfPosts: limits.activeDbfPosts,
           viewerRevealDaily: limits.viewerRevealDaily,
           viewerRevealMonthly: limits.viewerRevealMonthly,
-          listingViewsDaily: unlimitedViews ? null : limits.listingViewsDaily ?? 0,
-          listingViewsMonthly: unlimitedViews ? null : limits.listingViewsMonthly ?? 0,
-          ...verifiedLimits,
         }
       : {
           ...limits,
@@ -399,7 +385,7 @@ export function PlanFormDialog({
       onSubmit({
         displayName: displayName.trim(),
         sortOrder,
-        isActive: isDbfFree ? Boolean(plan?.isActive) : isActive,
+        isActive: Boolean(plan?.isActive),
         showOnApp: isDbfFree ? Boolean(plan?.showOnApp) : showOnApp,
         pricePaise: showPricing ? rupeesInputToPaise(priceRupees) : null,
         promoPricePaise: showPricing ? rupeesInputToPaise(promoPriceRupees) : null,
@@ -413,7 +399,7 @@ export function PlanFormDialog({
       displayName: displayName.trim(),
       sortOrder,
       // Lifetime free is system-managed — never flip visibility from this form.
-      isActive: isLifetimeFree ? Boolean(plan?.isActive) : isActive,
+      isActive: Boolean(plan?.isActive),
       showOnApp: isLifetimeFree ? Boolean(plan?.showOnApp) : showOnApp,
       trialDays: trialDays === '' ? null : Number(trialDays),
       pricePaise: showPricing ? rupeesInputToPaise(priceRupees) : null,
@@ -485,20 +471,12 @@ export function PlanFormDialog({
               />
             </div>
             {showVisibilityToggles ? (
-              <>
-                <FlagRow
-                  label="Plan is active"
-                  hint="Inactive plans cannot be purchased or assigned."
-                  checked={isActive}
-                  onChange={setIsActive}
-                />
-                <FlagRow
-                  label="Show on app"
-                  hint="Login / Unlock Benefits shows only plans with this on. Manage Plan upgrades ignore this and show higher plans only."
-                  checked={showOnApp}
-                  onChange={setShowOnApp}
-                />
-              </>
+              <FlagRow
+                label="Show on app"
+                hint="Login / Unlock Benefits shows only plans with this on. Manage Plan upgrades ignore this and show higher plans only."
+                checked={showOnApp}
+                onChange={setShowOnApp}
+              />
             ) : null}
             {plan?.code === 'FREE_TRIAL' ? (
               <NumField
@@ -600,74 +578,18 @@ export function PlanFormDialog({
                     ? 'Post Free Limit (applies before Paid mode)'
                     : 'Post Plan Limit (applies in Paid mode)'
                 }
-                description="Developer project posts. Leave “Max active posts” empty for no cap."
-              >
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <NumField
-                    label="Posts per day"
-                    value={String(limits.developerPostsDaily)}
-                    onChange={(v) => setLimitField('developerPostsDaily', v)}
-                  />
-                  <NumField
-                    label="Posts per month"
-                    value={String(limits.developerPostsMonthly)}
-                    onChange={(v) => setLimitField('developerPostsMonthly', v)}
-                  />
-                  <NumField
-                    label="Max active posts"
-                    value={
-                      limits.activeDeveloperPosts == null ? '' : String(limits.activeDeveloperPosts)
-                    }
-                    onChange={(v) => setNullableLimit('activeDeveloperPosts', v)}
-                    placeholder="No cap"
-                  />
-                </div>
-              </Section>
-              <Section
-                title="Developer project limits"
-                description="Compare, share, brochure and contact limits on other developers' projects."
-              >
-                {DEV_FEATURE_FIELDS.map(({ label, daily, monthly }) => (
-                  <div key={daily} className="grid gap-3 sm:grid-cols-2">
-                    <NumField
-                      label={`${label} per day`}
-                      value={limits[daily] == null ? '' : String(limits[daily])}
-                      onChange={(v) => setNullableLimit(daily, v)}
-                      placeholder="Unlimited"
-                    />
-                    <NumField
-                      label={`${label} per month`}
-                      value={limits[monthly] == null ? '' : String(limits[monthly])}
-                      onChange={(v) => setNullableLimit(monthly, v)}
-                      placeholder="Unlimited"
-                    />
-                  </div>
-                ))}
-                <p className="text-xs text-gray-500">Leave empty for unlimited. 0 = feature blocked.</p>
-              </Section>
-              {viewerSwitches.developer ? viewerRevealSection : null}
-              <Section
-                title="Launch Connect"
-                description="Launch Update city group chat and Launch Reels. Extra cities beyond the included ones are paid city add-ons."
+                description="One cap for live developer projects. Leave empty for no cap."
               >
                 <NumField
-                  label="Cities included"
-                  value={String(limits.includedCities)}
-                  onChange={(v) => setLimitField('includedCities', v)}
-                />
-                <FlagRow
-                  label="Group messages (Launch Update)"
-                  hint="Post in own city groups; agents get a push"
-                  checked={limits.developerGroupChatEnabled}
-                  onChange={(v) => setLimits((prev) => ({ ...prev, developerGroupChatEnabled: v }))}
-                />
-                <FlagRow
-                  label="Launch Reels"
-                  hint="Publish project reels to agents"
-                  checked={limits.launchReelsEnabled}
-                  onChange={(v) => setLimits((prev) => ({ ...prev, launchReelsEnabled: v }))}
+                  label="Project posts"
+                  value={
+                    limits.activeDeveloperPosts == null ? '' : String(limits.activeDeveloperPosts)
+                  }
+                  onChange={(v) => setNullableLimit('activeDeveloperPosts', v)}
+                  placeholder="No cap"
                 />
               </Section>
+              {viewerSwitches.developer ? viewerRevealSection : null}
             </>
           ) : isDbf ? (
             <>
@@ -683,51 +605,15 @@ export function PlanFormDialog({
                     : 'Used for Direct Builder Floor users who bought the plan after Paid mode is on.'
                 }
               >
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <NumField
-                    label="Posts per day"
-                    value={String(limits.dbfPostsDaily)}
-                    onChange={(v) => setLimitField('dbfPostsDaily', v)}
-                  />
-                  <NumField
-                    label="Posts per month"
-                    value={String(limits.dbfPostsMonthly)}
-                    onChange={(v) => setLimitField('dbfPostsMonthly', v)}
-                  />
-                  <NumField
-                    label="Max active posts"
-                    value={limits.activeDbfPosts == null ? '' : String(limits.activeDbfPosts)}
-                    onChange={setActiveDbfPosts}
-                    placeholder="No cap"
-                  />
-                </div>
-                <p className="text-xs text-gray-500">
-                  Leave “Max active posts” empty for no cap.
-                </p>
+                <NumField
+                  label="Project posts"
+                  value={limits.activeDbfPosts == null ? '' : String(limits.activeDbfPosts)}
+                  onChange={setActiveDbfPosts}
+                  placeholder="No cap"
+                />
+                <p className="text-xs text-gray-500">Leave empty for no cap.</p>
               </Section>
               {viewerSwitches.dbf ? viewerRevealSection : null}
-              <Section title="Listing views">
-                <FlagRow
-                  label="Unlimited listing views"
-                  hint="When off, set daily/monthly view caps"
-                  checked={unlimitedViews}
-                  onChange={setUnlimitedViews}
-                />
-                {!unlimitedViews ? (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <NumField
-                      label="Listing views per day"
-                      value={String(limits.listingViewsDaily ?? 0)}
-                      onChange={(v) => setLimitField('listingViewsDaily', v)}
-                    />
-                    <NumField
-                      label="Listing views per month"
-                      value={String(limits.listingViewsMonthly ?? 0)}
-                      onChange={(v) => setLimitField('listingViewsMonthly', v)}
-                    />
-                  </div>
-                ) : null}
-              </Section>
             </>
           ) : (
           <>
@@ -896,22 +782,25 @@ export function PlanFormDialog({
 
           <Section
             title="Developer project limits"
-            description="Independent daily and monthly limits for developer projects. A full 3-project compare counts as 1. Repeating the same action on the same project the same day is free. No add-on credits apply."
+            description="Daily and monthly caps on agent plans. Developer project views cover detail opens, client saves (each new client), and share taps. Compare, brochure, and contact use their own limits. A full 3-project compare counts as 1. Repeating the same action on the same project the same day is free. No add-on credits apply."
           >
-            {AGENT_DEV_FEATURE_FIELDS.map(({ label, daily, monthly }) => (
-              <div key={daily} className="grid gap-3 sm:grid-cols-2">
-                <NumField
-                  label={`${label} per day`}
-                  value={limits[daily] == null ? '' : String(limits[daily])}
-                  onChange={(v) => setNullableLimit(daily, v)}
-                  placeholder="Unlimited"
-                />
-                <NumField
-                  label={`${label} per month`}
-                  value={limits[monthly] == null ? '' : String(limits[monthly])}
-                  onChange={(v) => setNullableLimit(monthly, v)}
-                  placeholder="Unlimited"
-                />
+            {AGENT_DEV_FEATURE_FIELDS.map(({ label, daily, monthly, fieldNote }) => (
+              <div key={daily} className="space-y-1">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <NumField
+                    label={`${label} per day`}
+                    value={limits[daily] == null ? '' : String(limits[daily])}
+                    onChange={(v) => setNullableLimit(daily, v)}
+                    placeholder="Unlimited"
+                  />
+                  <NumField
+                    label={`${label} per month`}
+                    value={limits[monthly] == null ? '' : String(limits[monthly])}
+                    onChange={(v) => setNullableLimit(monthly, v)}
+                    placeholder="Unlimited"
+                  />
+                </div>
+                {fieldNote ? <p className="text-xs text-gray-500">{fieldNote}</p> : null}
               </div>
             ))}
             <p className="text-xs text-gray-500">Leave empty for unlimited. 0 = feature blocked.</p>
@@ -943,6 +832,7 @@ export function PlanFormDialog({
           </>
           )}
 
+          {!isDeveloper && !isDbf ? (
           <Section
             title="Verified listing contact limits (hidden from users)"
             description="Used only when a user reveals the contact on a Realty Avenue (verified) listing. Same listing again the same day is free. Not shown anywhere in the app. No add-on."
@@ -975,6 +865,7 @@ export function PlanFormDialog({
             </div>
             <p className="text-xs text-gray-500">Leave empty for unlimited. 0 = blocked.</p>
           </Section>
+          ) : null}
 
           {(localError || error) && (
             <p className="text-sm text-red-600">{localError || error}</p>

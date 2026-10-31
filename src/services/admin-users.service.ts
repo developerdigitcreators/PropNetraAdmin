@@ -121,6 +121,24 @@ export type MasterCompany = {
   companyRole?: string;
   prefix: string;
   logo?: string;
+  websiteUrl?: string;
+};
+
+export type MasterDeveloperShowcaseItem = {
+  listingId?: string;
+  projectName: string;
+  location: string;
+  sortOrder?: number;
+};
+
+export type DeveloperProfileStatsMode = 'dynamic' | 'manual';
+
+export type MasterProfileStats = {
+  mode: DeveloperProfileStatsMode;
+  manualTotalProjects?: number;
+  manualTotalCities?: number;
+  live?: { totalProjects?: number; totalCities?: number };
+  display?: { totalProjects?: number; totalCities?: number };
 };
 
 export type MasterBuilderProfile = {
@@ -148,11 +166,17 @@ export type MasterProfile = {
   companyLogoEditable?: boolean;
   company?: MasterCompany | null;
   builderProfile?: MasterBuilderProfile | null;
+  profileStats?: MasterProfileStats | null;
+  developerShowcase?: MasterDeveloperShowcaseItem[];
+  showcaseListingIds?: string[];
+  groupChatEnabled?: boolean;
   sections: {
     company?: boolean;
     builderProfile?: boolean;
     salesTeam?: boolean;
     listings?: boolean;
+    profileStats?: boolean;
+    developerShowcase?: boolean;
   };
   listings: {
     defaultCategoryGroup: MasterCategoryGroup;
@@ -170,6 +194,15 @@ function str(value: unknown): string | undefined {
   return text || undefined;
 }
 
+function asNum(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : undefined;
+  }
+  return undefined;
+}
+
 function normalizeMasterProfile(body: unknown, userId: string): MasterProfile {
   const outer = asRecord(body);
   const raw = asRecord(outer.data ?? outer.profile ?? outer);
@@ -182,7 +215,14 @@ function normalizeMasterProfile(body: unknown, userId: string): MasterProfile {
   const appRole: MasterAppRole | null =
     roleRaw === 'developer' || roleRaw === 'floor' || roleRaw === 'agent' ? roleRaw : null;
 
-  const banners = Array.isArray(builderRaw?.banners)
+  const bannerMedia = asRecord(builderRaw?.bannerMedia ?? builderRaw?.banner_media);
+  const mediaImages = Array.isArray(bannerMedia.images)
+    ? bannerMedia.images.map((u) => str(u)).filter(Boolean)
+    : [];
+  const mediaVideos = Array.isArray(bannerMedia.videos)
+    ? bannerMedia.videos.map((u) => str(u)).filter(Boolean)
+    : [];
+  let banners = Array.isArray(builderRaw?.banners)
     ? builderRaw.banners
         .map((item) => {
           const row = asRecord(item);
@@ -192,6 +232,12 @@ function normalizeMasterProfile(body: unknown, userId: string): MasterProfile {
         })
         .filter((item): item is { kind: 'video' | 'image'; url: string } => !!item)
     : [];
+  if (!banners.length && (mediaImages.length || mediaVideos.length)) {
+    banners = [
+      ...mediaImages.map((url) => ({ kind: 'image' as const, url: url! })),
+      ...mediaVideos.map((url) => ({ kind: 'video' as const, url: url! })),
+    ];
+  }
 
   const associated = Array.isArray(builderRaw?.associatedDevelopers)
     ? builderRaw.associatedDevelopers
@@ -218,6 +264,86 @@ function normalizeMasterProfile(body: unknown, userId: string): MasterProfile {
     ? (tabRaw as MasterListingTab)
     : 'active';
 
+  const statsRaw = asRecord(raw.profileStats ?? raw.profile_stats);
+  const liveRaw = asRecord(statsRaw.live);
+  const displayRaw = asRecord(statsRaw.display);
+  const manualRaw = asRecord(statsRaw.manual);
+  const statsModeRaw = str(
+    raw.developerProfileStatsMode ??
+      raw.developer_profile_stats_mode ??
+      user.developerProfileStatsMode ??
+      user.developer_profile_stats_mode ??
+      statsRaw.mode,
+  );
+  const profileStatsMode: DeveloperProfileStatsMode =
+    statsModeRaw === 'manual' ? 'manual' : 'dynamic';
+  const profileStats: MasterProfileStats | null =
+    appRole === 'developer'
+      ? {
+          mode: profileStatsMode,
+          manualTotalProjects: asNum(
+            raw.totalProjectCount ??
+              user.totalProjectCount ??
+              manualRaw.totalProjectCount ??
+              manualRaw.totalProjects,
+          ),
+          manualTotalCities: asNum(
+            raw.totalCities ?? user.totalCities ?? manualRaw.totalCities,
+          ),
+          live: {
+            totalProjects: asNum(liveRaw.totalProjects ?? liveRaw.total_projects),
+            totalCities: asNum(liveRaw.totalCities ?? liveRaw.total_cities),
+          },
+          display: {
+            totalProjects: asNum(displayRaw.totalProjects ?? displayRaw.total_projects),
+            totalCities: asNum(displayRaw.totalCities ?? displayRaw.total_cities),
+          },
+        }
+      : null;
+
+  const showcaseRaw = raw.developerShowcase ?? raw.developer_showcase;
+  const showcaseObj =
+    showcaseRaw && typeof showcaseRaw === 'object' && !Array.isArray(showcaseRaw)
+      ? asRecord(showcaseRaw)
+      : null;
+  const showcaseItemsRaw = Array.isArray(showcaseRaw)
+    ? showcaseRaw
+    : Array.isArray(showcaseObj?.items)
+      ? showcaseObj!.items
+      : [];
+  const showcaseListingIds: string[] =
+    appRole === 'developer'
+      ? (Array.isArray(showcaseObj?.listingIds)
+          ? showcaseObj!.listingIds.map((id) => String(id)).filter(Boolean)
+          : Array.isArray(showcaseObj?.listing_ids)
+            ? showcaseObj!.listing_ids.map((id) => String(id)).filter(Boolean)
+            : []
+        ).slice(0, 3)
+      : [];
+  const developerShowcase: MasterDeveloperShowcaseItem[] =
+    appRole === 'developer'
+      ? showcaseItemsRaw
+          .map((item, index): MasterDeveloperShowcaseItem | null => {
+            const row = asRecord(item);
+            const projectName =
+              str(row.projectName ?? row.project_name ?? row.title ?? row.name) || '';
+            const location =
+              str(row.location ?? row.locationName ?? row.location_name ?? row.city) || '';
+            if (!projectName && !location) return null;
+            return {
+              listingId: str(row.listingId ?? row.listing_id ?? row.id),
+              projectName,
+              location,
+              sortOrder: asNum(row.sortOrder ?? row.sort_order) ?? index + 1,
+            };
+          })
+          .filter((row): row is MasterDeveloperShowcaseItem => row !== null)
+          .slice(0, 3)
+      : [];
+  const groupChatEnabled =
+    raw.groupChatEnabled === true ||
+    raw.group_chat_enabled === true;
+
   return {
     user: {
       id: str(user.id) || userId,
@@ -242,43 +368,84 @@ function normalizeMasterProfile(body: unknown, userId: string): MasterProfile {
     companyLogoEditable: raw.companyLogoEditable === true,
     company: companyRaw
       ? {
-          name: str(companyRaw.name),
-          gst: str(companyRaw.gst),
-          companyRole: str(companyRaw.companyRole),
-          prefix: str(companyRaw.prefix) || '',
-          logo: str(companyRaw.logo),
+          name:
+            str(companyRaw.name ?? companyRaw.companyName ?? companyRaw.company_name) ||
+            str(user.companyName),
+          gst: str(companyRaw.gst ?? companyRaw.gstNumber ?? companyRaw.gst_number),
+          companyRole:
+            str(companyRaw.companyRole ?? companyRaw.company_role) ||
+            (str(companyRaw.companyRoleLabel ?? companyRaw.company_role_label) ===
+            'Owner'
+              ? 'id_owner'
+              : str(companyRaw.companyRoleLabel ?? companyRaw.company_role_label) ===
+                  'Team Member'
+                ? 'team_member'
+                : ''),
+          prefix:
+            str(companyRaw.prefix ?? companyRaw.projectPrefix ?? companyRaw.project_prefix) || '',
+          logo: str(
+            companyRaw.logo ?? companyRaw.companyLogoUrl ?? companyRaw.company_logo_url,
+          ),
+          websiteUrl: str(companyRaw.websiteUrl ?? companyRaw.website_url),
         }
       : null,
     builderProfile: builderRaw
       ? {
           name: str(builderRaw.name),
-          displayName: str(builderRaw.displayName),
-          about: str(builderRaw.about),
+          displayName: str(builderRaw.displayName ?? builderRaw.display_name),
+          about: str(builderRaw.about ?? builderRaw.aboutBuilder),
           address: str(builderRaw.address),
-          photo: str(builderRaw.photo),
-          banner: str(builderRaw.banner),
+          photo: str(builderRaw.photo ?? builderRaw.profilePhotoUrl ?? builderRaw.profile_photo_url),
+          banner: str(builderRaw.banner ?? builderRaw.bannerUrl),
           experience: str(builderRaw.experience),
-          years: (builderRaw.years as string | number | undefined) ?? undefined,
-          months: (builderRaw.months as string | number | undefined) ?? undefined,
-          projectCount: typeof builderRaw.projectCount === 'number' ? builderRaw.projectCount : undefined,
-          cityCount: typeof builderRaw.cityCount === 'number' ? builderRaw.cityCount : undefined,
-          citiesLabel: str(builderRaw.citiesLabel),
+          years:
+            (builderRaw.years as string | number | undefined) ??
+            asNum(builderRaw.yearsOfExperience ?? builderRaw.years_of_experience),
+          months:
+            (builderRaw.months as string | number | undefined) ??
+            asNum(builderRaw.experienceMonths ?? builderRaw.experience_months),
+          projectCount:
+            typeof builderRaw.projectCount === 'number'
+              ? builderRaw.projectCount
+              : asNum(builderRaw.totalProjects ?? builderRaw.total_projects),
+          cityCount:
+            typeof builderRaw.cityCount === 'number'
+              ? builderRaw.cityCount
+              : asNum(builderRaw.totalCities ?? builderRaw.total_cities),
+          citiesLabel: str(builderRaw.citiesLabel ?? builderRaw.cities_label),
           banners,
           projects: {
-            total: typeof projects.total === 'number' ? projects.total : undefined,
-            delivered: typeof projects.delivered === 'number' ? projects.delivered : undefined,
+            total:
+              typeof projects.total === 'number'
+                ? projects.total
+                : asNum(builderRaw.totalProjects ?? builderRaw.total_projects),
+            delivered:
+              typeof projects.delivered === 'number'
+                ? projects.delivered
+                : asNum(builderRaw.deliveredProjects ?? builderRaw.delivered_projects),
             underDevelopment:
-              typeof projects.underDevelopment === 'number' ? projects.underDevelopment : undefined,
+              typeof projects.underDevelopment === 'number'
+                ? projects.underDevelopment
+                : asNum(
+                    builderRaw.underDevelopmentProjects ??
+                      builderRaw.under_development_projects,
+                  ),
           },
           associatedDevelopers: associated,
           associatedDeveloperIds: ids,
         }
       : null,
+    profileStats,
+    developerShowcase,
+    showcaseListingIds,
+    groupChatEnabled: appRole === 'developer' ? groupChatEnabled : undefined,
     sections: {
       company: sections.company === true || !!companyRaw,
       builderProfile: sections.builderProfile === true || !!builderRaw,
       salesTeam: sections.salesTeam === true || appRole === 'developer',
       listings: sections.listings !== false,
+      profileStats: sections.profileStats !== false && appRole === 'developer',
+      developerShowcase: sections.developerShowcase !== false && appRole === 'developer',
     },
     listings: {
       defaultCategoryGroup: defaultGroup,
@@ -349,6 +516,17 @@ export const adminUsersService = {
     return normalizeMasterProfile(response.data, id);
   },
 
+  patchDeveloperProfile: async (
+    id: string,
+    data: Record<string, unknown>,
+  ): Promise<MasterProfile> => {
+    const response = await axiosClient.patch(
+      `/admin/user-analytics/users/${encodeURIComponent(id)}/developer-profile`,
+      data,
+    );
+    return normalizeMasterProfile(response.data, id);
+  },
+
   createUser: async (data: any) => {
     const response = await axiosClient.post('/admin/users', data);
     return response.data;
@@ -369,8 +547,20 @@ export const adminUsersService = {
     return response.data;
   },
 
-  updateUser: async (id: string, data: any) => {
+  updateUser: async (id: string, data: Record<string, unknown>) => {
     const response = await axiosClient.put(`/admin/users/${id}`, data);
+    return response.data;
+  },
+
+  patchUser: async (
+    id: string,
+    data: {
+      developerProfileStatsMode?: DeveloperProfileStatsMode;
+      totalProjectCount?: number;
+      totalCities?: number;
+    },
+  ) => {
+    const response = await axiosClient.patch(`/admin/users/${encodeURIComponent(id)}`, data);
     return response.data;
   },
 

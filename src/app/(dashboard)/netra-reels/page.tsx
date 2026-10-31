@@ -59,7 +59,10 @@ export default function NetraReelsPage() {
     !!launchSettings &&
     (settingsDraft.validityHours !== String(launchSettings.validityHours) ||
       settingsDraft.maxActivePerDeveloper !== String(launchSettings.maxActivePerDeveloper));
-  const { dialog: unsavedDialog } = useUnsavedChangesGuard({ dirty: settingsDirty });
+  const { dialog: unsavedDialog } = useUnsavedChangesGuard({
+    dirty: settingsDirty,
+    onSave: () => saveLaunchSettings(),
+  });
 
   const loadLaunchSettings = useCallback(async () => {
     try {

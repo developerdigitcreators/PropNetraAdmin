@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/store/use-auth-store';
 import { formatDisplayDateTime } from '@/lib/format-date';
 import { MaskedContact } from '@/components/contact/masked-contact';
@@ -31,7 +31,6 @@ import {
   type TicketStatus,
 } from '@/services/support-tickets.service';
 import {
-  AlertTriangle,
   Edit2,
   Eye,
   Loader2,
@@ -109,14 +108,18 @@ function SupportTicketsPageInner() {
   const [editingRemark, setEditingRemark] = useState<TicketRemark | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const [editBusy, setEditBusy] = useState(false);
+  const detailSaveRef = useRef<() => Promise<void>>(async () => {});
+  const detailDraftDirty =
+    remarkDraft.trim().length > 0 || editDraft.trim().length > 0;
   const {
     requestClose: requestDetailClose,
     dialog: detailUnsavedDialog,
-  } = useDialogUnsavedGuard(
-    remarkDraft.trim().length > 0 || editDraft.trim().length > 0,
-  );
+  } = useDialogUnsavedGuard(detailDraftDirty, {
+    onSave: canUpdate ? () => detailSaveRef.current() : undefined,
+  });
   const [toDeleteRemark, setToDeleteRemark] = useState<TicketRemark | null>(null);
   const [deletingRemark, setDeletingRemark] = useState(false);
+  const [deleteRemarkError, setDeleteRemarkError] = useState('');
   const [toDelete, setToDelete] = useState<SupportTicketItem | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -244,17 +247,31 @@ function SupportTicketsPageInner() {
       setEditBusy(false);
     }
   };
+  detailSaveRef.current = async () => {
+    if (editingRemark && editDraft.trim()) {
+      await handleSaveRemark();
+      return;
+    }
+    if (remarkDraft.trim()) {
+      await handleAddRemark();
+    }
+  };
 
-  const handleDeleteRemark = async () => {
+  const handleDeleteRemark = async (remark: string) => {
     if (!detail || !toDeleteRemark) return;
     setDeletingRemark(true);
+    setDeleteRemarkError('');
     setDetailError('');
     try {
-      const next = await supportTicketsService.removeRemark(detail.id, toDeleteRemark.id);
+      const next = await supportTicketsService.removeRemark(
+        detail.id,
+        toDeleteRemark.id,
+        remark,
+      );
       applyDetail(next);
       setToDeleteRemark(null);
     } catch (err) {
-      setDetailError(ticketApiError(err, 'Failed to delete remark.'));
+      setDeleteRemarkError(ticketApiError(err, 'Failed to delete remark.'));
     } finally {
       setDeletingRemark(false);
     }
@@ -691,8 +708,7 @@ function SupportTicketsPageInner() {
                   {statusLocked ? (
                     <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
                       Save status is locked while this ticket is {statusLabel(detail.status)}. The
-                      user must reissue before you can change status again. You can still add
-                      admin-only remarks.
+                      user must reissue before you can change status again.
                     </p>
                   ) : null}
                   <div className="flex flex-wrap gap-2">
@@ -715,7 +731,7 @@ function SupportTicketsPageInner() {
                     rows={3}
                     placeholder={
                       statusLocked
-                        ? 'Write an admin-only remark…'
+                        ? 'Status changes are locked until the user reissues…'
                         : 'Write a remark (visible to user when saving status)…'
                     }
                     className="min-h-[72px] w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -733,22 +749,6 @@ function SupportTicketsPageInner() {
                       {statusBusy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
                       Save status
                     </Button>
-                    {canCreate && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void handleAddRemark()}
-                        disabled={!remarkDraft.trim() || remarkBusy}
-                      >
-                        {remarkBusy ? (
-                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Plus className="mr-1.5 h-4 w-4" />
-                        )}
-                        Add remark only
-                      </Button>
-                    )}
                   </div>
                 </div>
               )}
@@ -795,39 +795,20 @@ function SupportTicketsPageInner() {
         onConfirm={handleDeleteTicket}
       />
 
-      <Dialog
+      <DeleteRemarkDialog
         open={Boolean(toDeleteRemark)}
-        onOpenChange={(open) => !open && setToDeleteRemark(null)}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-red-500" />
-              Delete remark
-            </DialogTitle>
-            <DialogDescription>
-              This remark will be removed. The user ticket stays as submitted.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setToDeleteRemark(null)}
-              disabled={deletingRemark}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => void handleDeleteRemark()}
-              disabled={deletingRemark}
-              className="bg-red-600 text-white hover:bg-red-700"
-            >
-              {deletingRemark && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-              Delete
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+        onOpenChange={(open) => {
+          if (!open) {
+            setToDeleteRemark(null);
+            setDeleteRemarkError('');
+          }
+        }}
+        title="Delete remark"
+        description="This remark will be removed. The user ticket stays as submitted."
+        submitting={deletingRemark}
+        error={deleteRemarkError}
+        onConfirm={handleDeleteRemark}
+      />
       {detailUnsavedDialog}
     </PermissionGuard>
   );

@@ -46,6 +46,7 @@ export type DbfTopBuilderRow = {
 };
 
 export type DbfTopBuilderList = {
+  enabled: boolean;
   autoslide: string;
   items: DbfTopBuilderRow[];
 };
@@ -147,6 +148,7 @@ function normalizeTopBuilderList(data: unknown): DbfTopBuilderList {
   const obj = asRecord(value);
   const rawItems = Array.isArray(value) ? value : obj && Array.isArray(obj.items) ? obj.items : [];
   return {
+    enabled: obj ? obj.enabled !== false && obj.enabled !== 0 && obj.enabled !== 'false' : true,
     autoslide: (obj && str(obj.autoslide)) || DEFAULT_TOP_BUILDER_AUTOSLIDE,
     items: rawItems
       .map((raw) => asRecord(raw))
@@ -228,8 +230,11 @@ export const dbfFeaturedService = {
     return normalizeTopBuilderList(res.data);
   },
 
-  updateTopBuilderSettings: async (autoslide: string): Promise<DbfTopBuilderList> => {
-    const res = await axiosClient.put(`${BASE}/top-builders/settings`, { autoslide });
+  updateTopBuilderSettings: async (payload: {
+    enabled?: boolean;
+    autoslide?: string;
+  }): Promise<DbfTopBuilderList> => {
+    const res = await axiosClient.put(`${BASE}/top-builders/settings`, payload);
     return normalizeTopBuilderList(res.data);
   },
 

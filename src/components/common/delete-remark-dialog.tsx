@@ -42,7 +42,14 @@ export function DeleteRemarkDialog({
   const tooShort = trimmed.length > 0 && trimmed.length < DELETE_REMARK_MIN_LENGTH;
   const canSubmit = trimmed.length >= DELETE_REMARK_MIN_LENGTH && !submitting;
   const dirty = trimmed.length > 0;
-  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(dirty);
+  const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(dirty, {
+    onSave: async () => {
+      if (trimmed.length < DELETE_REMARK_MIN_LENGTH || submitting) {
+        throw new Error('invalid');
+      }
+      await onConfirm(trimmed);
+    },
+  });
 
   useEffect(() => {
     if (open) setRemark('');

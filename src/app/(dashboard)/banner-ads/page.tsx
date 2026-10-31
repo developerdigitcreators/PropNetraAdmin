@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   bannerAdsService,
+  DEVELOPER_CONTACT_REVEAL_POPUP_PLACEMENT,
   formatBannerLinkLabel,
   normalizeAutoslideValue,
   isBannerActive,
@@ -13,6 +14,7 @@ import {
   sectionsForPlacement,
   sectionLabelForKey,
   normalizeSectionKey,
+  isTopOnlyPlacement,
   CHAT_STORY_SECTION_KEY,
   type AdBanner,
   type AdPlacementOption,
@@ -312,6 +314,7 @@ function BannerAdsPageInner() {
       if (!(sectionMap[rawKey]?.length > 0) && !(sectionMap[key]?.length > 0)) continue;
       if (placement === 'chat_notification' && key === 'top') continue;
       if (placement === 'popup' && key !== 'general') continue;
+      if (isTopOnlyPlacement(placement) && key !== 'top') continue;
       if (ordered.some((s) => s.key === key)) continue;
       ordered.push({ key, label: sectionLabelForKey(key) });
     }
@@ -622,6 +625,12 @@ function BannerAdsPageInner() {
           </div>
         ) : (
           <div className="space-y-4">
+            {placement === DEVELOPER_CONTACT_REVEAL_POPUP_PLACEMENT ? (
+              <p className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+                Used on developer Call Sales and Contact (sales team) popups. Not Coming Soon or
+                agent contact reveal.
+              </p>
+            ) : null}
             {displaySections.map((section) => {
               const savingThis = savingAutoslideSection === section.key;
               return (

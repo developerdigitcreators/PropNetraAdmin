@@ -63,3 +63,86 @@ export const USER_PROFILE_READ_PERMISSIONS = [
   'user_analytics:read',
   'app_users_master:read',
 ] as const;
+
+export const USER_ANALYTICS_MODULE = 'user_analytics';
+
+/**
+ * Publisher listings, metrics, viewers/leads APIs (admin user-analytics routes).
+ * Legacy: `subscriptions:read` until all roles are migrated in RBAC.
+ */
+export function canReadUserAnalyticsFeatures(hasPermission: HasPermission): boolean {
+  return (
+    hasPermission(USER_ANALYTICS_MODULE, 'read') ||
+    hasPermission('subscriptions', 'read')
+  );
+}
+
+/**
+ * Listings tab hard delete (publisher purge + expired agent listings).
+ * Legacy: `subscriptions:write` until roles use User Analytics → Delete.
+ */
+export function canDeleteUserAnalyticsListing(
+  hasPermission: HasPermission,
+): boolean {
+  return (
+    hasPermission(USER_ANALYTICS_MODULE, 'delete') ||
+    hasPermission('subscriptions', 'write')
+  );
+}
+
+/** @deprecated use canDeleteUserAnalyticsListing */
+export const canWriteUserAnalyticsListingDelete = canDeleteUserAnalyticsListing;
+
+export function userAnalyticsReadPermissionHint(): string {
+  return `${USER_ANALYTICS_MODULE}:read (or subscriptions:read)`;
+}
+
+export function userAnalyticsDeletePermissionHint(): string {
+  return `${USER_ANALYTICS_MODULE}:delete (or subscriptions:write)`;
+}
+
+/** PATCH my-listing-analytics (app My Listings toggle + metrics). */
+export function canUpdateUserAnalyticsConfig(
+  hasPermission: HasPermission,
+): boolean {
+  return hasPermission(USER_ANALYTICS_MODULE, 'update');
+}
+
+export function userAnalyticsUpdatePermissionHint(): string {
+  return `${USER_ANALYTICS_MODULE}:update`;
+}
+
+export const DEVELOPER_USER_MODULE = 'developer_user';
+export const DEVELOPER_USER_LISTINGS_MODULE = 'developer_user_listings';
+
+export function canReadDeveloperUserHub(hasPermission: HasPermission): boolean {
+  return (
+    hasPermission(DEVELOPER_USER_MODULE, 'read') ||
+    hasPermission('developer_team', 'read') ||
+    hasPermission('developer_home_sections', 'read') ||
+    canReadUserAnalyticsFeatures(hasPermission) ||
+    hasPermission('app_users_master', 'read')
+  );
+}
+
+export function canUpdateDeveloperUserListings(hasPermission: HasPermission): boolean {
+  return hasPermission(DEVELOPER_USER_LISTINGS_MODULE, 'update');
+}
+
+export function canCreateDeveloperUserListings(hasPermission: HasPermission): boolean {
+  return hasPermission(DEVELOPER_USER_LISTINGS_MODULE, 'create');
+}
+
+export function canUpdateDeveloperUserHub(hasPermission: HasPermission): boolean {
+  return (
+    hasPermission(DEVELOPER_USER_MODULE, 'update') ||
+    hasPermission('app_users_master', 'update')
+  );
+}
+
+export function developerUserListingsUpdateHint(): string {
+  return `${DEVELOPER_USER_LISTINGS_MODULE}:update`;
+}
+
+/** @deprecated use userAnalyticsDeletePermissionHint */
+export const userAnalyticsWritePermissionHint = userAnalyticsDeletePermissionHint;

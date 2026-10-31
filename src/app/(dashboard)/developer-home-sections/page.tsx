@@ -1,17 +1,16 @@
 'use client';
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import Link from 'next/link';
 import { useAuthStore } from '@/store/use-auth-store';
 import { PermissionGuard } from '@/components/common/permission-guard';
 import { Breadcrumb } from '@/components/common/breadcrumb';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { SortableGrid } from '@/components/common/sortable-list';
 import { AutoslideTimePicker } from '@/components/common/autoslide-time-picker';
-import { DbfPickDialog, type DbfPickOption } from '@/modules/dbf-featured/dbf-pick-dialog';
+import { AddItemWizard } from '@/modules/developer-home/add-item-wizard';
 import { useUrlFilters } from '@/hooks/use-url-filters';
 import { useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 import {
@@ -21,18 +20,12 @@ import {
   kindMeta,
   type HomeDeveloperPreview,
   type HomeListingPreview,
+  type HomePostPreview,
   type HomeSectionDetail,
   type HomeSectionKind,
   type NamedRow,
 } from '@/services/developer-home.service';
-import {
-  ComingSoonTeamGroups,
-  teamGroupsError,
-  toEditorTeamGroups,
-  type EditorTeamGroup,
-} from '@/components/developer-home/coming-soon-team-groups';
-import { comingSoonPopupAdsHref } from '@/services/banner-ads.service';
-import { Building2, ImageIcon, Loader2, Plus, Save, Trash2 } from 'lucide-react';
+import { Building2, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 
 const selectCls =
   'h-9 rounded-md border border-gray-200 bg-white px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60';
@@ -47,7 +40,7 @@ const KIND_HINTS: Record<HomeSectionKind, string> = {
     'Up to 4 posts (2x2 on home). Each post needs at least one project; each card fades to its post\u2019s next project on the auto-scroll time.',
   new_launch_2: '',
   coming_soon:
-    'Select a developer, then add location / micro-market sections with team members. Tapping the card in the app shows only these members, grouped by micro-market.',
+    'Choose which developers appear in this city. They complete team, banners, and micro-markets in the app. The card shows the company logo.',
   top_developers:
     'Company logos scroll continuously in up to 2 rows. Tapping a logo opens the developer\u2019s company profile.',
   handpicked_developers:
@@ -59,7 +52,6 @@ type EditorItem = {
   listing?: HomeListingPreview;
   developer?: HomeDeveloperPreview;
   title: string;
-  teamGroups: EditorTeamGroup[];
   /** New Launch post (1-4); always 1 for other kinds. */
   post: number;
 };
@@ -80,12 +72,11 @@ function Thumb({ url, round }: { url?: string | null; round?: boolean }) {
 function toEditorItems(section: HomeSectionDetail): EditorItem[] {
   return section.items.map((i) =>
     'listing' in i
-      ? { id: i.listing.id, listing: i.listing, title: '', teamGroups: [], post: i.postIndex ?? 1 }
+      ? { id: i.listing.id, listing: i.listing, title: '', post: i.postIndex ?? 1 }
       : {
           id: i.developer.id,
           developer: i.developer,
           title: i.title && i.title !== i.developer.name ? i.title : '',
-          teamGroups: toEditorTeamGroups(i.teamGroups),
           post: 1,
         },
   );
@@ -122,7 +113,32 @@ function DeveloperHomeContent() {
   const [reloadKey, setReloadKey] = useState(0);
   const [dirtyKinds, setDirtyKinds] = useState<Partial<Record<HomeSectionKind, boolean>>>({});
   const anyDirty = Object.values(dirtyKinds).some(Boolean);
-  const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({ dirty: anyDirty });
+  const sectionSaveRef = useRef(new Map<HomeSectionKind, () => Promise<void>>());
+
+  const registerSectionSave = useCallback((kind: HomeSectionKind, fn: () => Promise<void>) => {
+    sectionSaveRef.current.set(kind, fn);
+  }, []);
+
+  const unregisterSectionSave = useCallback((kind: HomeSectionKind) => {
+    sectionSaveRef.current.delete(kind);
+  }, []);
+
+  const saveAllDirtySections = useCallback(async () => {
+    for (const kind of HOME_PAGE_KINDS) {
+      if (!dirtyKinds[kind]) continue;
+      const fn = sectionSaveRef.current.get(kind);
+      if (fn) await fn();
+    }
+  }, [dirtyKinds]);
+
+  const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({
+    dirty: anyDirty,
+    onSave: canUpdate ? saveAllDirtySections : undefined,
+    onLeaveWithoutSave: () => {
+      setDirtyKinds({});
+      setReloadKey((k) => k + 1);
+    },
+  });
   const onDirtyChange = useCallback((kind: HomeSectionKind, dirty: boolean) => {
     setDirtyKinds((prev) => (!!prev[kind] === dirty ? prev : { ...prev, [kind]: dirty }));
   }, []);
@@ -173,7 +189,7 @@ function DeveloperHomeContent() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-gray-900">Developer Home</h1>
           <p className="text-gray-500 mt-1">
-            Trending Projects, Coming Soon, New Launch and Top Picker on the agent and developer home. Pick a state and
+            Trending Projects, Coming Soon, New Launch and Top Real Estate Developers on the agent and developer home. Pick a state and
             city, like banner ads, then set each section.
           </p>
         </div>
@@ -225,9 +241,13 @@ function DeveloperHomeContent() {
               cityDevelopers={cityDevelopers}
               stateId={stateId}
               cityId={cityId}
+              states={states}
+              cities={cities}
               stateCities={stateCities}
               canUpdate={canUpdate}
               onDirtyChange={onDirtyChange}
+              registerSectionSave={registerSectionSave}
+              unregisterSectionSave={unregisterSectionSave}
               onSaved={() => {
                 setDirtyKinds((prev) => ({ ...prev, [kind]: false }));
                 setReloadKey((k) => k + 1);
@@ -247,9 +267,13 @@ function SectionCard({
   cityDevelopers,
   stateId,
   cityId,
+  states,
+  cities,
   stateCities,
   canUpdate,
   onDirtyChange,
+  registerSectionSave,
+  unregisterSectionSave,
   onSaved,
 }: {
   kind: HomeSectionKind;
@@ -257,14 +281,18 @@ function SectionCard({
   cityDevelopers: HomeDeveloperPreview[];
   stateId: string;
   cityId: string;
+  states: NamedRow[];
+  cities: NamedRow[];
   stateCities: NamedRow[];
   canUpdate: boolean;
   onDirtyChange: (kind: HomeSectionKind, dirty: boolean) => void;
+  registerSectionSave: (kind: HomeSectionKind, fn: () => Promise<void>) => void;
+  unregisterSectionSave: (kind: HomeSectionKind) => void;
   onSaved: () => void;
 }) {
-  const canReadAds = useAuthStore((s) => s.hasPermission)('ads', 'read');
   const meta = kindMeta(kind);
   const isDeveloperKind = meta.items === 'developer';
+  const wizardMode = isDeveloperKind ? 'developer-only' : 'projects';
   const [title, setTitle] = useState(section?.title || '');
   const [autoslide, setAutoslide] = useState(section?.autoslide || '00:00:05');
   const [scrollMode, setScrollMode] = useState<'manual' | 'auto'>(
@@ -284,6 +312,12 @@ function SectionCard({
   );
   const [pickPost, setPickPost] = useState(1);
 
+  const excludeListingIds = useMemo(() => items.map((i) => i.id), [items]);
+  const excludeDeveloperIds = useMemo(
+    () => (isDeveloperKind ? items.map((i) => i.id) : []),
+    [isDeveloperKind, items],
+  );
+
   const snapshot = JSON.stringify({
     title,
     autoslide,
@@ -294,12 +328,6 @@ function SectionCard({
       id: i.id,
       post: i.post,
       title: i.title,
-      teamGroups: i.teamGroups.map((g) => ({
-        locationId: g.locationId,
-        microMarketId: g.microMarketId,
-        memberIds: g.memberIds,
-        display: g.display,
-      })),
     })),
   });
   const [baseline] = useState(snapshot);
@@ -338,106 +366,96 @@ function SectionCard({
     [cityDevelopers],
   );
 
-  const search = useCallback(
-    async (q: string): Promise<DbfPickOption[]> => {
-      const taken = new Set(items.map((i) => i.id));
-      if (isDeveloperKind) {
-        const listedOnly = kind === 'handpicked_developers';
-        const listed = listedOnly
-          ? cityDevelopers.filter((d) => Number(d.projectCount) > 0)
-          : [];
-        const term = q.trim().toLowerCase();
-        const fromCity = listed.filter((d) => {
-          if (!term) return true;
-          return [d.companyName, d.name, d.contact]
-            .filter(Boolean)
-            .some((v) => String(v).toLowerCase().includes(term));
-        });
-        const devs = listedOnly ? fromCity : await developerHomeService.searchSectionDevelopers(q);
-        devs.forEach((d) => devCache.current.set(d.id, d));
-        return devs
-          .filter((d) => !taken.has(d.id))
-          .map((d) => ({
-            value: d.id,
-            label: d.name || d.companyName || '',
-            badge: projectCountFor(d.id, d),
-          }));
-      }
-      return (await developerHomeService.searchPosts(q, cityId))
-        .filter((p) => !taken.has(p.id))
-        .map((p) => ({ value: p.id, label: [p.title, p.location, p.developerName].filter(Boolean).join(' · ') }));
-    },
-    [items, isDeveloperKind, cityId, kind, cityDevelopers, projectCountFor],
-  );
+  const postToListing = (p: HomePostPreview): HomeListingPreview => ({
+    id: p.id,
+    title: p.title,
+    location: p.location,
+    priceLabel: p.priceLabel,
+    imageUrl: p.imageUrl,
+    developer: p.developerName
+      ? { id: p.developerId || '', name: p.developerName, logoUrl: null }
+      : null,
+  });
 
-  const addItem = async (id: string) => {
-    setPickOpen(false);
-    if (isPosts) {
-      const existing = items.find((i) => i.id === id);
-      if (existing) return setError(`This project is already in Post ${existing.post}.`);
-      if (items.filter((i) => i.post === pickPost).length >= MAX_PROJECTS_PER_POST) {
-        return setError(`Maximum ${MAX_PROJECTS_PER_POST} projects per post.`);
+  const addProjects = (posts: HomePostPreview[]) => {
+    setError('');
+    if (!posts.length) return;
+    setItems((prev) => {
+      let next = [...prev];
+      for (const p of posts) {
+        if (isPosts) {
+          const existing = next.find((i) => i.id === p.id);
+          if (existing) {
+            setError(`This project is already in Post ${existing.post}.`);
+            continue;
+          }
+          if (next.filter((i) => i.post === pickPost).length >= MAX_PROJECTS_PER_POST) {
+            setError(`Maximum ${MAX_PROJECTS_PER_POST} projects per post.`);
+            break;
+          }
+          next.push({
+            id: p.id,
+            listing: postToListing(p),
+            title: '',
+            post: pickPost,
+          });
+        } else {
+          if (next.length >= MAX_ITEMS) {
+            setError(`Maximum ${MAX_ITEMS} items for this section.`);
+            break;
+          }
+          if (next.some((i) => i.id === p.id)) continue;
+          next.push({
+            id: p.id,
+            listing: postToListing(p),
+            title: '',
+            post: 1,
+          });
+        }
       }
-    } else if (items.length >= MAX_ITEMS) {
-      return setError(`Maximum ${MAX_ITEMS} items for this section.`);
-    }
-    if (isDeveloperKind) {
-      const found = devCache.current.get(id);
-      if (!found) return setError('Could not load that developer.');
-      setItems((prev) => [
-        ...prev,
-        {
-          id,
-          developer: { ...found, name: found.companyName || found.name },
-          title: '',
-          teamGroups: [],
-          post: 1,
-        },
-      ]);
+      return next;
+    });
+  };
+
+  const addDeveloper = (dev: HomeDeveloperPreview) => {
+    setError('');
+    if (items.some((i) => i.id === dev.id)) {
+      setError('That developer is already in this section.');
       return;
     }
-    const p = (await developerHomeService.searchPosts(id)).find((x) => x.id === id);
-    if (!p) return setError('Could not load that project.');
+    if (items.length >= MAX_ITEMS) {
+      setError(`Maximum ${MAX_ITEMS} items for this section.`);
+      return;
+    }
+    devCache.current.set(dev.id, dev);
     setItems((prev) => [
       ...prev,
       {
-        id,
-        listing: {
-          id: p.id,
-          title: p.title,
-          location: p.location,
-          priceLabel: p.priceLabel,
-          imageUrl: p.imageUrl,
-          developer: p.developerName ? { id: '', name: p.developerName, logoUrl: null } : null,
-        },
+        id: dev.id,
+        developer: { ...dev, name: dev.companyName || dev.name },
         title: '',
-        teamGroups: [],
-        post: isPosts ? pickPost : 1,
+        post: 1,
       },
     ]);
   };
 
-  const save = async () => {
+  const save = useCallback(async () => {
     setError('');
-    if (kind === 'coming_soon') {
-      for (const i of items) {
-        const msg = teamGroupsError(i.teamGroups);
-        if (msg) return setError(`${i.developer?.name || 'Developer'}: ${msg}`);
-      }
-    }
     if (isPosts) {
       for (let post = 1; post <= postCount; post++) {
         if (!items.some((i) => i.post === post)) {
-          return setError(`Post ${post} needs at least one project.`);
+          const msg = `Post ${post} needs at least one project.`;
+          setError(msg);
+          throw new Error(msg);
         }
       }
       const seen = new Map<string, number>();
       for (const i of items) {
         const first = seen.get(i.id);
         if (first !== undefined && first !== i.post) {
-          return setError(
-            `${i.listing?.title || 'A project'} is in Post ${first} and Post ${i.post}. Each post needs different projects.`,
-          );
+          const msg = `${i.listing?.title || 'A project'} is in Post ${first} and Post ${i.post}. Each post needs different projects.`;
+          setError(msg);
+          throw new Error(msg);
         }
         seen.set(i.id, i.post);
       }
@@ -457,16 +475,6 @@ function SectionCard({
             ? {
                 developerId: i.id,
                 title: i.title.trim() || undefined,
-                ...(kind === 'coming_soon'
-                  ? {
-                      teamGroups: i.teamGroups.map((g) => ({
-                        locationId: g.locationId || null,
-                        microMarketId: g.microMarketId,
-                        memberIds: g.memberIds,
-                        display: g.display,
-                      })),
-                    }
-                  : {}),
               }
             : isPosts
               ? { listingId: i.id, postIndex: i.post }
@@ -477,8 +485,28 @@ function SectionCard({
     } catch (err) {
       setError(developerHomeApiError(err, 'Failed to save.'));
       setSaving(false);
+      throw err;
     }
-  };
+  }, [
+    cityId,
+    extraCityIds,
+    isActive,
+    isDeveloperKind,
+    isPosts,
+    items,
+    kind,
+    onSaved,
+    postCount,
+    scrollMode,
+    stateId,
+    title,
+    autoslide,
+  ]);
+
+  useEffect(() => {
+    registerSectionSave(kind, save);
+    return () => unregisterSectionSave(kind);
+  }, [kind, registerSectionSave, save, unregisterSectionSave]);
 
   const renderRow = (it: EditorItem, dragHandle: ReactNode) => (
     <div
@@ -525,15 +553,9 @@ function SectionCard({
               }
             />
             <p className="text-xs text-gray-500">The card shows the developer&apos;s company logo.</p>
-            <ComingSoonTeamGroups
-              developerId={it.id}
-              cityId={cityId}
-              groups={it.teamGroups}
-              disabled={!canUpdate}
-              onChange={(teamGroups) =>
-                setItems((prev) => prev.map((p) => (p.id === it.id ? { ...p, teamGroups } : p)))
-              }
-            />
+            <p className="text-xs text-gray-500">
+              Team, banners, and micro-markets are configured by the developer in the app.
+            </p>
           </div>
         ) : null}
       </div>
@@ -562,15 +584,6 @@ function SectionCard({
           {section?.id && !section.isActive && <Badge variant="outline" className="text-gray-500">Hidden</Badge>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {kind === 'coming_soon' && canReadAds && stateId && cityId ? (
-            <Link
-              href={comingSoonPopupAdsHref(stateId, cityId)}
-              className={buttonVariants({ variant: 'outline', size: 'sm' })}
-            >
-              <ImageIcon className="h-4 w-4 mr-1.5" />
-              Coming Soon popup ads
-            </Link>
-          ) : null}
           {canUpdate && (
           <Button size="sm" onClick={() => void save()} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Save className="h-4 w-4 mr-1.5" />}
@@ -759,32 +772,25 @@ function SectionCard({
         </>
       )}
 
-      <DbfPickDialog
+      <AddItemWizard
         open={pickOpen}
-        title={isDeveloperKind ? 'Add developer' : 'Add project'}
+        onOpenChange={setPickOpen}
+        mode={wizardMode}
+        title={isDeveloperKind ? 'Add developer' : isPosts ? `Add projects — Post ${pickPost}` : 'Add projects'}
         description={
           isDeveloperKind
-            ? kind === 'handpicked_developers'
-              ? 'Only developers with a published project in this city can be selected. Project count is shown next to each name.'
-              : 'Only active Developer accounts can be selected.'
-            : 'Only published Developer projects can be selected.'
+            ? 'Choose a picker city, then a developer with at least one published project there.'
+            : 'Choose picker city and developer, then select one or more projects. Section still saves for the display city above.'
         }
-        fieldLabel={isDeveloperKind ? 'Developer' : 'Project'}
-        placeholder={isDeveloperKind ? 'Select a developer' : 'Select a project'}
-        searchPlaceholder={
-          isDeveloperKind ? 'Search by company, name or phone' : 'Search by project, location or developer'
-        }
-        emptyText={
-          kind === 'handpicked_developers'
-            ? 'No developers with a listing in this city.'
-            : 'No matches.'
-        }
-        submitLabel="Add"
-        submitting={false}
-        error=""
-        search={search}
-        onOpenChange={setPickOpen}
-        onSubmit={(id) => void addItem(id)}
+        submitLabel={isDeveloperKind ? 'Add developer' : 'Add to section'}
+        displayStateId={stateId}
+        displayCityId={cityId}
+        states={states}
+        cities={cities}
+        excludeListingIds={excludeListingIds}
+        excludeDeveloperIds={excludeDeveloperIds}
+        onSubmitDeveloper={addDeveloper}
+        onSubmitProjects={addProjects}
       />
     </div>
   );

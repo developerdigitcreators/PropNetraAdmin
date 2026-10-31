@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PermissionGuard } from "@/components/common/permission-guard";
@@ -150,12 +150,58 @@ function isPossessionYearField(field: CreateFormField) {
   return key === "year" || key.endsWith("_year") || label === "year";
 }
 
+function dependsOnChecked(field: CreateFormField) {
+  return field.dependsOn?.value === true;
+}
+
+function percentFieldsFor(
+  schema: CreateFormSchema | null,
+  parentKey: string,
+): CreateFormField[] {
+  const fields = [
+    ...(schema?.fields ?? []),
+    ...(schema?.modules ?? []).flatMap((mod) => mod.fields),
+  ];
+  return fields.filter(
+    (field) => dependsOnChecked(field) && field.dependsOn?.field === parentKey,
+  );
+}
+
+function isCheckedDetail(value: string | undefined) {
+  return value === "true" || value === "1" || value === "yes";
+}
+
+function detailsFromDynamic(
+  schema: CreateFormSchema,
+  dynamic: Record<string, unknown>,
+): Record<string, string> {
+  const fields = [
+    ...(schema.fields ?? []),
+    ...(schema.modules ?? []).flatMap((mod) => mod.fields),
+  ];
+  const next: Record<string, string> = {};
+  for (const field of fields) {
+    if (!isBooleanType(field.type)) continue;
+    if (!(field.key in dynamic)) continue;
+    const on = isCheckedDetail(String(dynamic[field.key] === true ? "true" : dynamic[field.key] ?? ""));
+    next[field.key] = on ? "true" : "false";
+    if (!on) continue;
+    for (const percent of fields) {
+      if (!dependsOnChecked(percent) || percent.dependsOn?.field !== field.key) continue;
+      const raw = dynamic[percent.key];
+      if (typeof raw === "number" && Number.isFinite(raw)) next[percent.key] = String(raw);
+      else if (typeof raw === "string" && raw.trim()) next[percent.key] = raw.replace("%", "").trim();
+    }
+  }
+  return next;
+}
+
 function renderModuleFields(
   mod: { key: string; label: string; fields: CreateFormField[] },
   renderField: (field: CreateFormField) => ReactNode,
 ) {
   if (!isPossessionModule(mod.key, mod.label)) {
-    return mod.fields.map(renderField);
+    return renderSchemaFields(mod.fields, renderField);
   }
   const month = mod.fields.find(isPossessionMonthField);
   const year = mod.fields.find(isPossessionYearField);
@@ -175,9 +221,49 @@ function renderModuleFields(
           {year ? renderField(year) : null}
         </>
       )}
-      {rest.map(renderField)}
+      {rest.length ? renderSchemaFields(rest, renderField) : null}
     </>
   );
+}
+
+function renderSchemaFields(
+  fields: CreateFormField[],
+  renderField: (field: CreateFormField) => ReactNode,
+) {
+  const consumed = new Set<string>();
+  const nodes: ReactNode[] = [];
+  for (const field of fields) {
+    if (consumed.has(field.key)) continue;
+    if (isBooleanType(field.type)) {
+      const percent = fields.find(
+        (item) =>
+          dependsOnChecked(item) &&
+          item.dependsOn?.field === field.key &&
+          isNumberType(item.type),
+      );
+      if (percent) {
+        consumed.add(field.key);
+        consumed.add(percent.key);
+        nodes.push(
+          <div
+            key={field.key}
+            className="flex flex-wrap items-center gap-3 sm:col-span-2"
+          >
+            {renderField(field)}
+            {renderField(percent)}
+          </div>,
+        );
+        continue;
+      }
+    }
+    if (dependsOnChecked(field) && isNumberType(field.type)) {
+      const parentInList = fields.some((item) => item.key === field.dependsOn?.field);
+      if (parentInList) continue;
+    }
+    consumed.add(field.key);
+    nodes.push(renderField(field));
+  }
+  return nodes;
 }
 
 function filterRenderableFields(fields: CreateFormField[]) {
@@ -214,6 +300,9 @@ export function CreateVerifiedListingPanel() {
   const [propertyTypes, setPropertyTypes] = useState<CreateFormOption[]>([]);
   const [cities, setCities] = useState<{ id: string; name: string }[]>([]);
   const [schema, setSchema] = useState<CreateFormSchema | null>(null);
+  const [editDynamic, setEditDynamic] = useState<Record<string, unknown>>({});
+  const editDynamicRef = useRef<Record<string, unknown>>({});
+  editDynamicRef.current = editDynamic;
   const [properties, setProperties] = useState<CreateFormProperty[]>([]);
   const [prefill, setPrefill] = useState<CreateFormPrefill | null>(null);
 
@@ -306,10 +395,6 @@ export function CreateVerifiedListingPanel() {
   const dirty = Boolean(baseline) && formSnapshot !== baseline;
   const [salesTeamDirty, setSalesTeamDirty] = useState(false);
   const [brandingDirty, setBrandingDirty] = useState(false);
-
-  const { dialog } = useUnsavedChangesGuard({
-    dirty: dirty || salesTeamDirty || brandingDirty,
-  });
 
   const applySalesTeam = useCallback(
     (members: StaffAssignee[]) => {
@@ -444,6 +529,25 @@ export function CreateVerifiedListingPanel() {
   }, [buildingTypeId, categoryId]);
 
   useEffect(() => {
+    const listingId = new URLSearchParams(window.location.search).get("listingId")?.trim() || "";
+    if (!listingId) return;
+    let cancelled = false;
+    void listingsService
+      .getMyListingDetail(listingId)
+      .then((detail) => {
+        if (cancelled) return;
+        setEditDynamic({
+          ...(detail.dynamicData || {}),
+          ...(detail.form?.dynamicData || {}),
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!categoryId || !buildingTypeId || !propertyTypeId) {
       setSchema(null);
       setDetails({});
@@ -456,7 +560,7 @@ export function CreateVerifiedListingPanel() {
       .then((next) => {
         if (cancelled) return;
         setSchema(next);
-        setDetails({});
+        setDetails(detailsFromDynamic(next, editDynamicRef.current));
       })
       .catch((err) => {
         if (!cancelled) {
@@ -753,6 +857,9 @@ export function CreateVerifiedListingPanel() {
         const tenantKeys = tenantInfoFieldKeys(schema);
         for (const tenantKey of tenantKeys) delete next[tenantKey];
       }
+      if (!isCheckedDetail(value)) {
+        for (const percent of percentFieldsFor(schema, key)) delete next[percent.key];
+      }
       return next;
     });
   };
@@ -795,21 +902,47 @@ export function CreateVerifiedListingPanel() {
         ? leasingStatus
         : (details[field.key] ?? "");
     if (isBooleanType(field.type)) {
+      const paired = dependsOnChecked(field) ? false : percentFieldsFor(schema, field.key).length > 0;
       return (
         <div
           key={field.key}
-          className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2"
+          className={
+            paired
+              ? "flex items-center gap-3"
+              : "flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2"
+          }
         >
           <label className="text-sm font-medium text-gray-700">
             {field.label}
             {field.required ? <span className="text-red-500"> *</span> : null}
           </label>
           <Switch
-            checked={value === "true" || value === "1" || value === "yes"}
+            checked={isCheckedDetail(value)}
             onCheckedChange={(checked) =>
               updateDetail(field.key, checked ? "true" : "false")
             }
           />
+        </div>
+      );
+    }
+
+    if (dependsOnChecked(field) && isNumberType(field.type)) {
+      const parentOn = isCheckedDetail(details[field.dependsOn?.field || ""]);
+      if (!parentOn) return null;
+      return (
+        <div key={field.key} className="relative min-w-[8rem] flex-1">
+          <Input
+            type="number"
+            min={0}
+            step="any"
+            value={value}
+            onChange={(e) => updateDetail(field.key, e.target.value.replace("%", ""))}
+            placeholder={field.placeholder || field.label}
+            className="pr-8"
+          />
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">
+            {field.suffix || "%"}
+          </span>
         </div>
       );
     }
@@ -876,17 +1009,22 @@ export function CreateVerifiedListingPanel() {
       for (const [key, value] of Object.entries(details)) {
         if (value === "" || value == null) continue;
         if (hiddenTenantKeys.has(key)) continue;
-        const field = schema?.fields.find((item) => item.key === key);
+        const field = schema?.fields.find((item) => item.key === key)
+          ?? schema?.modules.flatMap((mod) => mod.fields).find((item) => item.key === key);
         if (field?.slot === "banner" || field?.type === "banner") continue;
+        if (field && dependsOnChecked(field)) {
+          const parentKey = field.dependsOn?.field || "";
+          if (!isCheckedDetail(details[parentKey])) continue;
+        }
         if (value === "true") detailsPayload[key] = true;
         else if (value === "false") detailsPayload[key] = false;
         else if (
-          /^-?\d+(\.\d+)?$/.test(value) &&
+          /^-?\d+(\.\d+)?$/.test(value.replace("%", "")) &&
           key !== "leasing_status" &&
           !isPossessionMonthField({ key, label: key, type: "select" }) &&
           !isPossessionYearField({ key, label: key, type: "select" })
         )
-          detailsPayload[key] = Number(value);
+          detailsPayload[key] = Number(value.replace("%", ""));
         else detailsPayload[key] = value;
       }
       const leasingValue = leasingStatus;
@@ -899,6 +1037,18 @@ export function CreateVerifiedListingPanel() {
         detailsPayload.leasing_status = leasingValue;
       } else {
         delete detailsPayload.leasing_status;
+      }
+      for (const [key, value] of Object.entries(detailsPayload)) {
+        const field = schema?.modules
+          .flatMap((mod) => mod.fields)
+          .find((item) => item.key === key);
+        const parent = field?.dependsOn?.field;
+        const isFlag = key === "brokerage_share" || key === "mandate_deal";
+        const isPercent =
+          !!field &&
+          dependsOnChecked(field) &&
+          (parent === "brokerage_share" || parent === "mandate_deal");
+        if (isFlag || isPercent) dynamicData[key] = value;
       }
 
       const created = await listingsService.createVerifiedListing({
@@ -950,6 +1100,11 @@ export function CreateVerifiedListingPanel() {
       setSubmitting(false);
     }
   };
+
+  const { dialog } = useUnsavedChangesGuard({
+    dirty: dirty || salesTeamDirty || brandingDirty,
+    onSave: () => handleSubmit(),
+  });
 
   return (
     <PermissionGuard

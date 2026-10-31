@@ -74,6 +74,11 @@ const SECTIONS: Array<{
         hint: 'Show how many times a developer project was shared on cards and the detail page.',
       },
       {
+        key: 'developer_view_count_enabled',
+        label: 'Developer view count',
+        hint: 'ON: show view count on developer feed cards and project detail. OFF: hide count on public surfaces (counting still runs). Does not affect My Listings or resale/DBF cards.',
+      },
+      {
         key: 'developer_compare_agents_enabled',
         label: 'Agents can compare developer projects',
         hint: 'When off, the Compare option is hidden for every agent. Developers never get Compare.',
@@ -354,6 +359,14 @@ export default function FeatureControlsPage() {
   const controlsDirty = SECTIONS.some((section) => changedKeys(section).length > 0);
   const { dialog: unsavedDialog, confirmLeave } = useUnsavedChangesGuard({
     dirty: controlsDirty || groupDirty,
+    onSave: canUpdate
+      ? async () => {
+          for (const section of SECTIONS) {
+            if (changedKeys(section).length) await saveSection(section, true);
+          }
+          if (groupDirty && retentionValid) await saveGroup();
+        }
+      : undefined,
   });
 
   const refresh = async () => {
@@ -437,7 +450,7 @@ export default function FeatureControlsPage() {
                 <div className="mt-2 divide-y">
                   <SwitchRow
                     label="Group chat (Launch Update)"
-                    hint="When off, the developer page shows only the Propnetra logo."
+                    hint="When off, Launch Update and Showcase are hidden in the app (developer page shows only the Propnetra logo). The developer’s three showcase picks stay saved in the database."
                     checked={groupEnabledDraft}
                     changed={groupEnabledDraft !== groupSettings.enabled}
                     disabled={!canUpdate || savingKey === 'group'}

@@ -734,7 +734,13 @@ export function AdminVerifiedLeadsPanel() {
                         <MaskedContact value={row.contact} revealKey={`verified-leads:${row.id}:contact`} />
                       </td>
                       <td className="px-4 py-3">{row.projectName || '—'}</td>
-                      <td className="px-4 py-3">{row.leadUnitNo || '—'}</td>
+                      <td className="px-4 py-3">
+                        <MaskedContact
+                          value={row.leadUnitNo}
+                          revealKey={`verified-leads:${row.id}:unit`}
+                          variant="secret"
+                        />
+                      </td>
                       <td className="px-4 py-3">{row.leadContactName || '—'}</td>
                       <td className="px-4 py-3">
                         <MaskedContact value={row.leadContactPhone} revealKey={`verified-leads:${row.id}:seller`} />
@@ -933,7 +939,15 @@ export function AdminVerifiedLeadsPanel() {
                   />
                   <DetailField
                     label="Unit No"
-                    value={listingDetail.leadUnitNo}
+                    value={
+                      listingDetail.leadUnitNo ? (
+                        <MaskedContact
+                          value={listingDetail.leadUnitNo}
+                          revealKey={`verified-leads-detail:${listingDetail.id}:unit`}
+                          variant="secret"
+                        />
+                      ) : null
+                    }
                   />
                   <DetailField
                     label="Seller name"

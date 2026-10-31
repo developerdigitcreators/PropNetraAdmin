@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -136,7 +136,10 @@ export function PopupsPanel({
   const [formMode, setFormMode] = useState<'create' | 'edit' | 'resend'>('create');
   const [draftBaseline, setDraftBaseline] = useState(() => popupDraftKey(emptyPopupDraft()));
   const dirty = popupDraftKey(draft) !== draftBaseline;
-  const { requestClose: confirmDiscard, dialog: discardDialog } = useDialogUnsavedGuard(dirty);
+  const confirmSubmitRef = useRef<() => Promise<void>>(async () => {});
+  const { requestClose: confirmDiscard, dialog: discardDialog } = useDialogUnsavedGuard(dirty, {
+    onSave: () => confirmSubmitRef.current(),
+  });
 
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -327,6 +330,7 @@ export function PopupsPanel({
       setSubmitting(false);
     }
   };
+  confirmSubmitRef.current = confirmSubmit;
 
   const handleDelete = async (remark: string) => {
     if (!canDelete || !pendingDelete) return;

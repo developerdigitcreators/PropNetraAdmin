@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { adminUsersService } from '@/services/admin-users.service';
+import { PROJECT_PREFIX_TAKEN_MESSAGE } from '@/lib/project-prefix-error';
 import { rbacService } from '@/services/rbac.service';
 import {
   Dialog,
@@ -144,6 +145,7 @@ function asFormField(value: unknown): keyof FormData | null {
 function defaultDuplicateMessage(field: keyof FormData): string {
   if (field === 'email') return 'Email already registered';
   if (field === 'contact') return 'Contact number already registered';
+  if (field === 'projectPrefix') return PROJECT_PREFIX_TAKEN_MESSAGE;
   return 'Already exists.';
 }
 
@@ -349,7 +351,17 @@ function apiFieldErrors(
     }
   }
 
-  return { issues, message: fallback };
+  const status = (err as { response?: { status?: number } })?.response?.status;
+  const normalizedIssues =
+    status === 409
+      ? issues.map((issue) =>
+          issue.field === 'projectPrefix'
+            ? { ...issue, message: PROJECT_PREFIX_TAKEN_MESSAGE }
+            : issue,
+        )
+      : issues;
+
+  return { issues: normalizedIssues, message: fallback };
 }
 
 const EMPTY_FORM: FormData = {
@@ -411,7 +423,8 @@ export function OtpVerifiedAddUserModal({
 
   const selectedRoleId = watch('role_id');
   const companyLogoUrl = watch('companyLogoUrl');
-  const isDeveloper = addRoles.find((r) => r.id === selectedRoleId)?.name === 'developer';
+  const selectedRole = addRoles.find((r) => r.id === selectedRoleId);
+  const isDeveloper = selectedRole?.name === 'developer';
   const contactReg = register('contact');
   const nameReg = register('name');
   const emailReg = register('email');
@@ -496,7 +509,11 @@ export function OtpVerifiedAddUserModal({
               <SelectTrigger
                 className={`w-full max-w-full ${errors.role_id ? 'border-red-500' : ''}`}
               >
-                <SelectValue placeholder="Choose a role..." />
+                <SelectValue placeholder="Choose a role...">
+                  {(value: string) =>
+                    addRoles.find((r) => r.id === value)?.label ?? selectedRole?.label ?? ''
+                  }
+                </SelectValue>
               </SelectTrigger>
               <SelectContent
                 align="start"
@@ -509,7 +526,7 @@ export function OtpVerifiedAddUserModal({
                   <div className="px-2 py-2 text-xs text-muted-foreground">Loading roles…</div>
                 ) : (
                   addRoles.map((role) => (
-                    <SelectItem key={role.id} value={role.id}>
+                    <SelectItem key={role.id} value={role.id} label={role.label}>
                       {role.label}
                     </SelectItem>
                   ))

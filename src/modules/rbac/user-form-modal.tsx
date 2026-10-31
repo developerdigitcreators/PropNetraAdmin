@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -32,6 +32,8 @@ import {
   LOCKED_EMAIL_NOTE,
   PROJECT_PREFIX_HINT,
 } from '@/modules/app-users/company-logo-field';
+import { resolveProjectPrefixError } from '@/lib/project-prefix-error';
+import { apiErrorInfo } from '@/services/password-reset.service';
 
 interface UserFormModalProps {
   open: boolean;
@@ -74,11 +76,24 @@ function digitsOnly(value: string, max = 10) {
 }
 
 function apiFieldError(err: unknown): { field?: string; message: string } {
-  const data = (err as { response?: { data?: { error?: { field?: string; message?: string } } } })
-    ?.response?.data?.error;
+  const info = apiErrorInfo(err, 'Failed to save user.');
+  const prefix = resolveProjectPrefixError(err, info.message);
+  const fieldRaw = info.field;
+  const fieldKey = String(fieldRaw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  const field =
+    fieldKey === 'projectprefix' || fieldKey === 'project_prefix'
+      ? 'projectPrefix'
+      : fieldKey === 'companyname' || fieldKey === 'company_name'
+        ? 'companyName'
+        : fieldKey === 'companylogourl' || fieldKey === 'company_logo_url'
+          ? 'companyLogoUrl'
+          : fieldRaw || undefined;
   return {
-    field: data?.field || undefined,
-    message: data?.message || 'Failed to save user.',
+    field,
+    message: prefix.isPrefixConflict ? prefix.message : info.message,
   };
 }
 
@@ -154,8 +169,10 @@ export function UserFormModal({
       dev.projectPrefix !== devBaseline.projectPrefix ||
       dev.companyLogoUrl !== devBaseline.companyLogoUrl);
 
+  const submitUserRef = useRef<() => Promise<void>>(async () => {});
   const { requestClose, dialog: unsavedDialog } = useDialogUnsavedGuard(
     open && (isDirty || devDirty),
+    { onSave: () => submitUserRef.current() },
   );
 
   const handleOpenChange = async (next: boolean) => {
@@ -256,6 +273,21 @@ export function UserFormModal({
       }
     }
   };
+
+  submitUserRef.current = () =>
+    new Promise<void>((resolve, reject) => {
+      handleSubmit(
+        async (data) => {
+          try {
+            await onSubmit(data);
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        },
+        () => reject(new Error('validation')),
+      )();
+    });
 
   return (
     <>

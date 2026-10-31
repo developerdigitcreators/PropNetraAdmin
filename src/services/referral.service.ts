@@ -1,11 +1,26 @@
 import { axiosClient } from '@/lib/axios-client';
 
+export type ReferralBenefitBanner = {
+  mediaUrl: string | null;
+  isActive: boolean;
+};
+
+export type ReferralBenefitBannerPayload = {
+  benefitBanner: ReferralBenefitBanner;
+  benefitPageBanner?: {
+    placement?: string;
+    items?: Array<Record<string, unknown>>;
+    [key: string]: unknown;
+  };
+};
+
 export type ReferralSettings = {
   id: string;
   enabled: boolean;
   coinsPerRupee: string | number;
   shareMessageTemplate: string | null;
   importantInfo: Array<{ title: string; body: string }> | null;
+  benefitBanner?: ReferralBenefitBanner | null;
   freeMilestoneWindowDays: number;
   freeStandardGraceDays?: number;
   freeStandardMonthsPerReferral: number;
@@ -179,14 +194,89 @@ function unwrap<T>(response: { data?: { data?: T; success?: boolean } | T }): T 
 }
 
 export function referralApiError(err: unknown, fallback: string) {
-  const e = err as { response?: { data?: { error?: { message?: string }; message?: string } } };
-  return e?.response?.data?.error?.message || e?.response?.data?.message || fallback;
+  const e = err as {
+    response?: {
+      data?: {
+        error?: { message?: string };
+        message?: string | string[];
+      };
+    };
+  };
+  const msg = e?.response?.data?.message;
+  if (Array.isArray(msg)) return msg.filter(Boolean).join(', ') || fallback;
+  return e?.response?.data?.error?.message || (typeof msg === 'string' ? msg : '') || fallback;
+}
+
+function normalizeBenefitBanner(raw: unknown): ReferralBenefitBanner {
+  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const url =
+    typeof o.mediaUrl === 'string' && o.mediaUrl.trim()
+      ? o.mediaUrl.trim()
+      : typeof o.imageUrl === 'string' && o.imageUrl.trim()
+        ? o.imageUrl.trim()
+        : null;
+  return {
+    mediaUrl: url,
+    isActive: o.isActive !== false,
+  };
+}
+
+function parseBenefitBannerPayload(body: unknown): ReferralBenefitBannerPayload {
+  let root = body;
+  if (root && typeof root === 'object' && 'data' in root) {
+    const nested = (root as { data?: unknown }).data;
+    if (nested !== undefined) root = nested;
+  }
+  const r = root && typeof root === 'object' ? (root as Record<string, unknown>) : {};
+  const benefitBanner = normalizeBenefitBanner(
+    r.benefitBanner ?? (r.mediaUrl !== undefined || r.isActive !== undefined ? r : null),
+  );
+  const benefitPageBanner =
+    r.benefitPageBanner && typeof r.benefitPageBanner === 'object'
+      ? (r.benefitPageBanner as ReferralBenefitBannerPayload['benefitPageBanner'])
+      : undefined;
+  return { benefitBanner, benefitPageBanner };
 }
 
 export const referralService = {
   async getSettings() {
     const response = await axiosClient.get('/admin/referral/settings');
-    return unwrap<ReferralSettings>(response);
+    const settings = unwrap<ReferralSettings>(response);
+    if (settings.benefitBanner) {
+      settings.benefitBanner = normalizeBenefitBanner(settings.benefitBanner);
+    }
+    return settings;
+  },
+
+  async getBenefitBanner(): Promise<ReferralBenefitBannerPayload> {
+    const response = await axiosClient.get('/admin/referral/benefit-banner');
+    return parseBenefitBannerPayload(response.data);
+  },
+
+  async uploadBenefitBanner(file: File): Promise<ReferralBenefitBannerPayload> {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await axiosClient.post('/admin/referral/benefit-banner', form, {
+      headers: { 'Content-Type': undefined as unknown as string },
+      transformRequest: [
+        (data, headers) => {
+          if (headers && typeof headers === 'object') {
+            delete (headers as Record<string, unknown>)['Content-Type'];
+          }
+          return data;
+        },
+      ],
+      timeout: 60000,
+    });
+    return parseBenefitBannerPayload(response.data);
+  },
+
+  async updateBenefitBanner(payload: {
+    mediaUrl?: null;
+    isActive?: boolean;
+  }): Promise<ReferralBenefitBannerPayload> {
+    const response = await axiosClient.put('/admin/referral/benefit-banner', payload);
+    return parseBenefitBannerPayload(response.data);
   },
 
   async updateSettings(payload: {

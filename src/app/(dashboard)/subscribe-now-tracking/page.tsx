@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuthStore } from "@/store/use-auth-store";
 import { formatDisplayDateTime } from "@/lib/format-date";
@@ -41,6 +41,15 @@ import {
   type TrackingFilterCounts,
   type OnOffCounts,
 } from "@/services/subscription-tracking.service";
+import {
+  SUBSCRIPTION_TRACKING_PLANS_BY_ROLE,
+  resolvePlanChip,
+  resolveSubscriptionTrackingPlanChip,
+  resolveSubscriptionTrackingPlanCode,
+  subscriptionTrackingPlanLabel,
+  type PlanChip,
+} from "@/lib/plan-labels";
+import { Badge } from "@/components/ui/badge";
 import { useDialogUnsavedGuard } from "@/hooks/use-unsaved-changes-guard";
 import { ExternalLink, Eye, Loader2, MessageSquarePlus, X } from "lucide-react";
 import {
@@ -72,7 +81,12 @@ function ContactCell({
 type MainTab =
   "users" | "change-plan" | "payments" | "converted" | "upcoming-renewals";
 
-type CountedOption = { value: string; label: string; count?: number };
+type CountedOption = {
+  value: string;
+  label: string;
+  count?: number;
+  chip?: PlanChip | null;
+};
 
 /** User Detail "Filter" dropdown → list query params. */
 const USER_STATUS_OPTIONS = [
@@ -80,12 +94,6 @@ const USER_STATUS_OPTIONS = [
   { value: "declined", label: "Declined", countKey: "declined" },
   { value: "autopay_on", label: "Autopay on", countKey: "autopayOn" },
   { value: "autopay_off", label: "Autopay off", countKey: "autopayOff" },
-] as const;
-
-const BADGE_OPTIONS = [
-  { value: "network", label: "Network Partner", countKey: "network_partner" },
-  { value: "pro", label: "Pro Partner", countKey: "pro_partner" },
-  { value: "elite", label: "Elite Partner", countKey: "elite_partner" },
 ] as const;
 
 function userStatusParams(status: string) {
@@ -111,6 +119,19 @@ function withRemarkAuthors(
 }
 
 function countedText(o: CountedOption) {
+  if (o.chip) {
+    const suffix = o.count === undefined ? "" : ` (${o.count})`;
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <Badge variant="outline" className={cn("h-5", o.chip.className)}>
+          {o.chip.label}
+        </Badge>
+        {suffix ? (
+          <span className="text-xs text-gray-600">{suffix}</span>
+        ) : null}
+      </span>
+    );
+  }
   return o.count === undefined ? o.label : `${o.label} (${o.count})`;
 }
 
@@ -173,7 +194,6 @@ const TRACKING_FILTER_DEFAULTS = {
   appliedFor: "",
   remarkBy: "",
   callStatus: "",
-  badge: "",
   payStatus: "success",
   payOverview: "",
   payKind: "",
@@ -185,6 +205,8 @@ const TRACKING_FILTER_DEFAULTS = {
   pTxnTo: "",
   pStartFrom: "",
   pStartTo: "",
+  pEndFrom: "",
+  pEndTo: "",
   uq: "",
   uAutopay: "",
   uPlanCode: "",
@@ -204,6 +226,8 @@ const TRACKING_FILTER_DEFAULTS = {
   cTxnTo: "",
   cStartFrom: "",
   cStartTo: "",
+  cEndFrom: "",
+  cEndTo: "",
   vq: "",
   vPlanCode: "",
   vRole: "",
@@ -214,10 +238,41 @@ const TRACKING_FILTER_DEFAULTS = {
   vTxnTo: "",
   vStartFrom: "",
   vStartTo: "",
+  vEndFrom: "",
+  vEndTo: "",
 };
 
 function formatDateTime(value?: string | null) {
   return formatDisplayDateTime(value);
+}
+
+function SubscriptionPlanBadge({ planCode }: { planCode?: string | null }) {
+  const chip =
+    resolveSubscriptionTrackingPlanChip(planCode) ??
+    resolvePlanChip(null, planCode);
+  if (!chip) {
+    return <span className="text-xs text-gray-400">—</span>;
+  }
+  return (
+    <Badge variant="outline" className={chip.className}>
+      {chip.label}
+    </Badge>
+  );
+}
+
+function planFilterChip(planCode: string): PlanChip | null {
+  return (
+    resolveSubscriptionTrackingPlanChip(planCode) ?? resolvePlanChip(null, planCode)
+  );
+}
+
+function subscriptionPlanLabel(
+  planCode?: string | null,
+  currentPlan?: string | null,
+) {
+  const code = resolveSubscriptionTrackingPlanCode(planCode, currentPlan);
+  if (!code) return "—";
+  return subscriptionTrackingPlanLabel(code) || labelize(code);
 }
 
 function labelize(value?: string | null) {
@@ -278,27 +333,6 @@ function AppliedForUnderName({ af }: { af?: TrackingUserRow["appliedFor"] }) {
   );
 }
 
-const PLANS_BY_ROLE: Record<string, { code: string; label: string }[]> = {
-  agent: [
-    { code: "FREE_TRIAL", label: "Free Trial" },
-    { code: "FREE_LIFETIME", label: "Free Lifetime" },
-    { code: "NETWORK_PAID", label: "Network Paid" },
-    { code: "PRO", label: "Pro" },
-    { code: "ELITE", label: "Elite" },
-  ],
-  direct_builder: [
-    { code: "DBF_FREE", label: "Dbf Free" },
-    { code: "DBF_PAID", label: "Dbf Paid" },
-  ],
-  developer: [
-    { code: "DEVELOPER_FREE", label: "Developer Free" },
-    { code: "DEVELOPER_MONTHLY", label: "Developer Monthly" },
-    { code: "DEVELOPER_QUARTERLY", label: "Developer Quarterly" },
-    { code: "DEVELOPER_HALF_YEARLY", label: "Developer Half Yearly" },
-    { code: "DEVELOPER_PAID", label: "Developer Paid" },
-  ],
-};
-
 function profileHref(userId: string) {
   return `/user-analytics?userId=${encodeURIComponent(userId)}`;
 }
@@ -327,6 +361,7 @@ function paymentToQueueRow(row: TrackingPaymentRow): ChangePlanRow {
     currentPlan: row.currentPlan || row.planCode,
     planCode: row.planCode || row.currentPlan,
     planStartedAt: row.planStartedAt,
+    currentPeriodEnd: row.currentPeriodEnd,
     action: row.action,
     appliedFor: row.appliedFor,
     transactionAmount: row.transactionAmount,
@@ -432,7 +467,6 @@ function SubscriptionTrackingPageInner() {
   const usersCallStatus = filters.callStatus;
   const changeCallStatus = filters.cCallStatus;
   const convertedCallStatus = filters.vCallStatus;
-  const badgeFilter = filters.badge;
   const payKind = filters.payKind || "";
   const payRole = filters.pRole;
   const payPlanCode = filters.pPlanCode;
@@ -465,6 +499,8 @@ function SubscriptionTrackingPageInner() {
   const payTxnTo = filters.pTxnTo;
   const payStartFrom = filters.pStartFrom;
   const payStartTo = filters.pStartTo;
+  const payEndFrom = filters.pEndFrom;
+  const payEndTo = filters.pEndTo;
   const upcomingStartFrom = filters.uStartFrom;
   const upcomingStartTo = filters.uStartTo;
   const upcomingEndFrom = filters.uEndFrom;
@@ -473,10 +509,14 @@ function SubscriptionTrackingPageInner() {
   const changeTxnTo = filters.cTxnTo;
   const changeStartFrom = filters.cStartFrom;
   const changeStartTo = filters.cStartTo;
+  const changeEndFrom = filters.cEndFrom;
+  const changeEndTo = filters.cEndTo;
   const convertedTxnFrom = filters.vTxnFrom;
   const convertedTxnTo = filters.vTxnTo;
   const convertedStartFrom = filters.vStartFrom;
   const convertedStartTo = filters.vStartTo;
+  const convertedEndFrom = filters.vEndFrom;
+  const convertedEndTo = filters.vEndTo;
 
   // User Detail
   const [users, setUsers] = useState<TrackingUserRow[]>([]);
@@ -557,8 +597,11 @@ function SubscriptionTrackingPageInner() {
     null,
   );
   const [attemptsFor, setAttemptsFor] = useState<ChangePlanRow | null>(null);
+  const submitRemarkRef = useRef<() => Promise<void>>(async () => {});
   const { requestClose: requestRemarkClose, dialog: remarkUnsavedDialog } =
-    useDialogUnsavedGuard(Boolean(remarkFor) && remarkText.trim().length > 0);
+    useDialogUnsavedGuard(Boolean(remarkFor) && remarkText.trim().length > 0, {
+      onSave: () => submitRemarkRef.current(),
+    });
 
   const closeRemarkDialog = async () => {
     const ok = await requestRemarkClose();
@@ -590,7 +633,6 @@ function SubscriptionTrackingPageInner() {
         appliedFor: appliedForFilter || undefined,
         remarksAddedBy: usersRemarkBy || undefined,
         callStatus: usersCallStatus || undefined,
-        badge: badgeFilter || undefined,
       });
       setUsers(result.items);
       setUsersTotal(result.meta.total);
@@ -618,7 +660,6 @@ function SubscriptionTrackingPageInner() {
     appliedForFilter,
     usersRemarkBy,
     usersCallStatus,
-    badgeFilter,
     usersPage,
     usersLimit,
   ]);
@@ -642,6 +683,8 @@ function SubscriptionTrackingPageInner() {
           txnTo: payTxnTo || undefined,
           startsFrom: payStartFrom || undefined,
           startsTo: payStartTo || undefined,
+          endsFrom: payEndFrom || undefined,
+          endsTo: payEndTo || undefined,
         }),
         subscriptionTrackingService
           .getSuccessPaymentsCounts()
@@ -677,6 +720,8 @@ function SubscriptionTrackingPageInner() {
     payTxnTo,
     payStartFrom,
     payStartTo,
+    payEndFrom,
+    payEndTo,
   ]);
 
   const loadUpcoming = useCallback(async () => {
@@ -753,6 +798,8 @@ function SubscriptionTrackingPageInner() {
         txnTo: changeTxnTo || undefined,
         startsFrom: changeStartFrom || undefined,
         startsTo: changeStartTo || undefined,
+        endsFrom: changeEndFrom || undefined,
+        endsTo: changeEndTo || undefined,
       };
       const [result, counts, facets] = await Promise.all([
         subscriptionTrackingService.listChangePlan({
@@ -814,6 +861,8 @@ function SubscriptionTrackingPageInner() {
     changeTxnTo,
     changeStartFrom,
     changeStartTo,
+    changeEndFrom,
+    changeEndTo,
   ]);
 
   const loadConverted = useCallback(async () => {
@@ -826,6 +875,8 @@ function SubscriptionTrackingPageInner() {
         txnTo: convertedTxnTo || undefined,
         startsFrom: convertedStartFrom || undefined,
         startsTo: convertedStartTo || undefined,
+        endsFrom: convertedEndFrom || undefined,
+        endsTo: convertedEndTo || undefined,
       };
       const [result, counts, facets] = await Promise.all([
         subscriptionTrackingService.listConverted({
@@ -877,6 +928,8 @@ function SubscriptionTrackingPageInner() {
     convertedTxnTo,
     convertedStartFrom,
     convertedStartTo,
+    convertedEndFrom,
+    convertedEndTo,
   ]);
 
   useEffect(() => {
@@ -1026,6 +1079,7 @@ function SubscriptionTrackingPageInner() {
       setRemarkBusy(false);
     }
   };
+  submitRemarkRef.current = submitRemark;
 
   const handleCallStatus = async (
     row: ChangePlanRow,
@@ -1090,7 +1144,6 @@ function SubscriptionTrackingPageInner() {
         appliedFor: "",
         remarkBy: "",
         callStatus: "",
-        badge: "",
       });
       setUsersPage(1);
     } else if (mainTab === "payments") {
@@ -1107,6 +1160,8 @@ function SubscriptionTrackingPageInner() {
         pTxnTo: "",
         pStartFrom: "",
         pStartTo: "",
+        pEndFrom: "",
+        pEndTo: "",
       });
       setPaymentsPage(1);
     } else if (mainTab === "upcoming-renewals") {
@@ -1136,6 +1191,8 @@ function SubscriptionTrackingPageInner() {
         cTxnTo: "",
         cStartFrom: "",
         cStartTo: "",
+        cEndFrom: "",
+        cEndTo: "",
       });
       setChangePage(1);
     } else {
@@ -1151,6 +1208,8 @@ function SubscriptionTrackingPageInner() {
         vTxnTo: "",
         vStartFrom: "",
         vStartTo: "",
+        vEndFrom: "",
+        vEndTo: "",
       });
       setConvertedPage(1);
     }
@@ -1189,11 +1248,8 @@ function SubscriptionTrackingPageInner() {
     onPageReset: () => void;
   }) => {
     const totals = counts?.totals;
-    const rolePlans = role ? PLANS_BY_ROLE[role] || [] : [];
-    const extraPlans = Object.keys(counts?.plans || {})
-      .filter((code) => role && !rolePlans.some((p) => p.code === code))
-      .map((code) => ({ code, label: labelize(code) }));
-    const plans = [...rolePlans, ...extraPlans];
+    const rolePlans = role ? SUBSCRIPTION_TRACKING_PLANS_BY_ROLE[role] || [] : [];
+    const plans = rolePlans;
     return (
       <>
         <div>
@@ -1233,6 +1289,7 @@ function SubscriptionTrackingPageInner() {
                 ...plans.map((plan) => ({
                   value: plan.code,
                   label: plan.label,
+                  chip: planFilterChip(plan.code),
                   count: counts?.plans?.[plan.code] ?? 0,
                 })),
               ]}
@@ -1363,15 +1420,12 @@ function SubscriptionTrackingPageInner() {
           <th className="min-w-[220px] px-4 py-3 font-medium">Name</th>
           <th className="px-4 py-3 font-medium">Contact</th>
           <th className="px-4 py-3 font-medium">Plan</th>
-          <th className="px-4 py-3 font-medium">badge</th>
-          <th className="px-4 py-3 font-medium">Action</th>
+          <th className="px-4 py-3 font-medium">Badge</th>
           <th className="px-4 py-3 font-medium">Applied For</th>
-          <th className="px-4 py-3 font-medium">Expiry</th>
           <th className="px-4 py-3 font-medium">Plan started</th>
-          <th className="px-4 py-3 font-medium">Period end</th>
+          <th className="px-4 py-3 font-medium">Subscription expiry</th>
           <th className="px-4 py-3 font-medium">Autopay</th>
           <th className="px-4 py-3 font-medium">Decline count</th>
-          <th className="px-4 py-3 font-medium">Convert</th>
           <th className="px-4 py-3 font-medium">Call status</th>
           <th className="min-w-[200px] px-4 py-3 font-medium">Remarks</th>
           <th className="px-4 py-3 font-medium">Action</th>
@@ -1387,9 +1441,9 @@ function SubscriptionTrackingPageInner() {
               <p className="whitespace-nowrap font-medium text-gray-900">
                 {row.name || "Unknown"}
               </p>
-              {row.currentPlan || row.planCode ? (
+              {row.planCode || row.currentPlan ? (
                 <p className="text-[11px] font-medium text-gray-600">
-                  {labelize(row.currentPlan || row.planCode)}
+                  {subscriptionPlanLabel(row.planCode, row.currentPlan)}
                 </p>
               ) : null}
               {row.withoutReferral || row.userStatus === "without_referral" ? (
@@ -1403,19 +1457,18 @@ function SubscriptionTrackingPageInner() {
               <ContactCell contact={row.contact} email={row.email} revealKey={`subscribe-now:users:${row.userId}`} />
             </td>
             <td className="px-4 py-3 text-gray-700">
-              {labelize(row.currentPlan || row.planCode)}
+              {subscriptionPlanLabel(row.planCode, row.currentPlan)}
             </td>
-            <td className="px-4 py-3 text-gray-700">{labelize(row.badge)}</td>
-            <td className="px-4 py-3 text-gray-700">{labelize(row.action)}</td>
+            <td className="px-4 py-3">
+              <SubscriptionPlanBadge
+                planCode={resolveSubscriptionTrackingPlanCode(
+                  row.planCode,
+                  row.currentPlan,
+                )}
+              />
+            </td>
             <td className="px-4 py-3 text-gray-700">
               {formatAppliedFor(row.appliedFor)}
-            </td>
-            <td className="px-4 py-3 text-gray-700">
-              {row.expiry?.expired
-                ? "Expired"
-                : row.expiry?.expiring
-                  ? "Expiring"
-                  : "—"}
             </td>
             <td className="px-4 py-3 text-gray-600">
               {formatDateTime(row.planStartedAt)}
@@ -1439,15 +1492,6 @@ function SubscriptionTrackingPageInner() {
             </td>
             <td className="px-4 py-3 text-gray-700">
               {row.openDeclineCount || 0}
-            </td>
-            <td className="px-4 py-3">
-              {row.convertLabel ? (
-                <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800">
-                  {row.convertLabel}
-                </span>
-              ) : (
-                "—"
-              )}
             </td>
             <td className="px-4 py-3 text-gray-700">
               {row.callStatusLabel || row.callStatus ? (
@@ -1540,6 +1584,9 @@ function SubscriptionTrackingPageInner() {
           <th className="px-4 py-4 font-semibold text-gray-700">
             Plan started
           </th>
+          <th className="px-4 py-4 font-semibold text-gray-700">
+            Subscription expiry
+          </th>
           <th className="px-4 py-4 font-semibold text-gray-700">Attempts</th>
           {opts.hideFollowUp ? null : (
             <>
@@ -1596,7 +1643,7 @@ function SubscriptionTrackingPageInner() {
                 </div>
                 {row.currentPlan || row.planCode ? (
                   <p className="text-[11px] font-medium text-gray-600">
-                    {labelize(row.currentPlan || row.planCode)}
+                    {subscriptionPlanLabel(row.planCode, row.currentPlan)}
                   </p>
                 ) : null}
                 {row.action ? (
@@ -1631,6 +1678,9 @@ function SubscriptionTrackingPageInner() {
               </td>
               <td className="whitespace-nowrap px-4 py-4 text-xs text-gray-600">
                 {formatDateTime(row.planStartedAt)}
+              </td>
+              <td className="whitespace-nowrap px-4 py-4 text-xs text-gray-600">
+                {formatDateTime(row.currentPeriodEnd)}
               </td>
               <td className="px-4 py-4">
                 <Button
@@ -1780,7 +1830,9 @@ function SubscriptionTrackingPageInner() {
           <th className="px-4 py-4 font-semibold text-gray-700">
             Plan started
           </th>
-          <th className="px-4 py-4 font-semibold text-gray-700">Period end</th>
+          <th className="px-4 py-4 font-semibold text-gray-700">
+            Subscription expiry
+          </th>
           <th className="px-4 py-4 font-semibold text-gray-700">Autopay</th>
           <th className="px-4 py-4 font-semibold text-gray-700">Call status</th>
           <th className="px-4 py-4 font-semibold text-gray-700">Remarks</th>
@@ -1830,13 +1882,13 @@ function SubscriptionTrackingPageInner() {
                 <ContactCell contact={row.contact} email={row.email} revealKey={`subscribe-now:payments:${row.ref}`} />
               </td>
               <td className="px-4 py-4 text-gray-700">
-                {labelize(row.planCode)}
+                {subscriptionPlanLabel(row.planCode, row.currentPlan)}
               </td>
               <td className="whitespace-nowrap px-4 py-4 text-xs text-gray-600">
                 {formatDateTime(row.planStartedAt)}
               </td>
               <td className="whitespace-nowrap px-4 py-4 text-xs text-gray-600">
-                {formatDateTime(row.currentPeriodEnd || row.occurredAt)}
+                {formatDateTime(row.currentPeriodEnd)}
               </td>
               <td className="px-4 py-4 text-gray-700">
                 {row.autopayEnabled ? (
@@ -2095,7 +2147,7 @@ function SubscriptionTrackingPageInner() {
                   }}
                 />
                 <DateRangePicker
-                  label="Ends to"
+                  label="Subscription expiry"
                   from={endsFrom}
                   to={endsTo}
                   onChange={(from, to) => {
@@ -2129,7 +2181,11 @@ function SubscriptionTrackingPageInner() {
                   appliedFor: appliedForFilter,
                   counts: filterCounts,
                   onRole: (v) =>
-                    setFilters({ role: v, planCode: "", appliedFor: "" }),
+                    setFilters({
+                      role: v,
+                      planCode: "",
+                      appliedFor: "",
+                    }),
                   onPlan: (v) => setFilters({ planCode: v }),
                   onApplied: (v) => setFilters({ appliedFor: v }),
                   onPageReset: () => setUsersPage(1),
@@ -2151,27 +2207,6 @@ function SubscriptionTrackingPageInner() {
                   },
                   filterCounts,
                 )}
-                <div>
-                  <label className="mb-1 block text-xs text-gray-500">
-                    Badge
-                  </label>
-                  <CountedSelect
-                    value={badgeFilter || "all"}
-                    className="min-w-[170px]"
-                    options={[
-                      { value: "all", label: "All", count: filterCounts?.totals?.badge },
-                      ...BADGE_OPTIONS.map((o) => ({
-                        value: o.value,
-                        label: o.label,
-                        count: filterCounts?.badges?.[o.countKey] ?? 0,
-                      })),
-                    ]}
-                    onValueChange={(v) => {
-                      setFilters({ badge: v === "all" ? "" : v });
-                      setUsersPage(1);
-                    }}
-                  />
-                </div>
                 <Button
                   type="button"
                   size="sm"
@@ -2276,6 +2311,15 @@ function SubscriptionTrackingPageInner() {
                   to={payStartTo}
                   onChange={(from, to) => {
                     setFilters({ pStartFrom: from, pStartTo: to });
+                    setPaymentsPage(1);
+                  }}
+                />
+                <DateRangePicker
+                  label="Subscription expiry"
+                  from={payEndFrom}
+                  to={payEndTo}
+                  onChange={(from, to) => {
+                    setFilters({ pEndFrom: from, pEndTo: to });
                     setPaymentsPage(1);
                   }}
                 />
@@ -2398,6 +2442,15 @@ function SubscriptionTrackingPageInner() {
                     setChangePage(1);
                   }}
                 />
+                <DateRangePicker
+                  label="Subscription expiry"
+                  from={changeEndFrom}
+                  to={changeEndTo}
+                  onChange={(from, to) => {
+                    setFilters({ cEndFrom: from, cEndTo: to });
+                    setChangePage(1);
+                  }}
+                />
                 <Button
                   type="button"
                   size="sm"
@@ -2496,6 +2549,15 @@ function SubscriptionTrackingPageInner() {
                     setConvertedPage(1);
                   }}
                 />
+                <DateRangePicker
+                  label="Subscription expiry"
+                  from={convertedEndFrom}
+                  to={convertedEndTo}
+                  onChange={(from, to) => {
+                    setFilters({ vEndFrom: from, vEndTo: to });
+                    setConvertedPage(1);
+                  }}
+                />
                 <Button
                   type="button"
                   size="sm"
@@ -2582,7 +2644,7 @@ function SubscriptionTrackingPageInner() {
                   }}
                 />
                 <DateRangePicker
-                  label="Expiry"
+                  label="Subscription expiry"
                   from={upcomingEndFrom}
                   to={upcomingEndTo}
                   onChange={(from, to) => {

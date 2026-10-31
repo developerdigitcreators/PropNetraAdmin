@@ -5,9 +5,9 @@ export type LegalSlug = 'terms' | 'privacy';
 export type LegalPage = {
   slug: LegalSlug;
   title: string;
-  body: string;
   isPublished: boolean;
   updatedAt: string | null;
+  sectionCount?: number;
 };
 
 const SLUGS: LegalSlug[] = ['terms', 'privacy'];
@@ -23,6 +23,11 @@ function pickString(...values: unknown[]): string {
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return '';
+}
+
+function asNumber(value: unknown): number | undefined {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : undefined;
 }
 
 function asBool(value: unknown, fallback = false): boolean {
@@ -60,15 +65,16 @@ export function normalizeLegalPage(raw: unknown, fallbackSlug?: LegalSlug): Lega
   if (!row) return null;
   const slug = asSlug(row.slug ?? row.key ?? row.type ?? row.id ?? row.page) ?? fallbackSlug ?? null;
   if (!slug) return null;
+  const sectionCount = asNumber(row.sectionCount ?? row.section_count ?? row.sectionsCount);
   return {
     slug,
     title: pickString(row.title, row.name),
-    body: pickString(row.body, row.html, row.htmlBody, row.html_body, row.content),
     isPublished: asBool(
       row.isPublished ?? row.is_published ?? row.published ?? row.isActive ?? row.is_active,
       false,
     ),
     updatedAt: pickString(row.updatedAt, row.updated_at) || null,
+    ...(sectionCount != null ? { sectionCount } : {}),
   };
 }
 
@@ -76,7 +82,6 @@ export function emptyLegalPage(slug: LegalSlug): LegalPage {
   return {
     slug,
     title: slug === 'terms' ? 'Terms & Conditions' : 'Privacy Policy',
-    body: '',
     isPublished: false,
     updatedAt: null,
   };
@@ -125,13 +130,27 @@ export const legalPagesService = {
 
   async update(
     slug: LegalSlug,
-    payload: { title: string; body: string; isPublished: boolean },
+    payload: { title?: string; isPublished?: boolean },
   ): Promise<LegalPage> {
-    const response = await axiosClient.put(`/admin/legal/${slug}`, {
-      title: payload.title,
-      body: payload.body,
-      isPublished: payload.isPublished,
-    });
-    return normalizeLegalPage(response.data, slug) ?? { ...emptyLegalPage(slug), ...payload };
+    const response = await axiosClient.put(`/admin/legal/${slug}`, payload);
+    return (
+      normalizeLegalPage(response.data, slug) ?? {
+        ...emptyLegalPage(slug),
+        ...payload,
+        title: payload.title ?? emptyLegalPage(slug).title,
+        isPublished: payload.isPublished ?? false,
+      }
+    );
   },
 };
+
+export function htmlToPlainPreview(html: string, max = 120): string {
+  if (!html?.trim()) return '—';
+  const text = html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return '—';
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}

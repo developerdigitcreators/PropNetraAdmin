@@ -279,10 +279,13 @@ export function MyListingsPanel() {
   >([]);
   const [remarkText, setRemarkText] = useState("");
   const [remarksLoading, setRemarksLoading] = useState(false);
+  const submitRemarkRef = useRef<() => Promise<void>>(async () => {});
   const {
     requestClose: requestRemarksClose,
     dialog: remarksUnsavedDialog,
-  } = useDialogUnsavedGuard(remarkText.trim().length > 0);
+  } = useDialogUnsavedGuard(remarkText.trim().length > 0, {
+    onSave: () => submitRemarkRef.current(),
+  });
   const [interestOpen, setInterestOpen] = useState(false);
   const interestDismissLock = useRef(false);
   const [interestListing, setInterestListing] = useState<MyListingItem | null>(
@@ -473,7 +476,13 @@ export function MyListingsPanel() {
     if (!listingDetail) return [];
     return getListingDetailRows({
       id: listingDetail.id,
-      form: listingDetail.form,
+      form: {
+        dynamicData: {
+          ...(listingDetail.dynamicData || {}),
+          ...(listingDetail.form?.dynamicData || {}),
+        },
+      },
+      dynamicData: listingDetail.dynamicData,
       building_type: listingDetail.buildingType,
       property_type: listingDetail.propertyType,
     } as ListingReviewItem);
@@ -496,6 +505,7 @@ export function MyListingsPanel() {
       setActionId(null);
     }
   };
+  submitRemarkRef.current = submitRemark;
 
   const toggleActive = async (item: MyListingItem) => {
     setActionId(item.id);

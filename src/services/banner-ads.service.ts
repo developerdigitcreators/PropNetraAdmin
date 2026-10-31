@@ -130,10 +130,17 @@ export const DEFAULT_PLACEMENTS: AdPlacementOption[] = [
   { key: 'direct_builder_floor', label: 'Direct Builder floor' },
   { key: 'upgrade', label: 'Upgrade / Unlock Plan' },
   { key: 'contact_reveal_popup', label: 'Contact Reveal Popup' },
+  { key: 'developer_contact_reveal_popup', label: 'Developer contact reveal popup' },
 ];
 
 /** Placements that only allow the Top Banner section. */
-const TOP_ONLY_PLACEMENTS = new Set(['property_listing_form', 'contact_reveal_popup']);
+const TOP_ONLY_PLACEMENTS = new Set([
+  'property_listing_form',
+  'contact_reveal_popup',
+  'developer_contact_reveal_popup',
+]);
+
+export const DEVELOPER_CONTACT_REVEAL_POPUP_PLACEMENT = 'developer_contact_reveal_popup';
 
 export const isTopOnlyPlacement = (placement?: string | null) =>
   !!placement && TOP_ONLY_PLACEMENTS.has(placement);
@@ -144,13 +151,8 @@ export const SUBSCRIPTION_PLAN_BANNER_PLACEMENT = 'upgrade';
 /** Listing form creatives use this page key. Only the Top Banner section applies. */
 export const LISTING_FORM_BANNER_PLACEMENT = 'property_listing_form';
 
-/** Coming Soon popup ads are managed from Developer Home, not Banner Ads. */
+/** Hide from Banner Ads page dropdown (legacy / other surfaces). */
 export const COMING_SOON_POPUP_PLACEMENT = 'coming_soon_popup';
-
-export function comingSoonPopupAdsHref(stateId: string, cityId: string) {
-  const q = new URLSearchParams({ stateId, cityId });
-  return `/coming-soon-popup-ads?${q.toString()}`;
-}
 
 const HIDDEN_BANNER_ADS_PAGE_PLACEMENTS = new Set([
   SUBSCRIPTION_PLAN_BANNER_PLACEMENT,

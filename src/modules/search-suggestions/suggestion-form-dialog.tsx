@@ -112,7 +112,9 @@ export function SuggestionFormDialog({
     open &&
     baselineRef.current !== '' &&
     JSON.stringify({ listingId, isActive }) !== baselineRef.current;
-  const { requestClose, dialog } = useDialogUnsavedGuard(dirty);
+  const { requestClose, dialog } = useDialogUnsavedGuard(dirty, {
+    onSave: () => handleSubmit(),
+  });
 
   const handleOpenChange = async (next: boolean) => {
     if (submitting) return;
